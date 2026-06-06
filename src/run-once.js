@@ -1,0 +1,248 @@
+import { config, ensureProjectDirs } from "./config.js";
+import { generateFullItem } from "./pipeline.js";
+import { absolutizeGeneratedUrls, publicBaseUrl, remoteEnabled, uploadGeneratedStateAndAssets } from "./remote.js";
+import { listContextItems, mergeMemoryItems, saveItem } from "./storage.js";
+import { publishToYoutube } from "./youtube-publisher.js";
+
+function argValue(name, fallback = "") {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] || fallback : fallback;
+}
+
+function boolValue(value, fallback = false) {
+  if (value === undefined || value === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
+}
+
+ensureProjectDirs();
+
+const input = {
+  topic: argValue("--topic", process.env.YT_TOPIC || ""),
+  category: argValue("--category", process.env.YT_CATEGORY || "random"),
+  ttsProvider: argValue("--tts-provider", process.env.YT_TTS_PROVIDER || "openai"),
+  ttsVoice: argValue("--tts-voice", process.env.YT_TTS_VOICE || config.openai.ttsVoice),
+  durationSec: Number(argValue("--duration", process.env.YT_DURATION_SEC || String(config.automation.durationSec))),
+  sceneCount: Number(argValue("--scenes", process.env.YT_SCENE_COUNT || String(config.automation.sceneCount))),
+  imageQuality: argValue("--image-quality", process.env.IMAGE_QUALITY || config.openai.imageQuality),
+  imageSize: argValue("--image-size", process.env.IMAGE_SIZE || "1536x1024")
+};
+
+const dailyGenerateLimit = config.automation.dailyGenerateLimit;
+
+console.log("YT Longform run started.");
+console.log(`Category=${input.category}, duration=${input.durationSec}, scenes=${input.sceneCount}, ttsVoice=${input.ttsVoice}`);
+
+if (remoteEnabled()) {
+  await importRemoteState();
+}
+
+const isAutomated = process.env.GITHUB_ACTIONS === "true" && process.env.GITHUB_EVENT_NAME === "schedule";
+const force = boolValue(argValue("--force", process.env.YT_FORCE_GENERATE || "false")) || !isAutomated;
+
+if (!force && await dailyGenerationLimitReached()) {
+  console.log(JSON.stringify({
+    status: "skipped",
+    reason: `Batas generate harian tercapai (${dailyGenerateLimit}/hari).`,
+    dateKey: localDayKey(new Date()),
+    dailyGenerateLimit
+  }, null, 2));
+  process.exit(0);
+}
+
+const result = await generateFullItem(input, { voice: input.ttsVoice });
+
+if (remoteEnabled()) {
+  result.item = absolutizeGeneratedUrls(result.item);
+  await mergeMemoryItems([result.item]);
+  await saveItem(result.item);
+  try {
+    await uploadGeneratedStateAndAssets({ item: result.item });
+    console.log("Remote upload complete.");
+    await publishYoutubeIfEnabled(result);
+  } catch (error) {
+    const message = `Remote upload gagal: ${error.message}`;
+    result.warnings.push(message);
+    console.warn(message);
+    if (config.automation.strictRemote) throw error;
+  }
+} else if (config.youtube.enabled) {
+  await publishYoutubeIfEnabled(result);
+}
+
+console.log(JSON.stringify({
+  status: "done",
+  id: result.item.id,
+  title: result.item.title,
+  videoUrl: result.item.assets?.video?.url || "",
+  youtubeUrl: result.item.publish?.youtube?.url || "",
+  warnings: result.warnings
+}, null, 2));
+
+async function publishYoutubeIfEnabled(result) {
+  if (!config.youtube.enabled) return;
+  const item = result.item;
+  try {
+    if (await youtubeDailyLimitReached()) {
+      const message = `Batas upload YouTube harian tercapai (${config.youtube.dailyUploadLimit}/hari).`;
+      result.warnings.push(message);
+      console.warn(message);
+      return;
+    }
+    const published = await publishToYoutube({
+      videoPath: item.assets?.video?.path || "",
+      title: item.title,
+      description: youtubeDescription(item),
+      tags: [item.input?.category, item.input?.topic].filter(Boolean),
+      thumbnailPath: item.assets?.thumbnail?.path || ""
+    });
+    item.publish = {
+      ...(item.publish || {}),
+      youtube: { ...published, publishedAt: new Date().toISOString() }
+    };
+    await saveItem(item);
+    await mergeMemoryItems([item]);
+    if (remoteEnabled()) {
+      try {
+        await uploadGeneratedStateAndAssets({ item });
+      } catch (error) {
+        console.warn(`Remote state setelah publish gagal: ${error.message}`);
+      }
+    }
+    console.log(`YouTube publish complete: ${published.url}`);
+  } catch (error) {
+    const message = `YouTube publish gagal: ${error.message}`;
+    result.warnings.push(message);
+    console.warn(message);
+    item.publish = { ...(item.publish || {}), errors: { ...(item.publish?.errors || {}), youtube: error.message } };
+    await saveItem(item);
+  }
+}
+
+async function dailyGenerationLimitReached() {
+  if (!dailyGenerateLimit) return false;
+  const [items, workflowCount] = await Promise.all([
+    mergeKnownItems(),
+    countSuccessfulWorkflowRunsToday()
+  ]);
+  const today = localDayKey(new Date());
+  const stateCount = items.filter((entry) => {
+    if (!entry?.assets?.video?.url && entry?.status !== "rendered" && !entry?.videoUrl) return false;
+    const generatedAt = entry.createdAt || entry.updatedAt;
+    return generatedAt && localDayKey(new Date(generatedAt)) === today;
+  }).length;
+  const count = Math.max(stateCount, workflowCount);
+  if (count >= dailyGenerateLimit) {
+    console.log(`Daily generate limit reached: ${count}/${dailyGenerateLimit} for ${today} (state=${stateCount}, workflow=${workflowCount}).`);
+  }
+  return count >= dailyGenerateLimit;
+}
+
+async function countSuccessfulWorkflowRunsToday() {
+  const token = process.env.GITHUB_TOKEN || "";
+  const repo = process.env.GITHUB_REPOSITORY || "";
+  const workflow = process.env.YT_WORKFLOW_FILE || config.automation.workflowFile;
+  if (!token || !repo) return 0;
+  try {
+    const url = new URL(`https://api.github.com/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/runs`);
+    url.searchParams.set("per_page", "50");
+    url.searchParams.set("status", "success");
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "yt-longform-runner"
+      },
+      cache: "no-store"
+    });
+    if (!response.ok) return 0;
+    const data = await response.json();
+    const today = localDayKey(new Date());
+    return (data.workflow_runs || []).filter((run) => (
+      run.conclusion === "success"
+      && ["schedule", "workflow_dispatch"].includes(run.event)
+      && localDayKey(new Date(run.created_at)) === today
+    )).length;
+  } catch (error) {
+    console.warn(`Hitung run GitHub harian gagal: ${error.message}`);
+    return 0;
+  }
+}
+
+async function youtubeDailyLimitReached() {
+  const limit = Number(config.youtube.dailyUploadLimit || 0);
+  if (!limit) return false;
+  const items = await mergeKnownItems();
+  const today = localDayKey(new Date());
+  const count = items.filter((entry) => {
+    const publishedAt = entry?.publish?.youtube?.publishedAt;
+    return publishedAt && localDayKey(new Date(publishedAt)) === today;
+  }).length;
+  return count >= limit;
+}
+
+async function mergeKnownItems() {
+  try {
+    const localItems = await listContextItems();
+    return Array.isArray(localItems) ? localItems : [];
+  } catch {
+    return [];
+  }
+}
+
+function localDayKey(date) {
+  if (!(date instanceof Date) || !Number.isFinite(date.getTime())) return "";
+  const timeZone = config.automation.timeZone;
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
+}
+
+async function importRemoteState() {
+  const base = publicBaseUrl();
+  if (!base) return;
+  try {
+    const remoteItems = await fetchRemoteJson(`${base}/state/items.json?v=${Date.now()}`, []);
+    const remoteMemory = await fetchRemoteJson(`${base}/state/memory.json?v=${Date.now()}`, { items: [] });
+    for (const item of remoteItems) {
+      if (item?.id) await saveItem(item);
+    }
+    await mergeMemoryItems([...remoteItems, ...normalizeMemoryPayload(remoteMemory)]);
+  } catch (error) {
+    console.warn(`Remote memory lama tidak bisa digabung: ${error.message}`);
+  }
+}
+
+async function fetchRemoteJson(url, fallback) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) return fallback;
+  return response.json();
+}
+
+function normalizeMemoryPayload(value) {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.items)) return value.items;
+  return [];
+}
+
+function youtubeDescription(item) {
+  const points = (item.plan?.importantPoints || [])
+    .slice(0, 5)
+    .map((point) => `• ${point}`)
+    .join("\n");
+  return [
+    item.plan?.hook || item.title,
+    cleanLine(item.plan?.summary),
+    points ? `Yang dibahas:\n${points}` : "",
+    "Video edukasi panjang tentang fakta menarik, sains, sejarah, dan teknologi.",
+    "#Edukasi #Pengetahuan #FaktaMenarik"
+  ].filter(Boolean).join("\n\n").slice(0, 4900);
+}
+
+function cleanLine(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}

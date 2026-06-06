@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YT Longform — Monitoring</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <div>
+        <h1>YT Longform Studio</h1>
+        <p class="sub">Monitoring video panjang YouTube</p>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="refreshBtn" class="btn">Muat ulang</button>
+      <span id="updatedAt" class="muted"></span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="stats" id="stats"></section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Daftar Video</h2>
+        <input id="search" class="search" type="search" placeholder="Cari judul / topik..." />
+      </div>
+      <div id="list" class="list"></div>
+      <div id="empty" class="empty hidden">Belum ada data. Pastikan state sudah terupload ke server.</div>
+    </section>
+  </main>
+
+  <div id="detail" class="drawer hidden">
+    <div class="drawer-inner">
+      <button id="closeDetail" class="close">✕</button>
+      <div id="detailBody"></div>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

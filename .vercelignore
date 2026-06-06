@@ -1,0 +1,12 @@
+.env
+.env.*
+*.env
+node_modules
+generated
+data
+src
+scripts
+assets
+app
+.github
+*.log
