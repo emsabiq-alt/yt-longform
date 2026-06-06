@@ -620,7 +620,8 @@ class YTStudioApp(ctk.CTk):
             self.items = items
             self.after(0, self._render_all)
         except Exception as exc:  # noqa: BLE001
-            self.after(0, lambda: self.status_lbl.configure(text=f"Gagal: {exc}"))
+            err = str(exc)
+            self.after(0, lambda m=err: self.status_lbl.configure(text=f"Gagal: {m}"))
 
     def _render_all(self):
         self._render_stats()
