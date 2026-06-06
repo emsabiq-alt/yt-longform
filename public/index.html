@@ -1,69 +1,97 @@
-doctypeutf, viewport-fit=cover" />
-  <meta name="theme-color" content="#a0e14·Ctrol Center</tle>
-  <link rel="icn" hef="data:mage/svg+xml,%3Csvg xmls='http://www.w3.or2000/svg' viewBox='0 0 64 64'%3E%3Crect widh='64' hegh='64' rx='14' fil='%230a014'/%3E%3Cpath d='M24 20l20 12-20 12z' fill='%23f5c84c'/%3E%3C/svg%3E" //div class="aurora" aria-idden="true"></div>
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0e14" />
+  <title>YT Longform Control Center</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a0e14'/%3E%3Cpath d='M24 20l20 12-20 12z' fill='%23f5c84c'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="aurora" aria-hidden="true"></div>
 
   <!-- Login -->
-  <sction id="uthOvlay"auth acive">
-    <frm id="uthFom class="auth-card"  auth-  lgo▶    p class="kicker">Private Access</p>
-          <  sanmtedCol Cetersan  >
+  <section id="authOverlay" class="auth active">
+    <form id="authForm" class="auth-card">
+      <div class="auth-brand">
+        <span class="logo">&#9654;</span>
+        <div>
+          <p class="kicker">Private Access</p>
+          <h1>YT Longform</h1>
+          <span class="muted">Control Center video panjang YouTube</span>
+        </div>
       </div>
       <label class="field">
         <span>Dashboard PIN</span>
         <input id="authPin" type="password" inputmode="numeric" autocomplete="current-password" required placeholder="Masukkan PIN" />
       </label>
       <button class="btn primary" type="submit">Masuk</button>
-      <p id="authError" class="form-error"</p>form>
+      <p id="authError" class="form-error"></p>
+    </form>
   </section>
 
   <!-- App -->
-  <main i="app" class="shell hdden">
+  <main id="app" class="shell hidden">
     <aside class="sidebar">
-      <di class="side-brand"><span class="logo">▶</span><bYT Longform</b></div>  nav class="side-nav">
-        <button class="nav-item active" ata-vew="overiew">📊 Ringkasan</button>
-        <buttonnv-item" data-view="reate">✨ Bua Vde</butto>
-        <button clas="nav-item" data-view=library">🎬 Pustaka</button>
-        <button class="nav-item" data-view="queue">📋 Antrian</button>
-        <button class="nav-item" data-view="runs">⚙️ Proses</button>
-        <button class="nav-item" data-view="health"🩺 Diagnostik</button>/nav>
+      <div class="side-brand"><span class="logo">&#9654;</span><b>YT Longform</b></div>
+      <nav class="side-nav">
+        <button class="nav-item active" data-view="overview">Ringkasan</button>
+        <button class="nav-item" data-view="create">Buat Video</button>
+        <button class="nav-item" data-view="library">Pustaka</button>
+        <button class="nav-item" data-view="queue">Antrian</button>
+        <button class="nav-item" data-view="runs">Proses</button>
+        <button class="nav-item" data-view="health">Diagnostik</button>
+      </nav>
       <div class="side-foot">
-        < ghost tiny⟳ Refresh</button>
-        <btonid="logotBtn" css="bt host tiny">Keluar    <spanid="clock"class="clock">--:--/an>
+        <button id="refreshBtn" class="btn ghost tiny">Refresh</button>
+        <button id="logoutBtn" class="btn ghost tiny">Keluar</button>
+        <span id="clock" class="clock">--:--</span>
       </div>
     </aside>
 
-    <div clss="cotent">
-     <header class="topbar">
-        <dv>
-          <p class="kicker" iviewKicker">Ringkasan</>
-          <h2 i="viewTitle">Operional Ovrview</h2>
-        </iv>
-        <div class="topbar-righ">
-          <span id="configLine"muted>Meuat konfigrasi…</span>
-          <span id="liveDo" class="liv-ot" title="status●        >
+    <div class="content">
+      <header class="topbar">
+        <div>
+          <p class="kicker" id="viewKicker">Ringkasan</p>
+          <h2 id="viewTitle">Operational Overview</h2>
+        </div>
+        <div class="topbar-right">
+          <span id="configLine" class="muted">Memuat konfigurasi...</span>
+          <span id="liveDot" class="live-dot" title="status">&#9679;</span>
+        </div>
+      </header>
 
-      <div id="toast" class="toast hidden"></div    !-- OVERVIEW -->
+      <div id="toast" class="toast hidden"></div>
+
+      <!-- OVERVIEW -->
       <section class="view active" data-view="overview">
-        <div id="etrics" class="metric-grid"></div>
+        <div id="metrics" class="metric-grid"></div>
         <div class="two-col">
           <div class="panel">
             <div class="panel-head"><h3>Proses Terbaru</h3><span id="runBadge" class="badge idle">Idle</span></div>
-            <div class="progress"><span id="progressBr"></span></dv>
-            <p id="ruDetail""muted>Belum ada workflo berjalan.</p>
-            <div id="unSteps" clss="run-stes></div      /div>
-          <div clas="panl">
-            <div lass="panel-head"><h3>Konsol Live</h3><button id="copyLog" class="btn ghos tny">Cpy</butto></div>
-            <preid="onsoe" clconole">Belum ada ouput.</pre>
+            <div class="progress"><span id="progressBar"></span></div>
+            <p id="runDetail" class="muted">Belum ada workflow berjalan.</p>
+            <div id="runSteps" class="run-steps"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h3>Konsol Live</h3><button id="copyLog" class="btn ghost tiny">Copy</button></div>
+            <pre id="console" class="console">Belum ada output.</pre>
           </div>
         </div>
         <div class="panel">
-          <div clss="panel-head"><h3>Video Terakhir</h3><buton clas=btn ghosttny" ata-goto"library>Lihat emua</buton></div>
-          <div id="recentList" cls="card-grid></div>
-        </div
-        !-- CREATE -->
-      < class="view"data-view="reate">
-        <div c form-panel    ead"><h3>Buat Video Baru</h3></div>
-          <form id="crateForm" clss="grid-form">
-            <label class="fiel span2><span>Topik <small>(kosong = AI memilih)</small</span>      input name="topic" placeolder="cth: Kenapa kapal baja bisa mengapung" /></label>
+          <div class="panel-head"><h3>Video Terakhir</h3><button class="btn ghost tiny" data-goto="library">Lihat semua</button></div>
+          <div id="recentList" class="card-grid"></div>
+        </div>
+      </section>
+
+      <!-- CREATE -->
+      <section class="view" data-view="create">
+        <div class="panel form-panel">
+          <div class="panel-head"><h3>Buat Video Baru</h3></div>
+          <form id="createForm" class="grid-form">
+            <label class="field span2"><span>Topik (kosong = AI memilih)</span>
+              <input name="topic" placeholder="cth: Kenapa kapal baja bisa mengapung" /></label>
             <label class="field"><span>Kategori</span>
               <select name="category">
                 <option value="random">random</option><option>sains</option><option>sejarah</option>
@@ -72,58 +100,75 @@ doctypeutf, viewport-fit=cover" />
             <label class="field"><span>Durasi (detik)</span>
               <select name="durationSec"><option>300</option><option selected>360</option><option>480</option><option>600</option><option>720</option></select></label>
             <label class="field"><span>Jumlah scene</span>
-              <select name="sceneCount"><option>10</option><option>1</option><option selected>14</option><option>16</option><option>18</option></select></label
-            <label clss="ield"><span>TTS provider</span>
-              <selec nme="ttsProvide"><option>openai</option><option>elevenlabs</option></select></label>
-           <label class="field"><span>TTS voice</span>
-              <select name="ttsoce"><option>cear</option><option>ash</option><option>ballad</option><option>shimmr</ption>option>verse<option></select></label>
+              <select name="sceneCount"><option>10</option><option>12</option><option selected>14</option><option>16</option><option>18</option></select></label>
+            <label class="field"><span>TTS provider</span>
+              <select name="ttsProvider"><option>openai</option><option>elevenlabs</option></select></label>
+            <label class="field"><span>TTS voice</span>
+              <select name="ttsVoice"><option>cedar</option><option>ash</option><option>ballad</option><option>shimmer</option><option>verse</option></select></label>
             <label class="field"><span>Kualitas gambar</span>
-              <select name="imageQuality"><option selected>low</option><option>medium</option><option>igh</option></select></label>
-            <label class="field span check"><input type="checkbox" name="force" checked /> <span>Paksa (abaikan batas harian)</span></label    div class="form-actons span2">
-              <butto tye="bton""btnGenerate clas="btn primary">🚀 Generate Skang</button>
-              <button type="button" id="btnQueue" lass="btn gost>+ Tambah ke Antrian</button>
+              <select name="imageQuality"><option selected>low</option><option>medium</option><option>high</option></select></label>
+            <label class="field span2 check"><input type="checkbox" name="force" checked /> <span>Paksa (abaikan batas harian)</span></label>
+            <div class="form-actions span2">
+              <button type="button" id="btnGenerate" class="btn primary">Generate Sekarang</button>
+              <button type="button" id="btnQueue" class="btn ghost">Tambah ke Antrian</button>
             </div>
           </form>
         </div>
-     </setion>
+      </section>
 
       <!-- LIBRARY -->
-      <section cview" data-view="library">
-        <div clas="panl">
-          <div clss="panel-head">
+      <section class="view" data-view="library">
+        <div class="panel">
+          <div class="panel-head">
             <h3>Pustaka Video</h3>
             <div class="head-tools">
-              <input id="libarySearclass="search" …" />
+              <input id="librarySearch" class="search" type="search" placeholder="Cari judul / topik..." />
               <select id="libraryFilter" class="search">
                 <option value="all">Semua status</option><option value="uploaded">Terupload</option>
-                <option value="rendered">Rendered</option><option value="failed>Gagal</option>
+                <option value="rendered">Rendered</option><option value="failed">Gagal</option>
               </select>
-           <div        ibraryGrdcard-grd    libraryEad video.</div>
-        </iv>
+            </div>
+          </div>
+          <div id="libraryGrid" class="card-grid"></div>
+          <div id="libraryEmpty" class="empty hidden">Belum ada video.</div>
+        </div>
       </section>
 
       <!-- QUEUE -->
-      <section clss="view"a-view="queue">
-        <div class="pnel">
-          <divcls="panel-head"><h3>Anran</h3><button clss="btghot tiny" data-goo="crete">+ Imbaru</button></div>
-          <div id="queueLit" class="qeue-list"></iv>
-          <div id="queueEmpty" clss="empty idden">Antriankosong.</div>
+      <section class="view" data-view="queue">
+        <div class="panel">
+          <div class="panel-head"><h3>Antrian</h3><button class="btn ghost tiny" data-goto="create">Item baru</button></div>
+          <div id="queueList" class="queue-list"></div>
+          <div id="queueEmpty" class="empty hidden">Antrian kosong.</div>
         </div>
-      </secion>
+      </section>
 
       <!-- RUNS -->
-      <sction class="view" data-view="ns">
+      <section class="view" data-view="runs">
         <div class="panel">
-          <div class="anel-head"><h3>Riwayat Proses (GitHub Actions)</h3></div>
-          <div id="runsList" class="runs-ist"></div>
+          <div class="panel-head"><h3>Riwayat Proses (GitHub Actions)</h3></div>
+          <div id="runsList" class="runs-list"></div>
         </div>
       </section>
 
       <!-- HEALTH -->
-      <sectin clss="view" ata-view="health">
-       <div class="panel">
-          <div class="panel-head"><h3>Diagnosti Sistm</h3><buttonid="preflightBtn" clas="btn ghost tiny">Jalankan Prflight</button></div>
-          <di id="healthList" class="health-list"><p class="mutd">Klik "Jalankan Peflight"</p></div>
-          >
-    </div
-  <!-- Detail drawer -->rawrrawrdrawer-rawr
+      <section class="view" data-view="health">
+        <div class="panel">
+          <div class="panel-head"><h3>Diagnostik Sistem</h3><button id="preflightBtn" class="btn ghost tiny">Jalankan Preflight</button></div>
+          <div id="healthList" class="health-list"><p class="muted">Klik "Jalankan Preflight".</p></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Detail drawer -->
+  <div id="drawer" class="drawer hidden">
+    <div class="drawer-inner">
+      <button id="closeDrawer" class="drawer-close">&#10005;</button>
+      <div id="drawerBody"></div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
