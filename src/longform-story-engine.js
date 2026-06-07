@@ -4,6 +4,7 @@ import { config, paths } from "./config.js";
 import { estimateTotalCost } from "./cost.js";
 import { requestKnowledgeJson } from "./openai.js";
 import { clamp, cleanText, createId, nowIso } from "./util.js";
+import { pickFreshTopic } from "./topic-engine.js";
 
 const categories = [
   "sains",
@@ -29,7 +30,14 @@ const categories = [
  * @returns {Promise<object>} - Objek item naskah terstruktur
  */
 export async function createLongformDraft(rawInput) {
-  const input = normalizeInput(rawInput);
+  const seed = { ...(rawInput || {}) };
+  if (!cleanText(seed.topic || "", 5)) {
+    const fresh = await pickFreshTopic({ category: seed.category });
+    seed.topic = fresh.topic;
+    if (!seed.category || seed.category === "random") seed.category = fresh.category;
+    console.log(`[Topic Engine] Topik otomatis (${fresh.source}): "${fresh.topic}" [${fresh.category}]`);
+  }
+  const input = normalizeInput(seed);
   const promptText = buildPrompt(input);
   let plan;
   let source = "offline";
@@ -110,8 +118,8 @@ function normalizeInput(input) {
   const sceneCount = clamp(Number(input.sceneCount || Math.round(durationSec / 18)), 10, 28);
 
   return {
-    topic: cleanText(input.topic || "Mengapa Kodak Bangkrut padahal mereka yang menemukan kamera digital pertama", 260),
-    category: cleanText(input.category || "sejarah", 80),
+    topic: cleanText(input.topic || "Fakta menarik yang jarang diketahui orang", 260),
+    category: cleanText(input.category && input.category !== "random" ? input.category : "umum", 80),
     tone: cleanText(input.tone || "narrator, serius tapi menarik, informatif, mendalam, seperti video dokumenter Vox atau Lemmino", 180),
     durationSec,
     sceneCount,
