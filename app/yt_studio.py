@@ -409,12 +409,69 @@ class YTStudioApp(ctk.CTk):
                       fg_color="transparent", hover_color=COLORS["panel"],
                       command=lambda: self.console.delete("1.0", "end")).pack(side="right")
 
+        # Progress panel (live, per tahap)
+        prog_card = Card(view)
+        prog_card.pack(fill="x", pady=(0, 16))
+        phead = ctk.CTkFrame(prog_card, fg_color="transparent")
+        phead.pack(fill="x", padx=18, pady=(14, 6))
+        section_title(phead, "Progres Proses").pack(side="left")
+        self.prog_status = ctk.CTkLabel(phead, text="Menunggu...", font=(FONT, 12),
+                                        text_color=COLORS["muted"])
+        self.prog_status.pack(side="right")
+
+        # Overall bar
+        self.overall_bar = ctk.CTkProgressBar(prog_card, height=14, corner_radius=7,
+                                              progress_color=COLORS["accent"],
+                                              fg_color=COLORS["bg2"])
+        self.overall_bar.set(0)
+        self.overall_bar.pack(fill="x", padx=18, pady=(0, 4))
+        self.overall_lbl = ctk.CTkLabel(prog_card, text="0%  -  idle", font=(FONT, 11),
+                                        text_color=COLORS["muted"])
+        self.overall_lbl.pack(anchor="w", padx=18, pady=(0, 10))
+
+        # Per-stage rows
+        self.stage_rows = {}
+        stages = [("script", "Naskah"), ("images", "Gambar"), ("audio", "Suara TTS"),
+                  ("thumbnail", "Thumbnail"), ("render", "Render Video"),
+                  ("upload", "Upload"), ("publish", "Publish")]
+        srow = ctk.CTkFrame(prog_card, fg_color="transparent")
+        srow.pack(fill="x", padx=18, pady=(0, 14))
+        srow.grid_columnconfigure(1, weight=1)
+        for i, (key, label) in enumerate(stages):
+            dot = ctk.CTkLabel(srow, text="\u25CB", font=(FONT, 14), text_color=COLORS["muted"], width=20)
+            dot.grid(row=i, column=0, sticky="w", pady=2)
+            name = ctk.CTkLabel(srow, text=label, font=(FONT, 12), text_color=COLORS["muted"], anchor="w")
+            name.grid(row=i, column=1, sticky="ew", padx=(4, 8))
+            bar = ctk.CTkProgressBar(srow, height=8, corner_radius=4,
+                                     progress_color=COLORS["blue"], fg_color=COLORS["bg2"], width=180)
+            bar.set(0)
+            bar.grid(row=i, column=2, sticky="e", pady=2)
+            pct = ctk.CTkLabel(srow, text="", font=(FONT, 11), text_color=COLORS["muted"], width=90, anchor="e")
+            pct.grid(row=i, column=3, sticky="e", padx=(8, 0))
+            self.stage_rows[key] = {"dot": dot, "name": name, "bar": bar, "pct": pct, "label": label}
+
+        # Local output (muncul saat render lokal selesai)
+        self.output_bar = ctk.CTkFrame(view, fg_color="transparent")
+        self.output_bar.pack(fill="x", pady=(0, 16))
+        self.output_path_value = None
+        self.btn_open_file = ctk.CTkButton(self.output_bar, text="\u25B6  Putar Video Hasil", height=40,
+                                           corner_radius=10, fg_color=COLORS["accent"],
+                                           hover_color=COLORS["accent_hover"], text_color="#1a1407",
+                                           font=(FONT, 13, "bold"), command=self._open_output_file)
+        self.btn_open_folder = ctk.CTkButton(self.output_bar, text="\U0001F4C1  Buka Folder", height=40,
+                                             corner_radius=10, fg_color=COLORS["panel2"],
+                                             hover_color=COLORS["border"], command=self._open_output_folder)
+
         # Console
         console_card = Card(view)
         console_card.pack(fill="both", expand=True)
-        section_title(console_card, "  Konsol Proses").pack(anchor="w", padx=18, pady=(16, 8))
+        chead = ctk.CTkFrame(console_card, fg_color="transparent")
+        chead.pack(fill="x", padx=18, pady=(16, 6))
+        section_title(chead, "Konsol Proses").pack(side="left")
+        self.spinner_lbl = ctk.CTkLabel(chead, text="", font=("Consolas", 13), text_color=COLORS["accent"])
+        self.spinner_lbl.pack(side="right")
         self.console = ctk.CTkTextbox(console_card, fg_color="#060a10", corner_radius=10,
-                                      font=("Consolas", 12), text_color="#c8d3e0", height=240)
+                                      font=("Consolas", 12), text_color="#c8d3e0", height=220)
         self.console.pack(fill="both", expand=True, padx=18, pady=(0, 16))
         self.console.insert("end", "Siap. Pilih parameter lalu jalankan.\n")
         return view
@@ -740,30 +797,165 @@ class YTStudioApp(ctk.CTk):
                "--topic", p["topic"], "--category", p["category"],
                "--duration", p["durationSec"], "--scenes", p["sceneCount"],
                "--tts-provider", p["ttsProvider"], "--tts-voice", p["ttsVoice"],
-               "--image-quality", p["imageQuality"], "--force", p["force"]]
+               "--image-quality", p["imageQuality"], "--force", p["force"],
+               "--local", "true"]
         self.show_view("create")
+        self._reset_progress("Render lokal (tanpa upload)")
         self._log(f"$ {' '.join(cmd)}")
         self.btn_local.configure(state="disabled", text="Sedang berjalan...")
-        threading.Thread(target=self._run_subprocess, args=(cmd, project_dir), daemon=True).start()
+        self._start_spinner()
+        threading.Thread(target=self._run_subprocess, args=(cmd, project_dir, True), daemon=True).start()
 
-    def _run_subprocess(self, cmd, cwd):
+    def _run_subprocess(self, cmd, cwd, local=False):
+        success = False
         try:
             proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True, bufsize=1,
                                     shell=(os.name == "nt"))
-            for line in proc.stdout:
-                self._log(line.rstrip())
+            for raw in proc.stdout:
+                line = raw.rstrip()
+                if "@@PROGRESS" in line:
+                    self._parse_progress(line)
+                    continue
+                if "@@LOCAL_OUTPUT" in line:
+                    self._parse_local_output(line)
+                    continue
+                self._log(line)
             proc.wait()
+            success = proc.returncode == 0
             self._log(f"--- selesai (exit {proc.returncode}) ---")
         except FileNotFoundError:
             self._log("ERROR: node/npm tidak ditemukan. Cek PATH atau folder proyek.")
         except Exception as exc:  # noqa: BLE001
-            self._log(f"ERROR: {exc}")
+            err = str(exc)
+            self._log(f"ERROR: {err}")
         finally:
+            self.after(0, self._stop_spinner)
             self.after(0, lambda: self.btn_local.configure(
                 state="normal", text="\u25B6  Jalankan Lokal (Node)"))
-            self.after(1500, self.refresh_state)
+            if success and not local:
+                self.after(1500, self.refresh_state)
+            if success:
+                self.after(0, lambda: self._set_status_text("Selesai", COLORS["ok"]))
 
+    # ---------- Progress & output helpers ----------
+    STAGE_KEYS = ["script", "images", "audio", "thumbnail", "render", "upload", "publish"]
+
+    def _reset_progress(self, status="Memproses..."):
+        self.overall_bar.set(0)
+        self.overall_lbl.configure(text="0%  -  mulai")
+        self.prog_status.configure(text=status, text_color=COLORS["accent"])
+        for key, row in self.stage_rows.items():
+            row["bar"].set(0)
+            row["dot"].configure(text="\u25CB", text_color=COLORS["muted"])
+            row["name"].configure(text_color=COLORS["muted"])
+            row["pct"].configure(text="")
+        self.output_path_value = None
+        self.btn_open_file.pack_forget()
+        self.btn_open_folder.pack_forget()
+
+    def _parse_progress(self, line):
+        try:
+            start = line.index("@@PROGRESS") + len("@@PROGRESS")
+            end = line.rindex("@@")
+            data = json.loads(line[start:end].strip())
+        except Exception:  # noqa: BLE001
+            return
+        self.after(0, lambda d=data: self._apply_progress(d))
+
+    def _apply_progress(self, d):
+        stage = d.get("stage")
+        percent = d.get("percent")
+        overall = d.get("overall")
+        detail = d.get("detail", "")
+        label = d.get("label", "")
+        if overall is not None:
+            self.overall_bar.set(max(0, min(100, overall)) / 100)
+            self.overall_lbl.configure(text=f"{overall}%  -  {label}")
+        self.prog_status.configure(text=label or "Memproses...", text_color=COLORS["accent"])
+        if stage in self.stage_rows:
+            # mark previous stages done
+            idx = self.STAGE_KEYS.index(stage) if stage in self.STAGE_KEYS else -1
+            for i, key in enumerate(self.STAGE_KEYS):
+                if key not in self.stage_rows:
+                    continue
+                row = self.stage_rows[key]
+                if idx >= 0 and i < idx:
+                    row["bar"].set(1)
+                    row["dot"].configure(text="\u2714", text_color=COLORS["ok"])
+                    row["pct"].configure(text="100%")
+            row = self.stage_rows[stage]
+            pv = percent if percent is not None else 0
+            row["bar"].set(max(0, min(100, pv)) / 100)
+            row["name"].configure(text_color=COLORS["text"])
+            if pv >= 100:
+                row["dot"].configure(text="\u2714", text_color=COLORS["ok"])
+            else:
+                row["dot"].configure(text="\u25CF", text_color=COLORS["accent"])
+            row["pct"].configure(text=(f"{pv}%" + (f"  {detail}" if detail else "")))
+
+    def _parse_local_output(self, line):
+        try:
+            start = line.index("@@LOCAL_OUTPUT") + len("@@LOCAL_OUTPUT")
+            end = line.rindex("@@")
+            data = json.loads(line[start:end].strip())
+        except Exception:  # noqa: BLE001
+            return
+        path = data.get("path", "")
+        self.after(0, lambda p=path: self._show_output(p))
+
+    def _show_output(self, path):
+        self.output_path_value = path
+        if path:
+            self._log(f"\u2713 Video tersimpan: {path}")
+            self.btn_open_file.pack(side="left", padx=(0, 10))
+            self.btn_open_folder.pack(side="left")
+        for key, row in self.stage_rows.items():
+            if key in ("upload", "publish"):
+                row["pct"].configure(text="dilewati (lokal)")
+
+    def _open_output_file(self):
+        if self.output_path_value and Path(self.output_path_value).exists():
+            try:
+                os.startfile(self.output_path_value)  # noqa: B606 (Windows)
+            except AttributeError:
+                webbrowser.open(f"file://{self.output_path_value}")
+        else:
+            messagebox.showwarning("Tidak ada", "File hasil belum tersedia.")
+
+    def _open_output_folder(self):
+        if self.output_path_value:
+            folder = str(Path(self.output_path_value).parent)
+            try:
+                os.startfile(folder)  # noqa: B606
+            except AttributeError:
+                webbrowser.open(f"file://{folder}")
+
+    def _set_status_text(self, text, color):
+        self.prog_status.configure(text=text, text_color=color)
+
+    def _start_spinner(self):
+        self._spinning = True
+        self._spin_i = 0
+        self._spin_t0 = datetime.now()
+        self._spin()
+
+    def _spin(self):
+        if not getattr(self, "_spinning", False):
+            return
+        frames = "|/-\\"
+        self._spin_i = (self._spin_i + 1) % len(frames)
+        elapsed = int((datetime.now() - self._spin_t0).total_seconds())
+        mm, ss = divmod(elapsed, 60)
+        self.spinner_lbl.configure(text=f"{frames[self._spin_i]}  {mm:02d}:{ss:02d} berjalan")
+        self.after(250, self._spin)
+
+    def _stop_spinner(self):
+        self._spinning = False
+        if hasattr(self, "_spin_t0"):
+            elapsed = int((datetime.now() - self._spin_t0).total_seconds())
+            mm, ss = divmod(elapsed, 60)
+            self.spinner_lbl.configure(text=f"selesai dalam {mm:02d}:{ss:02d}")
     def trigger_github(self):
         token = self.cfg["github"].get("token", "").strip()
         if not token:
@@ -782,7 +974,9 @@ class YTStudioApp(ctk.CTk):
             "scenes": p["sceneCount"], "tts_provider": p["ttsProvider"],
             "tts_voice": p["ttsVoice"], "image_quality": p["imageQuality"], "force": p["force"]}}
         self.show_view("create")
+        self._reset_progress("Trigger cloud (GitHub Action)")
         self._log(f"\u2601 Trigger {workflow} @ {repo}...")
+        self._log("Catatan: proses cloud berjalan di GitHub; progres detail ada di tab Actions GitHub.")
         threading.Thread(target=self._post_github, args=(url, token, payload), daemon=True).start()
 
     def _post_github(self, url, token, payload):

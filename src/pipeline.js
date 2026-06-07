@@ -8,6 +8,7 @@ import { generateThumbnail } from "./thumbnail.js";
 import { saveItem, listContextItems } from "./storage.js";
 import { createLongformDraft } from "./longform-story-engine.js";
 import { nowIso } from "./util.js";
+import { reportProgress } from "./progress.js";
 
 const LANDSCAPE_SIZE = "1536x1024";
 
@@ -20,6 +21,7 @@ const SCENE_TTS_INSTRUCTIONS = [
 
 export async function generateFullItem(input = {}, options = {}) {
   const warnings = [];
+  reportProgress("script", "Menyusun naskah AI", 10, "meminta storyboard");
   const existingItems = await listContextItems();
   const item = await createLongformDraft({
     topic: input.topic || "",
@@ -30,6 +32,7 @@ export async function generateFullItem(input = {}, options = {}) {
     imageQuality: input.imageQuality || config.openai.imageQuality
   }, { existingItems });
   await saveItem(item);
+  reportProgress("script", "Naskah siap", 100, item.title || "");
 
   await ensureImages(item, { warnings, strict: true });
   await ensureLongformSceneAudio(item, {
@@ -39,8 +42,12 @@ export async function generateFullItem(input = {}, options = {}) {
     warnings,
     strict: true
   });
+  reportProgress("thumbnail", "Membuat thumbnail", 20, "");
   await ensureThumbnail(item, { warnings });
+  reportProgress("thumbnail", "Thumbnail siap", 100, "");
+  reportProgress("render", "Merender video (FFmpeg)", 5, "menyusun segmen");
   await renderAndPersist(item);
+  reportProgress("render", "Render selesai", 100, "");
   return { item, warnings };
 }
 
@@ -51,12 +58,18 @@ export async function ensureImages(item, options = {}) {
   const size = item.input.imageSize || LANDSCAPE_SIZE;
   const quality = item.input.imageQuality || config.openai.imageQuality;
 
+  const imageScenes = item.plan.scenes.filter((s) => s.sceneType !== "reaction");
+  let imageDone = 0;
+  reportProgress("images", "Membuat gambar scene", 0, `0/${imageScenes.length}`);
   for (const scene of item.plan.scenes) {
     if (scene.sceneType === "reaction") continue;
     const existing = images.find((image) => Number(image.sceneIndex) === Number(scene.index));
-    if (existing?.path) continue;
+    if (existing?.path) { imageDone += 1; continue; }
     try {
+      reportProgress("images", "Membuat gambar scene", Math.round((imageDone / imageScenes.length) * 100), `scene ${scene.index}`);
       const image = await generateImageWithRetry({ item, scene, size, quality });
+      imageDone += 1;
+      reportProgress("images", "Membuat gambar scene", Math.round((imageDone / imageScenes.length) * 100), `${imageDone}/${imageScenes.length}`);
       const index = images.findIndex((entry) => Number(entry.sceneIndex) === Number(scene.index));
       if (index >= 0) images.splice(index, 1, image);
       else images.push(image);
@@ -84,6 +97,8 @@ export async function ensureLongformSceneAudio(item, options = {}) {
   const scenes = item.plan?.scenes || [];
   const sceneAudio = [];
   let totalChars = 0;
+  let audioDone = 0;
+  reportProgress("audio", "Membuat suara TTS per scene", 0, `0/${scenes.length}`);
 
   for (const scene of scenes) {
     const text = sceneNarrationText(scene);
@@ -92,6 +107,7 @@ export async function ensureLongformSceneAudio(item, options = {}) {
       continue;
     }
 
+    reportProgress("audio", "Membuat suara TTS per scene", Math.round((audioDone / scenes.length) * 100), `scene ${scene.index}`);
     const suffix = `scene-${String(scene.index).padStart(2, "0")}-${provider}-natural`;
     let audio;
     try {
@@ -120,6 +136,8 @@ export async function ensureLongformSceneAudio(item, options = {}) {
     }
 
     totalChars += text.length;
+    audioDone += 1;
+    reportProgress("audio", "Membuat suara TTS per scene", Math.round((audioDone / scenes.length) * 100), `${audioDone}/${scenes.length}`);
     sceneAudio.push({
       sceneIndex: scene.index,
       sceneType: scene.sceneType || "image",

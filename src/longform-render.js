@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { config, paths } from "./config.js";
 import { clamp, safeFilename, splitLines } from "./util.js";
+import { reportProgress } from "./progress.js";
 
 const fps = 30;
 const minLongformDurationSec = 300;
@@ -324,6 +325,7 @@ export async function renderLongformVideo(item) {
     if (scene.sceneType === "reaction") {
       const reactionPath = await selectReactionVideo(`${scene.reactionCue || ""} ${scene.screenText || ""}`);
       if (!reactionPath) throw new Error(`Asset reaction untuk scene ${scene.index} tidak tersedia.`);
+      reportProgress("render", "Merender segmen video", Math.round(5 + (index / renderScenes.length) * 70), `reaction ${index + 1}/${renderScenes.length}`);
       console.log(`Rendering reaction scene ${index + 1}/${renderScenes.length} (${scene.durationSec}s): ${path.basename(reactionPath)}...`);
       await makeReactionSegment({
         reactionPath,
@@ -332,6 +334,7 @@ export async function renderLongformVideo(item) {
       });
     } else {
       const media = resolveSceneMedia(item, scene);
+      reportProgress("render", "Merender segmen video", Math.round(5 + (index / renderScenes.length) * 70), `scene ${index + 1}/${renderScenes.length}`);
       console.log(`Rendering ${scene.sceneType || "image"} scene ${index + 1}/${renderScenes.length} (${scene.durationSec}s)...`);
       if (media.type === "video") {
       await makeVideoSegment({
@@ -407,7 +410,7 @@ export async function renderLongformVideo(item) {
   // Render Part 1 (Category Intro)
   const firstSceneMedia = resolveSceneMedia(item, renderScenes[0]);
   const introPartPath = path.join(workDir, "part-1-intro.mp4");
-  console.log("Rendering Part 1 (Category Intro)...");
+  reportProgress("render", "Merender intro", 80, "");console.log("Rendering Part 1 (Category Intro)...");
   await makeIntroSegment({
     bgPath: firstSceneMedia.path,
     bgType: firstSceneMedia.type,
@@ -420,7 +423,7 @@ export async function renderLongformVideo(item) {
   // Render Part 3 (Category Outro)
   const lastSceneMedia = resolveSceneMedia(item, renderScenes.at(-1));
   const outroRawPath = path.join(workDir, "part-3-outro-raw.mp4");
-  console.log("Rendering Part 3 Outro Visual & Audio...");
+  reportProgress("render", "Merender outro", 86, "");console.log("Rendering Part 3 Outro Visual & Audio...");
   await makeOutroSegment({
     bgPath: lastSceneMedia.path,
     bgType: lastSceneMedia.type,
@@ -436,7 +439,7 @@ export async function renderLongformVideo(item) {
 
   // Transcode Bumper Intro
   const finalBumperIntroPath = path.join(workDir, "part-0-bumper-intro.mp4");
-  console.log("Transcoding Bumper Intro...");
+  reportProgress("render", "Menyiapkan bumper", 90, "");console.log("Transcoding Bumper Intro...");
   await prepareBumper(bumperIntroRaw, finalBumperIntroPath);
 
   // Transcode Bumper Outro
@@ -457,7 +460,7 @@ export async function renderLongformVideo(item) {
   const filename = `${item.id}-${provider}-${safeFilename(item.title)}.mp4`;
   const outputPath = path.join(paths.videoDir, filename);
 
-  console.log("Concatenating all 5 parts into final video...");
+  reportProgress("render", "Menggabungkan video final", 95, "");console.log("Concatenating all 5 parts into final video...");
   await concatSegments(coreParts, outputPath);
 
   return {

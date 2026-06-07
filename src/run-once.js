@@ -38,6 +38,10 @@ if (remoteEnabled()) {
 
 const isAutomated = process.env.GITHUB_ACTIONS === "true" && process.env.GITHUB_EVENT_NAME === "schedule";
 const force = boolValue(argValue("--force", process.env.YT_FORCE_GENERATE || "false")) || !isAutomated;
+const localOnly = boolValue(argValue("--local", process.env.YT_LOCAL_ONLY || "false"));
+if (localOnly) {
+  console.log("Mode LOKAL: render saja, tanpa SFTP & tanpa upload YouTube.");
+}
 
 if (!force && await dailyGenerationLimitReached()) {
   console.log(JSON.stringify({
@@ -50,6 +54,20 @@ if (!force && await dailyGenerationLimitReached()) {
 }
 
 const result = await generateFullItem(input, { voice: input.ttsVoice });
+
+if (localOnly) {
+  const videoPath = result.item.assets?.video?.path || "";
+  console.log("@@LOCAL_OUTPUT " + JSON.stringify({ path: videoPath, title: result.item.title }) + "@@");
+  console.log(JSON.stringify({
+    status: "done-local",
+    id: result.item.id,
+    title: result.item.title,
+    videoPath,
+    note: "File tersimpan lokal. Tidak diupload.",
+    warnings: result.warnings
+  }, null, 2));
+  process.exit(0);
+}
 
 if (remoteEnabled()) {
   result.item = absolutizeGeneratedUrls(result.item);
