@@ -1,4 +1,7 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { config, ensureProjectDirs } from "./config.js";
+import { buildTitle, buildDescription, formatMetaForCopy } from "./youtube-meta.js";
 import { generateFullItem } from "./pipeline.js";
 import { absolutizeGeneratedUrls, publicBaseUrl, remoteEnabled, uploadGeneratedStateAndAssets } from "./remote.js";
 import { listContextItems, mergeMemoryItems, saveItem } from "./storage.js";
@@ -57,7 +60,18 @@ const result = await generateFullItem(input, { voice: input.ttsVoice });
 
 if (localOnly) {
   const videoPath = result.item.assets?.video?.path || "";
-  console.log("@@LOCAL_OUTPUT " + JSON.stringify({ path: videoPath, title: result.item.title }) + "@@");
+  let metaPath = "";
+  try {
+    const metaText = formatMetaForCopy(result.item);
+    if (videoPath) {
+      metaPath = videoPath.replace(/\.[^.]+$/, "") + "-youtube.txt";
+      await fs.writeFile(metaPath, metaText, "utf8");
+    }
+    console.log("\n========== JUDUL & DESKRIPSI YOUTUBE (siap copy) ==========\n");
+    console.log(metaText);
+    if (metaPath) console.log("Tersimpan juga di: " + metaPath);
+  } catch (e) { console.warn("Gagal membuat meta YouTube: " + e.message); }
+  console.log("@@LOCAL_OUTPUT " + JSON.stringify({ path: videoPath, title: result.item.title, metaPath }) + "@@");
   console.log(JSON.stringify({
     status: "done-local",
     id: result.item.id,
@@ -108,8 +122,8 @@ async function publishYoutubeIfEnabled(result) {
     }
     const published = await publishToYoutube({
       videoPath: item.assets?.video?.path || "",
-      title: item.title,
-      description: youtubeDescription(item),
+      title: buildTitle(item),
+      description: buildDescription(item),
       tags: [item.input?.category, item.input?.topic].filter(Boolean),
       thumbnailPath: item.assets?.thumbnail?.path || ""
     });

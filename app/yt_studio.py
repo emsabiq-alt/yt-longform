@@ -260,7 +260,7 @@ class YTStudioApp(ctk.CTk):
             ("create", "\u2728  Buat Video"),
             ("library", "\U0001F3AC  Pustaka"),
             ("settings", "\U0001F511  API & Kredensial"),
-            ("app_settings", "\u2699  Pengaturan App"),
+            ("app_settings", "\u2699  Pengaturan Lokal"),
         ]
         for key, label in nav:
             btn = ctk.CTkButton(
@@ -400,11 +400,6 @@ class YTStudioApp(ctk.CTk):
                                        hover_color=COLORS["accent_hover"], text_color="#1a1407",
                                        font=(FONT, 14, "bold"), command=self.run_local)
         self.btn_local.pack(side="left", padx=(0, 10))
-        self.btn_cloud = ctk.CTkButton(actions, text="\u2601  Trigger GitHub Action", height=44,
-                                       corner_radius=10, fg_color=COLORS["panel2"],
-                                       hover_color=COLORS["border"], font=(FONT, 14),
-                                       command=self.trigger_github)
-        self.btn_cloud.pack(side="left")
         ctk.CTkButton(actions, text="Bersihkan Log", height=44, corner_radius=10,
                       fg_color="transparent", hover_color=COLORS["panel"],
                       command=lambda: self.console.delete("1.0", "end")).pack(side="right")
@@ -461,6 +456,10 @@ class YTStudioApp(ctk.CTk):
         self.btn_open_folder = ctk.CTkButton(self.output_bar, text="\U0001F4C1  Buka Folder", height=40,
                                              corner_radius=10, fg_color=COLORS["panel2"],
                                              hover_color=COLORS["border"], command=self._open_output_folder)
+        self.meta_path_value = None
+        self.btn_open_meta = ctk.CTkButton(self.output_bar, text="\U0001F4DD  Judul & Deskripsi", height=40,
+                                           corner_radius=10, fg_color=COLORS["panel2"],
+                                           hover_color=COLORS["border"], command=self._open_meta_file)
 
         # Console
         console_card = Card(view)
@@ -608,19 +607,15 @@ class YTStudioApp(ctk.CTk):
 
         card = Card(view)
         card.pack(fill="x", pady=(0, 14))
-        section_title(card, "  Koneksi Dashboard & GitHub").pack(anchor="w", padx=18, pady=(14, 8))
+        section_title(card, "  Pengaturan Lokal").pack(anchor="w", padx=18, pady=(14, 8))
         body = ctk.CTkFrame(card, fg_color="transparent")
         body.pack(fill="x", padx=18, pady=(0, 14))
         body.grid_columnconfigure(0, weight=1)
 
         self.app_fields = {}
         rows = [
-            ("stateUrl", "State URL (monitoring)", self.cfg["stateUrl"], False),
-            ("repo", "GitHub repo (owner/name)", self.cfg["github"]["repo"], False),
-            ("workflow", "Workflow file", self.cfg["github"]["workflow"], False),
-            ("ref", "Branch / ref", self.cfg["github"]["ref"], False),
-            ("token", "GitHub token (untuk trigger)", self.cfg["github"]["token"], True),
-            ("projectDir", "Folder proyek Node", self.cfg["local"]["projectDir"], False),
+            ("projectDir", "Folder proyek (lokasi package.json)", self.cfg["local"]["projectDir"], False),
+            ("nodeCommand", "Perintah Node (default: npm)", self.cfg["local"].get("nodeCommand", "npm"), False),
         ]
         for i, (key, label, value, secret) in enumerate(rows):
             ctk.CTkLabel(body, text=label, font=(FONT, 12), text_color=COLORS["muted"]).grid(
@@ -638,19 +633,16 @@ class YTStudioApp(ctk.CTk):
 
         note = Card(view)
         note.pack(fill="x", pady=(14, 0))
-        ctk.CTkLabel(note, text="Token GitHub hanya dipakai untuk men-trigger workflow dari aplikasi. "
-                     "Disimpan lokal di app/config.json dan tidak diunggah ke mana pun.",
+        ctk.CTkLabel(note, text="Aplikasi ini bekerja sepenuhnya lokal: render memakai FFmpeg di komputer ini "
+                     "dan API key dari file .env. Tidak ada koneksi ke SFTP maupun GitHub. "
+                     "Untuk pemantauan online dan otomasi terjadwal, gunakan dashboard-yt.emsa.pro.",
                      font=(FONT, 12), text_color=COLORS["muted"], wraplength=820,
                      justify="left").pack(anchor="w", padx=18, pady=14)
         return view
 
     def save_app_settings(self):
-        self.cfg["stateUrl"] = self.app_fields["stateUrl"].get().strip()
-        self.cfg["github"]["repo"] = self.app_fields["repo"].get().strip()
-        self.cfg["github"]["workflow"] = self.app_fields["workflow"].get().strip()
-        self.cfg["github"]["ref"] = self.app_fields["ref"].get().strip()
-        self.cfg["github"]["token"] = self.app_fields["token"].get().strip()
         self.cfg["local"]["projectDir"] = self.app_fields["projectDir"].get().strip()
+        self.cfg["local"]["nodeCommand"] = self.app_fields["nodeCommand"].get().strip() or "npm"
         try:
             save_config(self.cfg)
             messagebox.showinfo("Tersimpan", "Pengaturan aplikasi disimpan.")
@@ -659,26 +651,24 @@ class YTStudioApp(ctk.CTk):
 
     # ---------- Data ----------
     def refresh_state(self):
-        url = self.cfg.get("stateUrl", "")
-        self.status_lbl.configure(text="Memuat data...")
-        threading.Thread(target=self._fetch_state, args=(url,), daemon=True).start()
+        self.status_lbl.configure(text="Memuat data lokal...")
+        threading.Thread(target=self._load_local_items, daemon=True).start()
 
-    def _fetch_state(self, url):
-        if not url or requests is None:
-            self.after(0, lambda: self.status_lbl.configure(text="State URL belum diatur"))
-            return
+    def _load_local_items(self):
+        project_dir = self.cfg["local"].get("projectDir") or str(PROJECT_DIR)
+        items_file = Path(project_dir) / "data" / "items.json"
         try:
-            resp = requests.get(f"{url}?v={int(datetime.now(timezone.utc).timestamp())}",
-                                headers={"Cache-Control": "no-store"}, timeout=20)
-            resp.raise_for_status()
-            data = resp.json()
-            items = data if isinstance(data, list) else data.get("items", [])
+            if items_file.exists():
+                data = json.loads(items_file.read_text(encoding="utf-8"))
+                items = data if isinstance(data, list) else data.get("items", [])
+            else:
+                items = []
             items.sort(key=lambda it: str(it.get("updatedAt") or it.get("createdAt") or ""), reverse=True)
             self.items = items
             self.after(0, self._render_all)
         except Exception as exc:  # noqa: BLE001
             err = str(exc)
-            self.after(0, lambda m=err: self.status_lbl.configure(text=f"Gagal: {m}"))
+            self.after(0, lambda m=err: self.status_lbl.configure(text=f"Gagal baca data lokal: {m}"))
 
     def _render_all(self):
         self._render_stats()
@@ -853,6 +843,8 @@ class YTStudioApp(ctk.CTk):
         self.output_path_value = None
         self.btn_open_file.pack_forget()
         self.btn_open_folder.pack_forget()
+        if hasattr(self, "btn_open_meta"):
+            self.btn_open_meta.pack_forget()
 
     def _parse_progress(self, line):
         try:
@@ -902,14 +894,19 @@ class YTStudioApp(ctk.CTk):
         except Exception:  # noqa: BLE001
             return
         path = data.get("path", "")
-        self.after(0, lambda p=path: self._show_output(p))
+        meta = data.get("metaPath", "")
+        self.after(0, lambda p=path, m=meta: self._show_output(p, m))
 
-    def _show_output(self, path):
+    def _show_output(self, path, meta_path=""):
         self.output_path_value = path
+        self.meta_path_value = meta_path
         if path:
             self._log(f"\u2713 Video tersimpan: {path}")
             self.btn_open_file.pack(side="left", padx=(0, 10))
             self.btn_open_folder.pack(side="left")
+        if meta_path:
+            self._log(f"\u2713 Judul & deskripsi YouTube: {meta_path}")
+            self.btn_open_meta.pack(side="left", padx=(10, 0))
         for key, row in self.stage_rows.items():
             if key in ("upload", "publish"):
                 row["pct"].configure(text="dilewati (lokal)")
@@ -930,6 +927,15 @@ class YTStudioApp(ctk.CTk):
                 os.startfile(folder)  # noqa: B606
             except AttributeError:
                 webbrowser.open(f"file://{folder}")
+
+    def _open_meta_file(self):
+        if getattr(self, "meta_path_value", None) and Path(self.meta_path_value).exists():
+            try:
+                os.startfile(self.meta_path_value)  # noqa: B606
+            except AttributeError:
+                webbrowser.open(f"file://{self.meta_path_value}")
+        else:
+            messagebox.showinfo("Belum ada", "File judul & deskripsi belum tersedia.")
 
     def _set_status_text(self, text, color):
         self.prog_status.configure(text=text, text_color=color)
@@ -956,41 +962,6 @@ class YTStudioApp(ctk.CTk):
             elapsed = int((datetime.now() - self._spin_t0).total_seconds())
             mm, ss = divmod(elapsed, 60)
             self.spinner_lbl.configure(text=f"selesai dalam {mm:02d}:{ss:02d}")
-    def trigger_github(self):
-        token = self.cfg["github"].get("token", "").strip()
-        if not token:
-            messagebox.showwarning("Token kosong", "Isi GitHub token di 'Pengaturan App' dulu.")
-            self.show_view("app_settings")
-            return
-        if requests is None:
-            messagebox.showerror("Tidak bisa", "Modul requests belum terpasang.")
-            return
-        p = self._params()
-        repo = self.cfg["github"]["repo"]
-        workflow = self.cfg["github"]["workflow"]
-        url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow}/dispatches"
-        payload = {"ref": self.cfg["github"].get("ref", "main"), "inputs": {
-            "topic": p["topic"], "category": p["category"], "duration": p["durationSec"],
-            "scenes": p["sceneCount"], "tts_provider": p["ttsProvider"],
-            "tts_voice": p["ttsVoice"], "image_quality": p["imageQuality"], "force": p["force"]}}
-        self.show_view("create")
-        self._reset_progress("Trigger cloud (GitHub Action)")
-        self._log(f"\u2601 Trigger {workflow} @ {repo}...")
-        self._log("Catatan: proses cloud berjalan di GitHub; progres detail ada di tab Actions GitHub.")
-        threading.Thread(target=self._post_github, args=(url, token, payload), daemon=True).start()
-
-    def _post_github(self, url, token, payload):
-        try:
-            resp = requests.post(url, json=payload, timeout=30, headers={
-                "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28"})
-            if resp.status_code in (201, 204):
-                self._log("\u2713 Workflow ter-trigger. Pantau di tab Actions GitHub.")
-            else:
-                self._log(f"Respon {resp.status_code}: {resp.text[:300]}")
-        except Exception as exc:  # noqa: BLE001
-            self._log(f"ERROR: {exc}")
-
     def run_preflight(self):
         project_dir = self.cfg["local"].get("projectDir") or str(PROJECT_DIR)
         node_cmd = self.cfg["local"].get("nodeCommand", "npm")
