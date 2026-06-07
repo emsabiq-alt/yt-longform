@@ -3,6 +3,7 @@
 *.env
 node_modules
 generated
+output
 data
 src
 scripts
