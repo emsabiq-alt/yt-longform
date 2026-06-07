@@ -13,27 +13,27 @@ export async function generateThumbnail(item) {
   const filename = `${item.id}-thumbnail-${safeFilename(item.title)}.jpg`;
   const outputPath = path.join(paths.thumbnailDir, filename);
   const titleLines = fitLines(shortTitle(item.title || item.plan?.hook || "BanyakTau"), {
-    maxChars: 20,
-    maxLines: 5
+    maxChars: 22,
+    maxLines: 4
   });
   const titleSize = titleFontSize(titleLines);
   const titleY = titleStartY(titleLines, titleSize);
   const titleStep = titleSize + 12;
   const textFilters = [
     ...drawLineFilters(titleLines, {
-      x: 74,
+      x: 72,
       y: titleY,
       step: titleStep,
       fontsize: titleSize,
       color: "0xFFF6D7",
-      borderw: 6
+      borderw: 4
     })
   ];
   const filter = [
-    "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,eq=contrast=1.12:saturation=1.10:brightness=-0.01[hero]",
-    "[hero]drawbox=x=0:y=980:w=1080:h=940:color=black@0.64:t=fill[panel]",
-    "[panel]drawbox=x=0:y=980:w=1080:h=10:color=0xF5C84C@1:t=fill[accent]",
-    "[accent]drawbox=x=74:y=1052:w=156:h=12:color=0xF5C84C@1:t=fill[base]",
+    "[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=contrast=1.12:saturation=1.10:brightness=-0.01[hero]",
+    "[hero]drawbox=x=0:y=0:w=880:h=720:color=black@0.58:t=fill[panel]",
+    "[panel]drawbox=x=0:y=0:w=12:h=720:color=0xF5C84C@1:t=fill[accent]",
+    "[accent]drawbox=x=72:y=176:w=180:h=10:color=0xF5C84C@1:t=fill[base]",
     `[base]${textFilters.join(",")}`
   ].filter(Boolean).join(";");
 
@@ -84,15 +84,14 @@ function fitLines(value, options) {
 
 function titleFontSize(lines) {
   const longest = Math.max(...lines.map((line) => line.length), 1);
-  if (lines.length >= 5 || longest > 24) return 74;
-  if (lines.length >= 4 || longest > 20) return 84;
-  if (lines.length === 3 || longest > 16) return 96;
-  return 118;
+  if (lines.length >= 4 || longest > 20) return 58;
+  if (lines.length === 3 || longest > 16) return 66;
+  return 78;
 }
 
 function titleStartY(lines, fontsize) {
   const totalHeight = (lines.length * fontsize) + ((lines.length - 1) * 12);
-  return Math.max(1040, 1360 - Math.round(totalHeight / 2));
+  return Math.max(220, 390 - Math.round(totalHeight / 2));
 }
 
 function fontExpr() {
