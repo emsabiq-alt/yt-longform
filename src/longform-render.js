@@ -827,8 +827,13 @@ async function muxVideoAudio({ videoPath, audioPath, outputPath }) {
 
 async function writeContentCaptionAss({ outputPath, item, scenes, contentDuration }) {
   const events = [];
-  const titleText = splitLines(item.title || item.plan?.title || "BanyakTau", 30, 2).join("\\N");
-  events.push(dialogue(0.05, Math.max(0.1, contentDuration - 0.5), "SceneTitle", `{\\fad(150,150)}${assEscape(titleText)}`));
+  const titleOverlay = sceneTitleOverlay(item.title || item.plan?.title || "BanyakTau");
+  events.push(dialogue(
+    0.05,
+    Math.max(0.1, contentDuration - 0.5),
+    "SceneTitle",
+    `{\\fad(150,150)\\fs${titleOverlay.fontSize}}${assEscape(titleOverlay.text)}`
+  ));
 
   for (const scene of scenes) {
     if (scene.sceneType === "reaction") {
@@ -896,7 +901,7 @@ async function writeContentCaptionAss({ outputPath, item, scenes, contentDuratio
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
     `Style: Hook,${config.render.fontTitle},42,&H00FFFFFF,&H000000FF,&H98232A32,&HBB11171C,-1,0,0,0,100,100,0,0,1,2.5,0,5,60,60,90,1`,
-    `Style: SceneTitle,${config.render.fontTitle},30,&H00F7F2DC,&H000000FF,&H90222A2C,&HAA15191D,-1,0,0,0,100,100,0,0,1,2,0,7,40,240,58,1`,
+    `Style: SceneTitle,${config.render.fontTitle},30,&H00F7F2DC,&H000000FF,&H90222A2C,&HAA15191D,-1,0,0,0,100,100,0,0,1,2,0,7,56,220,62,1`,
     `Style: Subtitle,${config.render.fontBody},42,&H00FFFFFF,&H000000FF,&H9A11171B,&HBF11171B,-1,0,0,0,100,100,0,0,1,3,1,2,92,92,58,1`,
     `Style: ReactionPrompt,${config.render.fontBody},46,&H00FFFFFF,&H000000FF,&H9011171B,&HCC11171B,-1,0,0,0,100,100,0,0,3,18,0,2,120,120,72,1`,
     `Style: SummaryDim,${config.render.fontBody},20,&H76000000,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
@@ -1156,6 +1161,27 @@ function normalizeSubtitleText(value) {
     .replace(/\bkayak\b/gi, "seperti")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function sceneTitleOverlay(value) {
+  const title = String(value || "BanyakTau").replace(/\s+/g, " ").trim();
+  const layouts = [
+    { maxChars: 30, maxLines: 3, fontSize: 30 },
+    { maxChars: 36, maxLines: 3, fontSize: 27 },
+    { maxChars: 40, maxLines: 4, fontSize: 24 }
+  ];
+
+  for (const layout of layouts) {
+    const lines = splitLines(title, layout.maxChars, 99);
+    if (lines.length <= layout.maxLines) {
+      return { text: lines.join("\\N"), fontSize: layout.fontSize };
+    }
+  }
+
+  return {
+    text: splitLines(title, 44, 99).join("\\N"),
+    fontSize: 22
+  };
 }
 
 function dialogue(start, end, style, text) {
