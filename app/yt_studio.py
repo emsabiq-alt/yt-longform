@@ -78,6 +78,12 @@ ENV_SECTIONS = [
         ("OPENAI_TTS_VOICE", "TTS Voice", False),
         ("OPENAI_TRANSCRIBE_MODEL", "Transcribe Model", False),
     ]),
+    ("Pexels Video (B-Roll)", [
+        ("PEXELS_API_KEY", "Pexels API Key", True),
+        ("PEXELS_PREFER_VIDEO", "Prefer Video (true/false)", False),
+        ("PEXELS_MIN_DURATION_SEC", "Min Duration (detik)", False),
+        ("PEXELS_MAX_RESULTS", "Max Results Search", False),
+    ]),
     ("ElevenLabs (opsional)", [
         ("ELEVENLABS_API_KEY", "API Key", True),
         ("ELEVENLABS_MODEL", "Model", False),
@@ -109,6 +115,7 @@ ENV_SECTIONS = [
         ("YT_TIME_ZONE", "Time Zone", False),
     ]),
 ]
+
 
 
 # ---------------- Helpers ----------------
@@ -249,18 +256,18 @@ class YTStudioApp(ctk.CTk):
 
         brand = ctk.CTkFrame(bar, fg_color="transparent")
         brand.pack(fill="x", padx=18, pady=(22, 24))
-        ctk.CTkLabel(brand, text="\u25B6", font=(FONT, 22, "bold"),
+        ctk.CTkLabel(brand, text="▶", font=(FONT, 22, "bold"),
                      text_color=COLORS["accent"]).pack(side="left")
         ctk.CTkLabel(brand, text="  YT Longform", font=(FONT, 17, "bold"),
                      text_color=COLORS["text"]).pack(side="left")
 
         self.nav_buttons = {}
         nav = [
-            ("dashboard", "\U0001F4CA  Ringkasan"),
-            ("create", "\u2728  Buat Video"),
-            ("library", "\U0001F3AC  Pustaka"),
-            ("settings", "\U0001F511  API & Kredensial"),
-            ("app_settings", "\u2699  Pengaturan Lokal"),
+            ("dashboard", "📊  Ringkasan"),
+            ("create", "✨  Buat Video"),
+            ("library", "🎬  Pustaka"),
+            ("settings", "🔑  API & Kredensial"),
+            ("app_settings", "⚙  Pengaturan Lokal"),
         ]
         for key, label in nav:
             btn = ctk.CTkButton(
@@ -273,7 +280,7 @@ class YTStudioApp(ctk.CTk):
 
         foot = ctk.CTkFrame(bar, fg_color="transparent")
         foot.pack(side="bottom", fill="x", padx=12, pady=16)
-        ctk.CTkButton(foot, text="\u27F3  Refresh", height=34, corner_radius=9,
+        ctk.CTkButton(foot, text="↻  Refresh", height=34, corner_radius=9,
                       fg_color=COLORS["panel2"], hover_color=COLORS["border"],
                       command=self.refresh_state).pack(fill="x", pady=3)
         self.clock_lbl = ctk.CTkLabel(foot, text="--:--", font=(FONT, 12),
@@ -289,7 +296,7 @@ class YTStudioApp(ctk.CTk):
         header = ctk.CTkFrame(wrap, fg_color="transparent", height=64)
         header.grid(row=0, column=0, sticky="ew", padx=26, pady=(20, 6))
         self.view_kicker = ctk.CTkLabel(header, text="RINGKASAN", font=(FONT, 11, "bold"),
-                                        text_color=COLORS["accent"])
+                                         text_color=COLORS["accent"])
         self.view_kicker.pack(anchor="w")
         self.view_title = ctk.CTkLabel(header, text="Operational Overview",
                                        font=(FONT, 22, "bold"), text_color=COLORS["text"])
@@ -395,7 +402,7 @@ class YTStudioApp(ctk.CTk):
 
         actions = ctk.CTkFrame(view, fg_color="transparent")
         actions.pack(fill="x", pady=(0, 16))
-        self.btn_local = ctk.CTkButton(actions, text="\u25B6  Jalankan Lokal (Node)", height=44,
+        self.btn_local = ctk.CTkButton(actions, text="▶  Jalankan Lokal (Node)", height=44,
                                        corner_radius=10, fg_color=COLORS["accent"],
                                        hover_color=COLORS["accent_hover"], text_color="#1a1407",
                                        font=(FONT, 14, "bold"), command=self.run_local)
@@ -433,7 +440,7 @@ class YTStudioApp(ctk.CTk):
         srow.pack(fill="x", padx=18, pady=(0, 14))
         srow.grid_columnconfigure(1, weight=1)
         for i, (key, label) in enumerate(stages):
-            dot = ctk.CTkLabel(srow, text="\u25CB", font=(FONT, 14), text_color=COLORS["muted"], width=20)
+            dot = ctk.CTkLabel(srow, text="○", font=(FONT, 14), text_color=COLORS["muted"], width=20)
             dot.grid(row=i, column=0, sticky="w", pady=2)
             name = ctk.CTkLabel(srow, text=label, font=(FONT, 12), text_color=COLORS["muted"], anchor="w")
             name.grid(row=i, column=1, sticky="ew", padx=(4, 8))
@@ -449,15 +456,15 @@ class YTStudioApp(ctk.CTk):
         self.output_bar = ctk.CTkFrame(view, fg_color="transparent")
         self.output_bar.pack(fill="x", pady=(0, 16))
         self.output_path_value = None
-        self.btn_open_file = ctk.CTkButton(self.output_bar, text="\u25B6  Putar Video Hasil", height=40,
+        self.btn_open_file = ctk.CTkButton(self.output_bar, text="▶  Putar Video Hasil", height=40,
                                            corner_radius=10, fg_color=COLORS["accent"],
                                            hover_color=COLORS["accent_hover"], text_color="#1a1407",
                                            font=(FONT, 13, "bold"), command=self._open_output_file)
-        self.btn_open_folder = ctk.CTkButton(self.output_bar, text="\U0001F4C1  Buka Folder", height=40,
+        self.btn_open_folder = ctk.CTkButton(self.output_bar, text="📁  Buka Folder", height=40,
                                              corner_radius=10, fg_color=COLORS["panel2"],
                                              hover_color=COLORS["border"], command=self._open_output_folder)
         self.meta_path_value = None
-        self.btn_open_meta = ctk.CTkButton(self.output_bar, text="\U0001F4DD  Judul & Deskripsi", height=40,
+        self.btn_open_meta = ctk.CTkButton(self.output_bar, text="📝  Judul & Deskripsi", height=40,
                                            corner_radius=10, fg_color=COLORS["panel2"],
                                            hover_color=COLORS["border"], command=self._open_meta_file)
 
@@ -534,7 +541,7 @@ class YTStudioApp(ctk.CTk):
         info = Card(scroll)
         info.pack(fill="x", pady=(0, 14))
         ctk.CTkLabel(info, text="Semua nilai disimpan ke file .env proyek. Field sensitif disamarkan; "
-                     "klik \U0001F441 untuk menampilkan.", font=(FONT, 12),
+                     "klik 👁 untuk menampilkan.", font=(FONT, 12),
                      text_color=COLORS["muted"], wraplength=820, justify="left").pack(
             anchor="w", padx=18, pady=14)
 
@@ -550,7 +557,7 @@ class YTStudioApp(ctk.CTk):
 
         bar = ctk.CTkFrame(view, fg_color="transparent")
         bar.grid(row=1, column=0, sticky="ew", pady=(12, 0))
-        ctk.CTkButton(bar, text="\U0001F4BE  Simpan ke .env", height=44, corner_radius=10,
+        ctk.CTkButton(bar, text="💾  Simpan ke .env", height=44, corner_radius=10,
                       fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
                       text_color="#1a1407", font=(FONT, 14, "bold"),
                       command=self.save_env).pack(side="left")
@@ -569,14 +576,14 @@ class YTStudioApp(ctk.CTk):
         ctk.CTkLabel(wrap, text=f"{label}  ({env_key})", font=(FONT, 11),
                      text_color=COLORS["muted"]).grid(row=0, column=0, columnspan=2, sticky="w")
         entry = ctk.CTkEntry(wrap, height=38, corner_radius=9, fg_color=COLORS["bg2"],
-                             border_color=COLORS["border"], show="\u2022" if secret else "")
+                             border_color=COLORS["border"], show="•" if secret else "")
         entry.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         if secret:
-            toggle = ctk.CTkButton(wrap, text="\U0001F441", width=40, height=38, corner_radius=9,
+            toggle = ctk.CTkButton(wrap, text="👁", width=40, height=38, corner_radius=9,
                                    fg_color=COLORS["panel2"], hover_color=COLORS["border"])
             toggle.grid(row=1, column=1, padx=(6, 0), pady=(4, 0))
             toggle.configure(command=lambda e=entry: e.configure(
-                show="" if e.cget("show") else "\u2022"))
+                show="" if e.cget("show") else "•"))
         self.env_vars[env_key] = entry
 
     def _load_env_into_form(self):
@@ -621,12 +628,12 @@ class YTStudioApp(ctk.CTk):
             ctk.CTkLabel(body, text=label, font=(FONT, 12), text_color=COLORS["muted"]).grid(
                 row=i * 2, column=0, sticky="w", pady=(8, 2))
             entry = ctk.CTkEntry(body, height=38, corner_radius=9, fg_color=COLORS["bg2"],
-                                 border_color=COLORS["border"], show="\u2022" if secret else "")
+                                 border_color=COLORS["border"], show="•" if secret else "")
             entry.insert(0, value)
             entry.grid(row=i * 2 + 1, column=0, sticky="ew")
             self.app_fields[key] = entry
 
-        ctk.CTkButton(view, text="\U0001F4BE  Simpan Pengaturan", height=44, corner_radius=10,
+        ctk.CTkButton(view, text="💾  Simpan Pengaturan", height=44, corner_radius=10,
                       fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
                       text_color="#1a1407", font=(FONT, 14, "bold"),
                       command=self.save_app_settings).pack(anchor="w")
@@ -702,7 +709,7 @@ class YTStudioApp(ctk.CTk):
         items = self.items[:6]
         if not items:
             ctk.CTkLabel(self.recent_frame, text="Belum ada video.",
-                         text_color=COLORS["muted"]).pack(anchor="w")
+                          text_color=COLORS["muted"]).pack(anchor="w")
             return
         for i in range(3):
             self.recent_frame.grid_columnconfigure(i, weight=1)
@@ -722,7 +729,7 @@ class YTStudioApp(ctk.CTk):
             items = [it for it in items if self._status_of(it)[0] == flt_map[flt]]
         if not items:
             ctk.CTkLabel(self.library_frame, text="Tidak ada video.",
-                         text_color=COLORS["muted"]).grid(row=0, column=0, pady=30)
+                          text_color=COLORS["muted"]).grid(row=0, column=0, pady=30)
             return
         for idx, it in enumerate(items):
             self._video_card(self.library_frame, it, idx // 3, idx % 3)
@@ -744,7 +751,7 @@ class YTStudioApp(ctk.CTk):
         ctk.CTkLabel(card, text=f"Durasi: {fmt_dur(dur)}", font=(FONT, 11),
                      text_color=COLORS["muted"]).pack(anchor="w", padx=14)
         yt = (it.get("publish") or {}).get("youtube", {}).get("url")
-        btn = ctk.CTkButton(card, text="\u25B6 Buka YouTube" if yt else "Belum diupload",
+        btn = ctk.CTkButton(card, text="▶ Buka YouTube" if yt else "Belum diupload",
                             height=32, corner_radius=8,
                             fg_color=COLORS["accent"] if yt else COLORS["panel"],
                             hover_color=COLORS["accent_hover"] if yt else COLORS["panel"],
@@ -822,7 +829,7 @@ class YTStudioApp(ctk.CTk):
         finally:
             self.after(0, self._stop_spinner)
             self.after(0, lambda: self.btn_local.configure(
-                state="normal", text="\u25B6  Jalankan Lokal (Node)"))
+                state="normal", text="▶  Jalankan Lokal (Node)"))
             if success and not local:
                 self.after(1500, self.refresh_state)
             if success:
@@ -837,7 +844,7 @@ class YTStudioApp(ctk.CTk):
         self.prog_status.configure(text=status, text_color=COLORS["accent"])
         for key, row in self.stage_rows.items():
             row["bar"].set(0)
-            row["dot"].configure(text="\u25CB", text_color=COLORS["muted"])
+            row["dot"].configure(text="○", text_color=COLORS["muted"])
             row["name"].configure(text_color=COLORS["muted"])
             row["pct"].configure(text="")
         self.output_path_value = None
@@ -874,16 +881,16 @@ class YTStudioApp(ctk.CTk):
                 row = self.stage_rows[key]
                 if idx >= 0 and i < idx:
                     row["bar"].set(1)
-                    row["dot"].configure(text="\u2714", text_color=COLORS["ok"])
+                    row["dot"].configure(text="✔", text_color=COLORS["ok"])
                     row["pct"].configure(text="100%")
             row = self.stage_rows[stage]
             pv = percent if percent is not None else 0
             row["bar"].set(max(0, min(100, pv)) / 100)
             row["name"].configure(text_color=COLORS["text"])
             if pv >= 100:
-                row["dot"].configure(text="\u2714", text_color=COLORS["ok"])
+                row["dot"].configure(text="✔", text_color=COLORS["ok"])
             else:
-                row["dot"].configure(text="\u25CF", text_color=COLORS["accent"])
+                row["dot"].configure(text="●", text_color=COLORS["accent"])
             row["pct"].configure(text=(f"{pv}%" + (f"  {detail}" if detail else "")))
 
     def _parse_local_output(self, line):
@@ -901,11 +908,11 @@ class YTStudioApp(ctk.CTk):
         self.output_path_value = path
         self.meta_path_value = meta_path
         if path:
-            self._log(f"\u2713 Video tersimpan: {path}")
+            self._log(f"✓ Video tersimpan: {path}")
             self.btn_open_file.pack(side="left", padx=(0, 10))
             self.btn_open_folder.pack(side="left")
         if meta_path:
-            self._log(f"\u2713 Judul & deskripsi YouTube: {meta_path}")
+            self._log(f"✓ Judul & deskripsi YouTube: {meta_path}")
             self.btn_open_meta.pack(side="left", padx=(10, 0))
         for key, row in self.stage_rows.items():
             if key in ("upload", "publish"):
@@ -962,6 +969,7 @@ class YTStudioApp(ctk.CTk):
             elapsed = int((datetime.now() - self._spin_t0).total_seconds())
             mm, ss = divmod(elapsed, 60)
             self.spinner_lbl.configure(text=f"selesai dalam {mm:02d}:{ss:02d}")
+
     def run_preflight(self):
         project_dir = self.cfg["local"].get("projectDir") or str(PROJECT_DIR)
         node_cmd = self.cfg["local"].get("nodeCommand", "npm")
