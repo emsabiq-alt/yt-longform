@@ -42,6 +42,7 @@ export const paths = {
   audioDir: path.join(rootDir, "generated", "audio"),
   thumbnailDir: path.join(rootDir, "generated", "thumbnails"),
   videoDir: path.join(rootDir, "generated", "videos"),
+  clipsDir: path.join(rootDir, "generated", "clips"),
   workDir: path.join(rootDir, "generated", "work"),
   publicDir: path.join(rootDir, "public")
 };
@@ -105,6 +106,12 @@ export const config = {
     sceneCount: Math.max(8, numberEnv("YT_SCENE_COUNT", 14)),
     workflowFile: clean(process.env.YT_WORKFLOW_FILE || "yt-longform-generate.yml"),
     strictRemote: bool(process.env.YT_STRICT_REMOTE)
+  },
+  pexels: {
+    apiKey: process.env.PEXELS_API_KEY || "",
+    preferVideo: boolDefault(process.env.PEXELS_PREFER_VIDEO, true),
+    minDurationSec: Math.max(3, numberEnv("PEXELS_MIN_DURATION_SEC", 8)),
+    maxResultsPerScene: Math.max(1, Math.min(15, numberEnv("PEXELS_MAX_RESULTS", 5)))
   }
 };
 
@@ -127,7 +134,9 @@ export function publicConfig() {
       elevenlabsVoiceId: config.elevenlabs.voiceId,
       youtubeUploadEnabled: config.youtube.enabled,
       youtubeClientIdSet: bool(config.youtube.clientId),
-      youtubeRefreshTokenSet: bool(config.youtube.refreshToken)
+      youtubeRefreshTokenSet: bool(config.youtube.refreshToken),
+      pexels: Boolean(config.pexels.apiKey),
+      pexelsPreferVideo: config.pexels.preferVideo
     },
     render: config.render,
     automation: config.automation,
@@ -150,7 +159,8 @@ export async function updateRuntimeSettings(input = {}) {
     openaiTranscribeModel: "OPENAI_TRANSCRIBE_MODEL",
     elevenlabsApiKey: "ELEVENLABS_API_KEY",
     elevenlabsModel: "ELEVENLABS_MODEL",
-    elevenlabsVoiceId: "ELEVENLABS_VOICE_ID"
+    elevenlabsVoiceId: "ELEVENLABS_VOICE_ID",
+    pexelsApiKey: "PEXELS_API_KEY"
   };
   for (const [key, envName] of Object.entries(map)) {
     const value = key.endsWith("ApiKey") || key.endsWith("Url") ? trimSlash(input[key]) : clean(input[key]);
@@ -202,4 +212,5 @@ function applyConfigUpdates(updates) {
   if (updates.ELEVENLABS_MODEL !== undefined) config.elevenlabs.model = updates.ELEVENLABS_MODEL;
   if (updates.ELEVENLABS_VOICE_ID !== undefined) config.elevenlabs.voiceId = updates.ELEVENLABS_VOICE_ID;
   if (updates.SPEECH_TEMPO !== undefined) config.render.speechTempo = Number(updates.SPEECH_TEMPO);
+  if (updates.PEXELS_API_KEY !== undefined) config.pexels.apiKey = updates.PEXELS_API_KEY;
 }

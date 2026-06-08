@@ -10,6 +10,7 @@ export async function runPreflight() {
   checks.push(checkCommand("ffmpeg"));
   checks.push(checkCommand("ffprobe"));
   checks.push(checkValue("OPENAI_API_KEY", Boolean(config.openai.apiKey), "Story, gambar, TTS, dan transkripsi butuh key ini."));
+  checks.push(checkValue("PEXELS_API_KEY", Boolean(config.pexels?.apiKey), "Video B-roll Pexels butuh key ini. Tanpa key, semua scene pakai gambar DALL-E."));
   checks.push(checkValue("PUBLIC_BASE_URL", Boolean(config.publicBaseUrl || process.env.PUBLIC_BASE_URL), "Butuh base URL publik untuk preview asset dan upload YouTube fetchable."));
 
   const remote = remoteConfig();

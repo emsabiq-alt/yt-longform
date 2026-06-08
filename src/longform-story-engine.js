@@ -153,7 +153,14 @@ function buildPrompt(input) {
     `Jumlah Scene: ${input.sceneCount}`,
     `Target Jumlah Kata: sekitar ${Math.round(input.durationSec * 2.1)} kata bahasa Indonesia secara keseluruhan.`,
     "",
-    "KATA KUNCI VISUAL (visualKeywords) untuk scene image/summary wajib dalam bahasa Inggris, singkat, dan relevan untuk mencari stock video.",
+    "PENTING: visualKeywords akan digunakan untuk MENCARI VIDEO STOCK di Pexels, bukan untuk generate gambar AI.",
+    "KATA KUNCI VISUAL (visualKeywords) untuk scene image/summary wajib:",
+    "  - Dalam bahasa Inggris",
+    "  - 3-5 kata GENERIK yang bisa ditemukan di stock video (misal: 'ocean waves aerial', 'laboratory scientist research', 'city skyline night')",
+    "  - Jangan terlalu spesifik atau abstrak. Gunakan kata benda/kata kerja konkret.",
+    "  - Variasikan antar scene agar video B-roll tidak monoton (jangan semua 'technology digital').",
+    "  - Contoh bagus: 'ancient ruins archaeological dig', 'microscope cells biology', 'factory assembly line robot', 'tropical forest canopy aerial'",
+    "  - Contoh buruk: 'abstract digital network visualization' (terlalu abstrak untuk stock video)",
     "FALLBACK IMAGE PROMPT (imagePrompt) untuk scene image/summary wajib menggambarkan pemandangan horizontal 16:9 yang artistik tanpa teks/tulisan di dalamnya."
   ].join("\n");
 }

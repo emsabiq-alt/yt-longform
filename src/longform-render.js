@@ -659,17 +659,19 @@ function resolveSceneMedia(item, scene) {
 }
 
 async function makeVideoSegment({ videoPath, outputPath, duration }) {
-  const bgFilter = [
-    "scale=1280:720:force_original_aspect_ratio=increase",
-    "crop=1280:720"
-  ].join(",");
+  const filterComplex = [
+    "[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=contrast=1.04:saturation=1.06:brightness=0.01,vignette[bg]",
+    "color=c=0xFF8833:s=1280x720:d=1,format=rgba,colorchannelmixer=aa=0.35,fade=t=out:st=0:d=0.7:alpha=1[leak]",
+    "[bg][leak]overlay=format=auto[outv]"
+  ].join(";");
 
   await runFfmpeg([
     "-y",
     "-stream_loop", "-1",
     "-i", videoPath,
     "-t", String(duration),
-    "-vf", bgFilter,
+    "-filter_complex", filterComplex,
+    "-map", "[outv]",
     "-r", String(fps),
     "-an",
     "-c:v", "libx264",
