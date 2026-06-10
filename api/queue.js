@@ -40,6 +40,7 @@ export default async function handler(req, res) {
       await dispatchWorkflow({
         topic: item.topic,
         category: item.category || "random",
+        format_type: item.formatType || "",
         duration: String(item.durationSec),
         scenes: String(item.sceneCount),
         tts_provider: item.ttsProvider,

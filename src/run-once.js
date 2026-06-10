@@ -22,6 +22,7 @@ ensureProjectDirs();
 const input = {
   topic: argValue("--topic", process.env.YT_TOPIC || ""),
   category: argValue("--category", process.env.YT_CATEGORY || "random"),
+  formatType: argValue("--format-type", process.env.YT_FORMAT_TYPE || ""),
   ttsProvider: argValue("--tts-provider", process.env.YT_TTS_PROVIDER || "openai"),
   ttsVoice: argValue("--tts-voice", process.env.YT_TTS_VOICE || config.openai.ttsVoice),
   durationSec: Number(argValue("--duration", process.env.YT_DURATION_SEC || String(config.automation.durationSec))),

@@ -5,6 +5,7 @@ import { estimateTotalCost } from "./cost.js";
 import { requestKnowledgeJson } from "./openai.js";
 import { clamp, cleanText, createId, nowIso } from "./util.js";
 import { pickFreshTopic } from "./topic-engine.js";
+import { buildScenePattern, formatTypeDescription, formatTypeNarrativeCue, pickFormatType, resolveSceneType } from "./format-engine.js";
 
 const categories = [
   "sains",
@@ -90,7 +91,12 @@ export async function createLongformDraft(rawInput) {
     const fresh = await pickFreshTopic({ category: seed.category });
     seed.topic = fresh.topic;
     if (!seed.category || seed.category === "random") seed.category = fresh.category;
-    console.log(`[Topic Engine] Topik otomatis (${fresh.source}): "${fresh.topic}" [${fresh.category}]`);
+    seed.angle = fresh.angle;
+    seed.formatType = fresh.formatType;
+    console.log(`[Topic Engine] Topik otomatis (${fresh.source}): "${fresh.topic}" [${fresh.category}] [${fresh.formatType}]`);
+  } else {
+    if (!seed.angle) seed.angle = "asal-usul yang jarang diketahui";
+    if (!seed.formatType) seed.formatType = pickFormatType();
   }
   const input = normalizeInput(seed);
   const promptText = buildPrompt(input);
@@ -121,7 +127,7 @@ export async function createLongformDraft(rawInput) {
         `Naskah sebelumnya terlalu pendek. Tulis ulang dengan minimal ${minimumNarrationWords} kata narasi yang benar-benar dibacakan TTS.`,
         "Hitung hanya scene image dan summary. Scene reaction tidak dibacakan TTS.",
         "Setiap scene image harus 48-65 kata. Scene summary harus 55-75 kata.",
-        "Pertahankan tepat jumlah scene dan pola 2 image lalu 1 reaction, dengan scene terakhir summary."
+        `Pertahankan tepat jumlah scene dan pola format ${input.formatType}, dengan scene terakhir summary.`
       ].join("\n"));
       normalized = normalizePlan(expandedPlan, input);
     } catch (error) {
@@ -187,13 +193,18 @@ function normalizeInput(input) {
 function buildPrompt(input) {
   const categoryNote = storyNoteFor(input.category);
   const variation = pick(STORY_VARIATIONS);
+  const formatDesc = formatTypeDescription(input.formatType);
+  const formatCue = formatTypeNarrativeCue(input.formatType);
+  const scenePattern = buildScenePattern(input.sceneCount, input.formatType).join(", ");
   return [
+    `FORMAT VIDEO: ${input.formatType}. ${formatDesc}`,
+    `PANDUAN NARASI FORMAT: ${formatCue}`,
+    `POLA SCENE WAJIB: ${scenePattern}. Scene terakhir wajib summary.`,
     "Buat naskah video dokumenter horizontal landscape (16:9) dalam Bahasa Indonesia untuk channel BanyakTau.",
     "Video berdurasi panjang, sehingga gaya bahasanya harus mendalam, analitis, kaya akan informasi, dan mengalir seperti esai dokumenter profesional.",
     "Hindari gaya bahasa lebay atau pembuka Shorts yang berisik. Penonton video panjang mencari detail faktual ('isinya daging semua').",
     "Struktur cerita harus memiliki babak pembuka (Hook & Paradoks), isi pembahasan logis (Babak 1, 2, dst.), klimaks/analisis masalah, dan kesimpulan inspiratif di akhir.",
     "Setiap scene harus berisi narasi yang dibacakan oleh TTS dan teks layar (screenText) yang sinkron.",
-    "Gunakan pola berulang: 2 scene image, lalu 1 scene reaction full-screen, kemudian ulangi pola tersebut.",
     "Scene reaction adalah jembatan singkat berupa pertanyaan atau pernyataan penasaran 8-16 kata. Jangan menjelaskan jawaban pada scene reaction; jawabannya dilanjutkan pada scene image berikutnya.",
     "Narasi scene reaction tidak akan dibacakan TTS. Teksnya hanya muncul di layar sebagai jeda hening singkat.",
     "Setiap scene image wajib memiliki 48-65 kata narasi. Scene summary wajib memiliki 55-75 kata narasi.",
@@ -207,6 +218,7 @@ function buildPrompt(input) {
     "",
     `Topik Utama: ${input.topic}`,
     `Kategori: ${input.category}`,
+    `Sudut Pandang: ${input.angle}`,
     `Tone Narasi: ${input.tone}`,
     `Durasi Total: ${input.durationSec} detik`,
     `Jumlah Scene: ${input.sceneCount}`,
@@ -230,7 +242,7 @@ function normalizePlan(plan, input) {
 
   const scenes = rawScenes.slice(0, input.sceneCount).map((scene, index) => {
     const duration = durations[index] || 20;
-    const sceneType = normalizedSceneType(scene?.sceneType, index, input.sceneCount);
+    const sceneType = resolveSceneType(scene?.sceneType, index, input.sceneCount, input.formatType);
     const reactionLine = sceneType === "reaction" ? normalizeReactionNarration(scene, index) : "";
     const screenText = sceneType === "summary"
       ? "Ringkasan Inti"
@@ -257,7 +269,7 @@ function normalizePlan(plan, input) {
   // Jika scene kurang dari target
   while (scenes.length < input.sceneCount) {
     const index = scenes.length;
-    const sceneType = normalizedSceneType("", index, input.sceneCount);
+    const sceneType = resolveSceneType("", index, input.sceneCount, input.formatType);
     scenes.push({
       index: index + 1,
       sceneType,
@@ -308,15 +320,16 @@ function fallbackPlan(input, errorMsg = "") {
   const count = input.sceneCount;
   const scenes = [];
   for (let i = 0; i < count; i++) {
+    const sceneType = resolveSceneType("", i, count, input.formatType);
     scenes.push({
       index: i + 1,
-      sceneType: normalizedSceneType("", i, count),
-      narration: normalizedSceneType("", i, count) === "reaction"
+      sceneType,
+      narration: sceneType === "reaction"
         ? fallbackReactionNarration(i)
         : fallbackNarration(input.topic, i, count, errorMsg),
-      screenText: normalizedSceneType("", i, count) === "summary" ? "Ringkasan Inti" : fallbackScreenText(i, count),
-      visualKeywords: normalizedSceneType("", i, count) === "reaction" ? "" : fallbackKeywords(i),
-      imagePrompt: normalizedSceneType("", i, count) === "reaction" ? "" : fallbackImagePrompt(input.topic, i),
+      screenText: sceneType === "summary" ? "Ringkasan Inti" : fallbackScreenText(i, count),
+      visualKeywords: sceneType === "reaction" ? "" : fallbackKeywords(i),
+      imagePrompt: sceneType === "reaction" ? "" : fallbackImagePrompt(input.topic, i),
       chapter: chapterName(i, count),
       beatPurpose: beatPurpose(i, count),
       reactionCue: reactionCue(i)
@@ -351,6 +364,7 @@ function buildLongformStoryboard(plan) {
 }
 
 function normalizedSceneType(value, index, total) {
+  // Legacy function kept for any external callers; delegates to format-aware resolveSceneType
   if (index === total - 1) return "summary";
   return (index + 1) % 3 === 0 && index < total - 2 ? "reaction" : "image";
 }
@@ -428,6 +442,8 @@ async function writeLongformStoryboard(item) {
     category: item.input.category,
     durationSec: item.input.durationSec,
     sceneCount: item.plan.scenes.length,
+    formatType: item.input.formatType,
+    angle: item.input.angle,
     storyboard: item.plan.longformStoryboard || buildLongformStoryboard(item.plan)
   }, null, 2)}\n`, "utf8");
   return {

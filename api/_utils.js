@@ -227,6 +227,7 @@ export function buildQueueItem(input) {
     id: input.id || makeId("q"),
     topic: clean(input.topic),
     category: clean(input.category || "random"),
+    formatType: clean(input.formatType || input.format_type || ""),
     durationSec: Number(input.durationSec || process.env.YT_DURATION_SEC || 360),
     sceneCount: Number(input.sceneCount || process.env.YT_SCENE_COUNT || 14),
     ttsProvider: clean(input.ttsProvider || "openai"),

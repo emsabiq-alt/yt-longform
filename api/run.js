@@ -9,6 +9,7 @@ export default async function handler(req, res) {
     const inputs = {
       topic: clean(body.topic || ""),
       category: clean(body.category || "random"),
+      format_type: clean(body.formatType || body.format_type || ""),
       duration: clean(body.durationSec || body.duration || process.env.YT_DURATION_SEC || "360"),
       scenes: clean(body.sceneCount || body.scenes || process.env.YT_SCENE_COUNT || "14"),
       tts_provider: clean(body.ttsProvider || "openai"),

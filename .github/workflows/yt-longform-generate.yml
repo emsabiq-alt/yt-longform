@@ -31,6 +31,10 @@ on:
         description: low, medium, high
         required: false
         default: low
+      format_type:
+        description: Format video type (dokumenter_klasik, investigasi_misteri, timeline_evolutif, mitos_vs_fakta, kisah_manusia, countdown, debat_dua_sisi, fenomena_alam, perbandingan, eksperimen_berpikir)
+        required: false
+        default: ""
       force:
         description: Bypass daily generate limit
         required: false
@@ -86,6 +90,7 @@ jobs:
       YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '360' }}
       YT_SCENE_COUNT: ${{ github.event.inputs.scenes || secrets.YT_SCENE_COUNT || '14' }}
       YT_WORKFLOW_FILE: yt-longform-generate.yml
+      YT_FORMAT_TYPE: ${{ github.event.inputs.format_type || secrets.YT_FORMAT_TYPE || '' }}
       YT_STRICT_REMOTE: ${{ secrets.YT_STRICT_REMOTE || 'false' }}
       GITHUB_TOKEN: ${{ github.token }}
 
@@ -146,4 +151,5 @@ jobs:
             --tts-provider "${{ github.event.inputs.tts_provider }}" \
             --tts-voice "${{ github.event.inputs.tts_voice }}" \
             --image-quality "${{ github.event.inputs.image_quality }}" \
+            --format-type "${{ github.event.inputs.format_type }}" \
             --force "${{ github.event.inputs.force }}"

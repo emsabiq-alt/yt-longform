@@ -3,12 +3,14 @@
  *
  * Tujuan: setiap kali topik dikosongkan, sistem memikirkan sendiri topik
  * BARU yang belum pernah dibuat (anti-duplikat), dengan variasi kategori,
- * sudut pandang, dan era. Tidak lagi default ke satu topik tertentu.
+ * sudut pandang, dan formatType. Tidak lagi default ke satu topik tertentu.
  */
 
 import { requestIdeaJson } from "./openai.js";
 import { listContextItems } from "./storage.js";
 import { cleanText } from "./util.js";
+import { FORMAT_TYPES, pickFormatType } from "./format-engine.js";
+import { loadHistory, checkFreshness, pickFreshIdeaFromBatch } from "./continuity-engine.js";
 
 export const TOPIC_CATEGORIES = [
   "sains", "penemuan", "sejarah", "tubuh manusia", "alam semesta",
@@ -21,7 +23,7 @@ export const TOPIC_CATEGORIES = [
 
 /**
  * Banyak sudut pandang per kategori agar cerita tidak itu-itu saja.
- * Setiap kategori punya 6-10 cara membahas topik.
+ * Setiap kategori punya 6–10 cara membahas topik.
  */
 const CATEGORY_ANGLES = {
   sains: [
@@ -173,7 +175,7 @@ const CATEGORY_ANGLES = {
     "misil dan satelit yang hampir memicu konflik",
     "kehidupan astronot yang tidak pernah ditampilkan",
     "teknologi luar angkasa yang dipakai di bumi",
-    " planet/bulan yang lebih aneh dari fiksi",
+    "planet/bulan yang lebih aneh dari fiksi",
     "perlombaan luar angkasa: rahasia dan kebohongan",
     "misi gagal yang memberi pelajaran berharga"
   ],
@@ -259,25 +261,12 @@ function similarity(aSet, bSet) {
   return inter / Math.min(aSet.size, bSet.size);
 }
 
-/** Kumpulkan "memori" topik yang sudah pernah dibuat. */
-async function loadHistory() {
-  try {
-    const items = await listContextItems();
-    return (items || [])
-      .map((it) => it.input?.topic || it.topic || it.title || "")
-      .map((t) => cleanText(t, 160))
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
 function isDuplicate(candidate, history, threshold = 0.5) {
   const cand = keywordSet(candidate);
   const candNorm = normalizeTitle(candidate);
   for (const past of history) {
-    if (normalizeTitle(past) === candNorm) return true;
-    if (similarity(cand, keywordSet(past)) >= threshold) return true;
+    if (normalizeTitle(past.topic) === candNorm) return true;
+    if (similarity(cand, keywordSet(past.topic)) >= threshold) return true;
   }
   return false;
 }
@@ -288,13 +277,18 @@ function categoryAngles(category) {
   return list && list.length ? list : DEFAULT_ANGLES;
 }
 
-function buildIdeaPrompt(history, category, angle) {
-  const recent = history.slice(0, 60).map((t) => `- ${t}`).join("\n") || "- (belum ada)";
+function buildIdeaPrompt(history, category, angle, formatType) {
+  const recent = history.slice(0, 60).map((t) => `- ${t.topic || t}`).join("\n") || "- (belum ada)";
   const anglesForCategory = categoryAngles(category).join("; ");
+  const ft = FORMAT_TYPES[formatType];
+  const label = ft?.label || formatType;
+  const description = ft?.description || "";
+
   return [
     "Kamu produser konten edukasi YouTube berbahasa Indonesia.",
     "Usulkan 8 IDE TOPIK video panjang yang faktual, menarik, dan membuat penasaran.",
     `Fokus kategori: ${category}. Sudut pandang yang diutamakan: ${angle}.`,
+    `Format video yang wajib digunakan: ${label}. ${description}`,
     "Topik harus SPESIFIK dan unik, bukan tema umum yang luas.",
     `Daftar sudut pandang yang tersedia untuk kategori ${category}: ${anglesForCategory}.`,
     "WAJIB hindari kemiripan dengan daftar topik yang SUDAH PERNAH dibuat berikut:",
@@ -337,30 +331,49 @@ function offlinePick(history) {
 
 /**
  * Pilih satu topik baru yang unik.
- * @returns {Promise<{topic, category, angle, source}>}
+ * @returns {Promise<{topic, category, angle, formatType, source}>}
  */
 export async function pickFreshTopic(options = {}) {
-  const history = await loadHistory();
+  const history = await loadHistory(80);
   const category = cleanText(options.category && options.category !== "random"
     ? options.category : pick(TOPIC_CATEGORIES), 80);
-  const angle = pick(categoryAngles(category));
 
-  try {
-    const data = await requestIdeaJson(buildIdeaPrompt(history, category, angle));
-    const ideas = Array.isArray(data?.ideas) ? data.ideas : [];
-    const fresh = ideas.filter((idea) => idea?.topic && !isDuplicate(idea.topic, history));
-    const chosen = (fresh[0] || ideas[0]);
-    if (chosen?.topic) {
-      return {
-        topic: cleanText(chosen.topic, 160),
-        category: cleanText(chosen.category || category, 80),
-        angle: cleanText(chosen.angle || angle, 80),
-        source: "openai"
-      };
+  // Coba hingga 5 kali untuk menemukan kombinasi yang benar-benar segar
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const angle = pick(categoryAngles(category));
+    const formatType = pickFormatType();
+
+    try {
+      const data = await requestIdeaJson(buildIdeaPrompt(history, category, angle, formatType));
+      const ideas = Array.isArray(data?.ideas) ? data.ideas : [];
+      const fresh = ideas.filter((idea) => idea?.topic && !isDuplicate(idea.topic, history));
+      const chosen = pickFreshIdeaFromBatch(fresh, formatType, angle, category, history)
+        || pickFreshIdeaFromBatch(ideas, formatType, angle, category, history);
+
+      if (chosen) {
+        return {
+          topic: chosen.topic,
+          category: chosen.category,
+          angle: chosen.angle,
+          formatType,
+          source: "openai"
+        };
+      }
+
+      console.log(`[Continuity] Attempt ${attempt}: tidak ada ide fresh dari batch, mencoba ulang...`);
+    } catch (error) {
+      console.warn(`[Topic Engine] Attempt ${attempt} gagal: ${error.message}`);
     }
-  } catch (error) {
-    console.warn(`[Topic Engine] Gagal minta ide AI, pakai fallback: ${error.message}`);
   }
 
-  return { topic: offlinePick(history), category, angle, source: "offline" };
+  // Fallback: offline seed dengan formatType baru
+  const offlineTopic = offlinePick(history);
+  const formatType = pickFormatType();
+  return {
+    topic: offlineTopic,
+    category,
+    angle: pick(categoryAngles(category)),
+    formatType,
+    source: "offline"
+  };
 }
