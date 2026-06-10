@@ -25,6 +25,61 @@ const categories = [
 ];
 
 /**
+ * Catatan struktur cerita per kategori agar naskah tidak monoton.
+ * Setiap kategori punya fokus narasi, elemen wajib, dan variasi rencana.
+ */
+const CATEGORY_STORY_NOTES = {
+  sains: "Gunakan analogi konkret untuk menjelaskan mekanisme abstrak. Libatkan sejarah pembuktian, kesalahan ilmiah populer, dan aplikasi nyata di kehidupan. Variasi: bandingkan skala, urutkan proses langkah demi langkah, atau ungkap 'siapa penemu pertama'.",
+  penemuan: "Ceritakan perjalanan dari masalah → percobaan → kegagalan → momen eurekah. Soroti pihak yang diuntungkan/dirugikan. Variasi: penemuan tak sengaja, penemuan yang direbut, atau penemuan yang gagal beradaptasi.",
+  sejarah: "Jalin narasi kronologis dengan fokus pada dilema manusia, bukan sekadar tanggal. Gunakan perspektif tokoh pinggiran. Variasi: peristiwa terlupakan, dampak jangka panjang, propaganda versus fakta.",
+  "tubuh manusia": "Hubungkan mekanisme biologis dengan pengalaman sehari-hari pembaca. Bantah mitos populer dengan data. Variasi: perbandingan dengan hewan, evolusi anggota tubuh, atau trik otak yang menipu indra.",
+  "alam semesta": "Bangun rasa skala yang membuat penonton terkesima. Gunakan satuan yang mudah dibayangkan. Variasi: misteri yang belum terpecahkan, perjalanan waktu cahaya, atau fenomena langka yang akan terjadi.",
+  teknologi: "Jelaskan komponen kecil dengan konsekuensi besar. Bahas etika dan dampak sosial. Variasi: teknologi mati, perlombaan antarpesaing, atau algoritma yang mengubah perilaku manusia.",
+  "benda sehari-hari": "Ungkap sejarah tersembunyi di balik desain yang tampak biasa. Libatkan proses produksi. Variasi: mengapa bentuknya demikian, alternatif yang kalah populer, atau jejak sejarah peradaban.",
+  "tokoh dunia": "Fokus pada satu keputusan kritis yang mengubah legasi. Gunakan kutipan atau anekdot konkret. Variasi: musuh/rival terlupakan, momen hampir gagal, atau konsekuensi tak terduga.",
+  "bahasa dan budaya": "Jelaskan evolusi dari simbol/kata hingga makna modern. Hubungkan dengan peristiwa sejarah. Variasi: bahasa hampir punah, kesalahpahaman antarbudaya, atau kata yang berubah makna.",
+  "makanan dan dapur": "Padukan sains kimia, sejarah globalisasi, dan tradisi kuliner. Variasi: mitos makanan, proses fermentasi, perdagangan rempah, atau industri yang menciptakan selera massa.",
+  "material dan warna": "Ceritakan asal-usul bahan, proses ekstraksi, dan simbolisme budaya. Variasi: warna langka, material masa depan, dampak lingkungan, atau peran dalam seni/kekuasaan.",
+  "peta dan navigasi": "Bangun pemahaman bahwa peta adalah interpretasi, bukan fakta mutlak. Variasi: distorsi peta, navigator hebat yang tersesat, batas aneh, atau teknologi rahasia.",
+  "suara dan musik": "Jelaskan fisika getaran dan dampak emosional. Variasi: instrumen kuno, genre yang lahir dari konflik, rekaman bersejarah, atau fenomena suara alam misterius.",
+  "infrastruktur tersembunyi": "Bawa penonton ke 'bagian lain' kota yang tidak terlihat. Variasi: jaringan bawah tanah, proyek gagal, teknologi tua yang masih bekerja, atau dampak iklim.",
+  "ekologi mikro": "Ceritakan dunia mikro dengan gaya epik. Variasi: symbiosis aneh, satu spesies penghancur ekosistem, kemampuan adaptasi ekstrem, atau peran penting serangga.",
+  "ekonomi dan bisnis": "Gunakan kisah nyata perusahaan/produk untuk menjelaskan konsep ekonomi. Variasi: bubble, produk gagal, strategi harga psikologis, atau pasar gelap.",
+  psikologi: "Mulai dari skenario penonton bisa relate, lalu jelaskan mekanisme otak. Variasi: eksperimen kontroversial, bias kognitif, memori palsu, atau fenomena kerumunan.",
+  "hewan dan tumbuhan": "Soroti 'kemampuan super' alami dan proses evolusi. Variasi: pertahanan unik, symbiosis, spesies bangkit dari kepunahan, atau tumbuhan yang mengubah sejarah.",
+  "luar angkasa": "Gabungkan sensasi petualangan dengan fakta keras. Variasi: misi rahasia, kecelakaan tersembunyi, teknologi turunan, atau objek kosmis paling aneh.",
+  arsitektur: "Fokus pada satu detail struktur yang mencerminkan filosofi zaman. Variasi: kode tersembunyi, bangunan gagal, pengaruh agama/kekuasaan, atau material lokal.",
+  transportasi: "Ceritakan bagaimana kendaraan mengubah geografi dan gaya hidup. Variasi: kendaraan revolusioner yang gagal, rute mematikan, evolusi mesin, atau insiden yang mengubah regulasi.",
+  energi: "Jelaskan sumber energi dari 'sangat lokal' hingga geopolitik. Variasi: transisi yang hampir terjadi, bencana industri, inovasi hemat energi, atau bahan bakar masa depan.",
+  "matematika sehari-hari": "Temukan pola matematika di pengalaman umum. Variasi: statistik menipu, sistem satuan aneh, algoritma tak terlihat, atau bilangan yang sulit dibayangkan.",
+  "misteri sejarah": "Susun narasa investigasi tanpa memaksakan kesimpulan. Variasi: artefak aneh, peristiwa yang menghilang, kode baru terpecahkan, atau kematian tokoh mencurigakan."
+};
+
+const STORY_VARIATIONS = [
+  "Buka dengan paradoks atau fakta yang melawan intuisi, lalu jelaskan mekanismenya secara bertahap.",
+  "Susun sebagai kisah detektif: pertanyaan besar di awal, petunjuk di tengah, jawaban yang lebih kompleks di akhir.",
+  "Gunakan sudut pandang manusia biasa yang terkena dampak topik ini dalam kehidupan nyata.",
+  "Ceritakan evolusi dari masa lalu ke masa kini, lalu tebak dampak masa depan.",
+  "Bandingkan dua versi: mitos populer versus fakta ilmiah/sejarah.",
+  "Fokus pada konflik antarpihak: penemu vs peniru, tradisi vs modern, alam vs teknologi.",
+  "Ungkap tokoh/pinggiran yang berperan besar namanya terlupakan.",
+  "Jelaskan proses langkah demi langkah seolah penonton ikut melakukannya.",
+  "Bangun rasa skala dengan membandingkan ukuran/waktu dengan yang familiar.",
+  "Tutup dengan refleksi etis atau ajakan melihat topik dari sudut baru."
+];
+
+function storyNoteFor(category) {
+  const key = String(category || "").toLowerCase().trim();
+  return CATEGORY_STORY_NOTES[key]
+    || CATEGORY_STORY_NOTES[key.replace(/[^a-z0-9]/g, "")]
+    || "Buat naskah dokumenter mendalam dengan banyak detail faktual, beat naratif jelas, dan kesimpulan yang membuat penonton merasa lebih tahu.";
+}
+
+function pick(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+/**
  * Membuat draft naskah video panjang (landscape 16:9) memakai OpenAI GPT.
  * @param {object} rawInput - Parameter masukan dari user
  * @returns {Promise<object>} - Objek item naskah terstruktur
@@ -78,7 +133,7 @@ export async function createLongformDraft(rawInput) {
     .map((scene) => scene.narration)
     .join(" ");
   const outputText = JSON.stringify(normalized);
-  
+
   const cost = estimateTotalCost({
     promptText,
     outputText,
@@ -130,6 +185,8 @@ function normalizeInput(input) {
 }
 
 function buildPrompt(input) {
+  const categoryNote = storyNoteFor(input.category);
+  const variation = pick(STORY_VARIATIONS);
   return [
     "Buat naskah video dokumenter horizontal landscape (16:9) dalam Bahasa Indonesia untuk channel BanyakTau.",
     "Video berdurasi panjang, sehingga gaya bahasanya harus mendalam, analitis, kaya akan informasi, dan mengalir seperti esai dokumenter profesional.",
@@ -143,6 +200,8 @@ function buildPrompt(input) {
     "Scene reaction tidak memerlukan visualKeywords atau imagePrompt. Isi reactionCue dengan ekspresi yang cocok: heran, kaget, skeptis, menemukan petunjuk, atau setuju.",
     "Scene terakhir wajib bertipe summary dengan screenText 'Ringkasan Inti' dan narasi kesimpulan yang tidak kosong.",
     "Buat storyboard longform yang komprehensif: banyak beat kecil, punya fungsi naratif jelas, dan tidak terasa seperti storyboard Shorts.",
+    `CATATAN KATEGORI (${input.category}): ${categoryNote}`,
+    `VARIASI CERITA UNTUK NASKAH INI: ${variation}`,
     "Kembalikan JSON valid saja dengan format:",
     "{ title, hook, summary, importantPoints:[string], factCheckNote, scenes:[{ index, sceneType:'image'|'reaction'|'summary', durationSec, narration, screenText, visualKeywords, imagePrompt, chapter, beatPurpose, reactionCue }] }",
     "",

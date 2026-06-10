@@ -112,6 +112,9 @@ export const config = {
     preferVideo: boolDefault(process.env.PEXELS_PREFER_VIDEO, true),
     minDurationSec: Math.max(3, numberEnv("PEXELS_MIN_DURATION_SEC", 8)),
     maxResultsPerScene: Math.max(1, Math.min(15, numberEnv("PEXELS_MAX_RESULTS", 5)))
+  },
+  thumbnail: {
+    enabled: boolDefault(process.env.THUMBNAIL_GENERATION_ENABLED, true)
   }
 };
 

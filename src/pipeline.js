@@ -45,9 +45,14 @@ export async function generateFullItem(input = {}, options = {}) {
     warnings,
     strict: true
   });
-  reportProgress("thumbnail", "Membuat thumbnail", 20, "");
-  await ensureThumbnail(item, { warnings });
-  reportProgress("thumbnail", "Thumbnail siap", 100, "");
+  if (config.thumbnail?.enabled) {
+    reportProgress("thumbnail", "Membuat thumbnail", 20, "");
+    await ensureThumbnail(item, { warnings });
+    reportProgress("thumbnail", "Thumbnail siap", 100, "");
+  } else {
+    console.log("[Thumbnail] THUMBNAIL_GENERATION_ENABLED=false, skip generate thumbnail.");
+    reportProgress("thumbnail", "Thumbnail dilewati", 100, "manual mode");
+  }
   reportProgress("render", "Merender video (FFmpeg)", 5, "menyusun segmen");
   await renderAndPersist(item);
   reportProgress("render", "Render selesai", 100, "");
