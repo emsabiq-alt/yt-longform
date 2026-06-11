@@ -97,6 +97,8 @@ ENV_SECTIONS = [
         ("YOUTUBE_PRIVACY_STATUS", "Privacy (public/unlisted/private)", False),
         ("YOUTUBE_CATEGORY_ID", "Category ID", False),
         ("YOUTUBE_DAILY_UPLOAD_LIMIT", "Batas upload/hari", False),
+        ("YOUTUBE_PLAYLISTS", "Auto-Playlist (kategori:PLxxx,kategori2:PLyyy)", False),
+        ("YOUTUBE_DEFAULT_PLAYLIST_ID", "Default Playlist ID", False),
     ]),
     ("Hosting / SFTP", [
         ("PUBLIC_BASE_URL", "Public Base URL", False),
@@ -384,7 +386,17 @@ class YTStudioApp(ctk.CTk):
         self.f_topic = self._labeled_entry(body, "Topik (kosong = AI memilih)", 0, 0, span=3,
                                             placeholder="cth: Kenapa kapal baja bisa mengapung")
         self.f_category = self._labeled_combo(body, "Kategori", 1, 0,
-                                              ["random", "sains", "sejarah", "teknologi", "misteri", "bisnis"])
+                                              ["random", "sains", "penemuan", "sejarah",
+                                               "tubuh manusia", "alam semesta", "teknologi",
+                                               "benda sehari-hari", "tokoh dunia",
+                                               "bahasa dan budaya", "makanan dan dapur",
+                                               "material dan warna", "peta dan navigasi",
+                                               "suara dan musik", "infrastruktur tersembunyi",
+                                               "ekologi mikro", "ekonomi dan bisnis",
+                                               "psikologi", "hewan dan tumbuhan",
+                                               "luar angkasa", "arsitektur", "transportasi",
+                                               "energi", "matematika sehari-hari",
+                                               "misteri sejarah"])
         self.f_duration = self._labeled_combo(body, "Durasi (detik)", 1, 1,
                                               ["300", "360", "480", "600", "720"], default="360")
         self.f_scenes = self._labeled_combo(body, "Jumlah scene", 1, 2,
@@ -750,7 +762,12 @@ class YTStudioApp(ctk.CTk):
         dur = (it.get("assets") or {}).get("video", {}).get("durationSec")
         ctk.CTkLabel(card, text=f"Durasi: {fmt_dur(dur)}", font=(FONT, 11),
                      text_color=COLORS["muted"]).pack(anchor="w", padx=14)
-        yt = (it.get("publish") or {}).get("youtube", {}).get("url")
+        yt_data = (it.get("publish") or {}).get("youtube", {})
+        yt = yt_data.get("url")
+        playlist_id = yt_data.get("playlist")
+        if playlist_id:
+            ctk.CTkLabel(card, text=f"📂 Playlist: {playlist_id[:20]}...", font=(FONT, 10),
+                         text_color=COLORS["blue"]).pack(anchor="w", padx=14, pady=(2, 0))
         btn = ctk.CTkButton(card, text="▶ Buka YouTube" if yt else "Belum diupload",
                             height=32, corner_radius=8,
                             fg_color=COLORS["accent"] if yt else COLORS["panel"],

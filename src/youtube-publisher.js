@@ -21,7 +21,7 @@ function assertYoutubeConfig() {
 }
 
 function normalizeTitle(value) {
-  return clean(value).slice(0, 100) || "BanyakTau";
+  return clean(value).slice(0, 65) || "BanyakTau";
 }
 
 function normalizeDescription(value) {

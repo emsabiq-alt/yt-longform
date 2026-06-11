@@ -14,14 +14,28 @@ function titleCase(value) {
   return t ? t[0].toUpperCase() + t.slice(1) : t;
 }
 
-/** Judul: maksimal 100 char, menarik tapi tidak clickbait berlebihan. */
+/** Hapus awalan deskriptif yang membosankan agar judul langsung menggigit. */
+function cleanCuriosity(value) {
+  return value
+    .replace(/^(Mengapa|Bagaimana|Apa Itu|Penjelasan Tentang|Pembahasan|Analisis)\s+/i, "")
+    .replace(/\s*[—–-]\s*(Sebuah|Suatu)?\s*(Analisis|Pembahasan|Penjelasan|Studi).*$/i, "")
+    .trim();
+}
+
+/** Judul: maksimal 65 char, singkat padat bikin penasaran. */
 export function buildTitle(item) {
-  const base = oneLine(item.title || item.plan?.title || item.input?.topic || "Fakta Menarik", 100);
-  let title = titleCase(base);
-  if (title.length > 100) {
-    const cut = title.slice(0, 100);
-    title = cut.slice(0, cut.lastIndexOf(" ") > 60 ? cut.lastIndexOf(" ") : 100).trim();
+  const raw = oneLine(item.title || item.plan?.title || item.input?.topic || "Fakta Menarik", 100);
+  let title = titleCase(cleanCuriosity(raw));
+  // Potong di 65 karakter agar tampil penuh di YouTube search & mobile
+  if (title.length > 65) {
+    const cut = title.slice(0, 65);
+    const lastSpace = cut.lastIndexOf(" ");
+    title = (lastSpace > 35 ? cut.slice(0, lastSpace) : cut).trim();
+    // Pastikan tidak berakhir di kata sambung
+    title = title.replace(/\s+(yang|dan|di|ke|dari|untuk|pada|atau|ini|itu)$/i, "").trim();
   }
+  // Hapus tanda baca ganda di akhir
+  title = title.replace(/[?.!]{2,}$/, (m) => m[0]);
   return title;
 }
 

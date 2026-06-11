@@ -34,6 +34,23 @@ function trimSlash(value) {
   return clean(value).replace(/\/+$/g, "");
 }
 
+/**
+ * Parse "kategori:PLAYLIST_ID,kategori2:PLAYLIST_ID2" → Map
+ * Contoh env: YOUTUBE_PLAYLISTS=sains:PLxxxxxxx,sejarah:PLyyyyyyy
+ */
+function parsePlaylistMap(value) {
+  const map = new Map();
+  const pairs = clean(value).split(",").map((p) => p.trim()).filter(Boolean);
+  for (const pair of pairs) {
+    const sep = pair.indexOf(":");
+    if (sep <= 0) continue;
+    const category = pair.slice(0, sep).trim().toLowerCase();
+    const playlistId = pair.slice(sep + 1).trim();
+    if (category && playlistId) map.set(category, playlistId);
+  }
+  return map;
+}
+
 export const paths = {
   rootDir,
   dataDir: path.join(rootDir, "data"),
@@ -84,7 +101,9 @@ export const config = {
       .split(",").map((tag) => clean(tag)).filter(Boolean),
     customThumbnailEnabled: boolDefault(process.env.YOUTUBE_CUSTOM_THUMBNAIL_ENABLED, true),
     thumbnailUploadAttempts: Math.min(3, Math.max(1, numberEnv("YOUTUBE_THUMBNAIL_UPLOAD_ATTEMPTS", 1))),
-    dailyUploadLimit: Math.max(0, numberEnv("YOUTUBE_DAILY_UPLOAD_LIMIT", 2))
+    dailyUploadLimit: Math.max(0, numberEnv("YOUTUBE_DAILY_UPLOAD_LIMIT", 2)),
+    defaultPlaylistId: clean(process.env.YOUTUBE_DEFAULT_PLAYLIST_ID),
+    playlists: parsePlaylistMap(process.env.YOUTUBE_PLAYLISTS || "")
   },
   pricing: {
     storyInputUsdPer1MTokens: numberEnv("STORY_INPUT_USD_PER_1M_TOKENS", 0.4),

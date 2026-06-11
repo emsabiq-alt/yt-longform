@@ -5,7 +5,8 @@ import { buildTitle, buildDescription, formatMetaForCopy } from "./youtube-meta.
 import { generateFullItem } from "./pipeline.js";
 import { absolutizeGeneratedUrls, publicBaseUrl, remoteEnabled, uploadGeneratedStateAndAssets } from "./remote.js";
 import { listContextItems, mergeMemoryItems, saveItem } from "./storage.js";
-import { publishToYoutube } from "./youtube-publisher.js";
+import { publishToYoutube, getYoutubeAccessToken } from "./youtube-publisher.js";
+import { addToPlaylistByCategory } from "./youtube-playlist.js";
 
 function argValue(name, fallback = "") {
   const index = process.argv.indexOf(name);
@@ -128,9 +129,31 @@ async function publishYoutubeIfEnabled(result) {
       tags: [item.input?.category, item.input?.topic].filter(Boolean),
       thumbnailPath: item.assets?.thumbnail?.path || ""
     });
+
+    // Auto-playlist: masukkan video ke playlist berdasarkan kategori
+    let playlistResult = { ok: false, skipped: true, error: "" };
+    if (published.videoId) {
+      try {
+        const accessToken = await getYoutubeAccessToken();
+        playlistResult = await addToPlaylistByCategory({
+          videoId: published.videoId,
+          category: item.input?.category || "",
+          accessToken
+        });
+      } catch (error) {
+        playlistResult = { ok: false, error: error.message };
+        console.warn(`[Playlist] ${error.message}`);
+      }
+    }
+
     item.publish = {
       ...(item.publish || {}),
-      youtube: { ...published, publishedAt: new Date().toISOString() }
+      youtube: {
+        ...published,
+        publishedAt: new Date().toISOString(),
+        playlist: playlistResult.ok ? playlistResult.playlistId : null,
+        playlistError: playlistResult.ok || playlistResult.skipped ? "" : playlistResult.error
+      }
     };
     await saveItem(item);
     await mergeMemoryItems([item]);

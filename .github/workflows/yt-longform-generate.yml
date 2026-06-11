@@ -105,6 +105,10 @@ jobs:
       YOUTUBE_CUSTOM_THUMBNAIL_ENABLED: ${{ secrets.YOUTUBE_CUSTOM_THUMBNAIL_ENABLED || 'true' }}
       YOUTUBE_THUMBNAIL_UPLOAD_ATTEMPTS: ${{ secrets.YOUTUBE_THUMBNAIL_UPLOAD_ATTEMPTS || '1' }}
       YOUTUBE_DAILY_UPLOAD_LIMIT: ${{ secrets.YOUTUBE_DAILY_UPLOAD_LIMIT || '2' }}
+      YOUTUBE_PLAYLISTS: ${{ secrets.YOUTUBE_PLAYLISTS || '' }}
+      YOUTUBE_DEFAULT_PLAYLIST_ID: ${{ secrets.YOUTUBE_DEFAULT_PLAYLIST_ID || '' }}
+
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
 
     steps:
       - uses: actions/checkout@v5
