@@ -18,7 +18,21 @@ const PLAYLIST_ITEMS_URL = "https://www.googleapis.com/youtube/v3/playlistItems"
  * @returns {string|null} - Playlist ID atau null jika tidak ditemukan
  */
 export function resolvePlaylistId(category) {
-  const key = String(category || "").trim().toLowerCase();
+  let key = String(category || "").trim().toLowerCase();
+
+  // Group subcategories to match main playlist groups
+  if (key.includes("sain") || key.includes("alam") || key.includes("tubuh") || key.includes("ekologi")) {
+    key = "sains";
+  } else if (key.includes("sejarah") || key.includes("tokoh") || key.includes("budaya")) {
+    key = "sejarah";
+  } else if (key.includes("teknologi") || key.includes("penemuan") || key.includes("material") || key.includes("benda") || key.includes("peta")) {
+    key = "teknologi";
+  } else if (key.includes("bisnis")) {
+    key = "bisnis";
+  } else if (key.includes("misteri")) {
+    key = "misteri";
+  }
+
   const playlists = config.youtube.playlists;
 
   // Exact match dulu
