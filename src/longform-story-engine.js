@@ -181,6 +181,8 @@ function normalizeInput(input) {
   return {
     topic: cleanText(input.topic || "Fakta menarik yang jarang diketahui orang", 260),
     category: cleanText(input.category && input.category !== "random" ? input.category : "umum", 80),
+    angle: cleanText(input.angle || "asal-usul yang jarang diketahui", 80),
+    formatType: cleanText(input.formatType || "dokumenter_klasik", 40),
     tone: cleanText(input.tone || "narrator, serius tapi menarik, informatif, mendalam, seperti video dokumenter Vox atau Lemmino", 180),
     durationSec,
     sceneCount,
