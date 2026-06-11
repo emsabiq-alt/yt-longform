@@ -116,7 +116,7 @@ async function publishYoutubeIfEnabled(result) {
   if (!config.youtube.enabled) return;
   const item = result.item;
   try {
-    if (await youtubeDailyLimitReached()) {
+    if (!force && await youtubeDailyLimitReached()) {
       const message = `Batas upload YouTube harian tercapai (${config.youtube.dailyUploadLimit}/hari).`;
       result.warnings.push(message);
       console.warn(message);
