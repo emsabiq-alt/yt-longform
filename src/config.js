@@ -88,7 +88,7 @@ export const config = {
   elevenlabs: {
     apiKey: process.env.ELEVENLABS_API_KEY || "",
     model: clean(process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2"),
-    voiceId: clean(process.env.ELEVENLABS_VOICE_ID || "KKXAp01L2aZHbsBTR7QG")
+    voiceId: clean(process.env.ELEVENLABS_VOICE_ID || "hgr2kw1PROld0DDezSZ6")
   },
   youtube: {
     enabled: bool(process.env.YOUTUBE_UPLOAD_ENABLED),
