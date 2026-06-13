@@ -48,6 +48,11 @@ export function boolInput(value, fallback = false) {
   return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
 }
 
+function numberEnv(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) ? value : fallback;
+}
+
 // ---------------- Auth ----------------
 export function requireAuth(req, res) {
   const expected = clean(process.env.AUTO_DASHBOARD_PIN);
@@ -160,7 +165,8 @@ export function configSummary() {
     ttsModel: clean(process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts"),
     ttsVoice: clean(process.env.OPENAI_TTS_VOICE || "cedar"),
     ttsProvider: clean(process.env.YT_TTS_PROVIDER || "elevenlabs"),
-    elevenlabsVoiceId: clean(process.env.ELEVENLABS_VOICE_ID || "hgr2kw1PROld0DDezSZ6"),
+    elevenlabsVoiceId: clean(process.env.ELEVENLABS_VOICE_ID || "wUrGnU2Kx934kbDdOWDo"),
+    elevenlabsSpeed: Math.min(1.2, Math.max(0.7, numberEnv("ELEVENLABS_SPEED", 1.08))),
     storyModel: clean(process.env.STORY_MODEL || "gpt-4.1-mini"),
     imageModel: clean(process.env.IMAGE_MODEL || "gpt-image-1-mini"),
     workflow: clean(process.env.DASHBOARD_WORKFLOW_FILE || process.env.YT_WORKFLOW_FILE || "yt-longform-generate.yml"),
@@ -225,6 +231,12 @@ export async function dispatchWorkflow(inputs) {
 // ---------------- Queue helpers ----------------
 export function buildQueueItem(input) {
   const now = new Date().toISOString();
+  const ttsProvider = clean(input.ttsProvider || "elevenlabs").toLowerCase() === "openai"
+    ? "openai"
+    : "elevenlabs";
+  const defaultTtsVoice = ttsProvider === "elevenlabs"
+    ? process.env.ELEVENLABS_VOICE_ID || "wUrGnU2Kx934kbDdOWDo"
+    : process.env.OPENAI_TTS_VOICE || "cedar";
   return {
     id: input.id || makeId("q"),
     topic: clean(input.topic),
@@ -232,8 +244,8 @@ export function buildQueueItem(input) {
     formatType: clean(input.formatType || input.format_type || ""),
     durationSec: Number(input.durationSec || process.env.YT_DURATION_SEC || 360),
     sceneCount: Number(input.sceneCount || process.env.YT_SCENE_COUNT || 14),
-    ttsProvider: clean(input.ttsProvider || "openai"),
-    ttsVoice: clean(input.ttsVoice || process.env.OPENAI_TTS_VOICE || "cedar"),
+    ttsProvider,
+    ttsVoice: clean(input.ttsVoice || defaultTtsVoice),
     imageQuality: clean(input.imageQuality || "low"),
     priority: Number(input.priority || 1),
     status: clean(input.status || "pending"),

@@ -658,17 +658,31 @@ function resolveSceneMedia(item, scene) {
   return { type: "image", path: image.path };
 }
 
-async function makeVideoSegment({ videoPath, outputPath, duration }) {
-  const filterComplex = [
+export async function makeVideoSegment({ videoPath, outputPath, duration }) {
+  const overlayPath = config.pexels.overlayEnabled ? config.pexels.overlayPath : "";
+  const hasOverlay = overlayPath && await fileExists(overlayPath);
+  const baseFilters = [
     "[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=contrast=1.04:saturation=1.06:brightness=0.01,vignette[bg]",
     "color=c=0xFF8833:s=1280x720:d=1,format=rgba,colorchannelmixer=aa=0.35,fade=t=out:st=0:d=0.7:alpha=1[leak]",
-    "[bg][leak]overlay=format=auto[outv]"
-  ].join(";");
+    "[bg][leak]overlay=format=auto[styled]"
+  ];
+  const filterComplex = hasOverlay
+    ? [
+        ...baseFilters,
+        `[1:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,format=rgba,colorkey=0x000000:${config.pexels.blackKeySimilarity.toFixed(3)}:${config.pexels.blackKeyBlend.toFixed(3)},colorchannelmixer=aa=${config.pexels.overlayOpacity.toFixed(3)}[sparks]`,
+        "[styled][sparks]overlay=shortest=1:format=auto[outv]"
+      ].join(";")
+    : [...baseFilters, "[styled]null[outv]"].join(";");
+
+  if (config.pexels.overlayEnabled && !hasOverlay) {
+    throw new Error(`Overlay Pexels tidak ditemukan: ${overlayPath}`);
+  }
 
   await runFfmpeg([
     "-y",
     "-stream_loop", "-1",
     "-i", videoPath,
+    ...(hasOverlay ? ["-stream_loop", "-1", "-i", overlayPath] : []),
     "-t", String(duration),
     "-filter_complex", filterComplex,
     "-map", "[outv]",
@@ -755,10 +769,11 @@ async function concatSegments(segmentPaths, outputPath) {
 
 async function burnSubtitles({ inputPath, assPath, outputPath }) {
   const subtitlePath = filterPath(path.relative(paths.rootDir, assPath));
+  const fontDir = filterPath(path.relative(paths.rootDir, paths.fontDir));
   await runFfmpeg([
     "-y",
     "-i", inputPath,
-    "-vf", `ass=filename='${subtitlePath}'`,
+    "-vf", `ass=filename='${subtitlePath}':fontsdir='${fontDir}'`,
     "-c:v", "libx264",
     "-preset", "veryfast",
     "-crf", "21",
@@ -1211,6 +1226,15 @@ function filterPath(filePath) {
     .replace(/\\/g, "/")
     .replace(/'/g, "\\'")
     .replace(/^([A-Za-z]):/, "$1\\\\:");
+}
+
+async function fileExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function atempoFilters(tempo) {

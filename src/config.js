@@ -61,6 +61,7 @@ export const paths = {
   videoDir: path.join(rootDir, "generated", "videos"),
   clipsDir: path.join(rootDir, "generated", "clips"),
   workDir: path.join(rootDir, "generated", "work"),
+  fontDir: path.join(rootDir, "assets", "fonts"),
   publicDir: path.join(rootDir, "public")
 };
 
@@ -88,7 +89,8 @@ export const config = {
   elevenlabs: {
     apiKey: process.env.ELEVENLABS_API_KEY || "",
     model: clean(process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2"),
-    voiceId: clean(process.env.ELEVENLABS_VOICE_ID || "hgr2kw1PROld0DDezSZ6")
+    voiceId: clean(process.env.ELEVENLABS_VOICE_ID || "wUrGnU2Kx934kbDdOWDo"),
+    speed: Math.min(1.2, Math.max(0.7, numberEnv("ELEVENLABS_SPEED", 1.08)))
   },
   youtube: {
     enabled: bool(process.env.YOUTUBE_UPLOAD_ENABLED),
@@ -117,8 +119,8 @@ export const config = {
   },
   render: {
     fontTitle: clean(process.env.RENDER_TITLE_FONT || "Bebas Neue"),
-    fontBody: clean(process.env.RENDER_BODY_FONT || "Segoe UI Semibold"),
-    fontMono: clean(process.env.RENDER_MONO_FONT || "Cascadia Code"),
+    fontBody: clean(process.env.RENDER_BODY_FONT || "Noto Sans"),
+    fontMono: clean(process.env.RENDER_MONO_FONT || "JetBrains Mono"),
     speechTempo: Math.min(1.3, Math.max(0.9, numberEnv("SPEECH_TEMPO", 1.0)))
   },
   automation: {
@@ -133,7 +135,12 @@ export const config = {
     apiKey: process.env.PEXELS_API_KEY || "",
     preferVideo: boolDefault(process.env.PEXELS_PREFER_VIDEO, true),
     minDurationSec: Math.max(3, numberEnv("PEXELS_MIN_DURATION_SEC", 8)),
-    maxResultsPerScene: Math.max(1, Math.min(15, numberEnv("PEXELS_MAX_RESULTS", 5)))
+    maxResultsPerScene: Math.max(1, Math.min(15, numberEnv("PEXELS_MAX_RESULTS", 5))),
+    overlayEnabled: boolDefault(process.env.PEXELS_OVERLAY_ENABLED, true),
+    overlayPath: clean(process.env.PEXELS_OVERLAY_PATH || path.join(rootDir, "assets", "overlays", "fire-sparks-black.mp4")),
+    overlayOpacity: Math.min(1, Math.max(0.05, numberEnv("PEXELS_OVERLAY_OPACITY", 0.55))),
+    blackKeySimilarity: Math.min(1, Math.max(0.01, numberEnv("PEXELS_BLACK_KEY_SIMILARITY", 0.16))),
+    blackKeyBlend: Math.min(1, Math.max(0, numberEnv("PEXELS_BLACK_KEY_BLEND", 0.08)))
   },
   thumbnail: {
     enabled: boolDefault(process.env.THUMBNAIL_GENERATION_ENABLED, true)
@@ -144,6 +151,12 @@ export function publicConfig() {
   return {
     port: config.port,
     publicBaseUrl: config.publicBaseUrl,
+    durationSec: config.automation.durationSec,
+    sceneCount: config.automation.sceneCount,
+    ttsProvider: clean(process.env.YT_TTS_PROVIDER || "elevenlabs"),
+    ttsVoice: config.openai.ttsVoice,
+    elevenlabsVoiceId: config.elevenlabs.voiceId,
+    elevenlabsSpeed: config.elevenlabs.speed,
     providers: {
       openai: Boolean(config.openai.apiKey),
       openaiBaseUrl: config.openai.baseUrl,
@@ -157,6 +170,7 @@ export function publicConfig() {
       openaiTranscribeModel: config.openai.transcribeModel,
       elevenlabsModel: config.elevenlabs.model,
       elevenlabsVoiceId: config.elevenlabs.voiceId,
+      elevenlabsSpeed: config.elevenlabs.speed,
       youtubeUploadEnabled: config.youtube.enabled,
       youtubeClientIdSet: bool(config.youtube.clientId),
       youtubeRefreshTokenSet: bool(config.youtube.refreshToken),
@@ -193,6 +207,10 @@ export async function updateRuntimeSettings(input = {}) {
   }
   const speechTempo = Number(input.speechTempo);
   if (Number.isFinite(speechTempo)) updates.SPEECH_TEMPO = String(Math.min(1.3, Math.max(0.9, speechTempo)));
+  const elevenlabsSpeed = Number(input.elevenlabsSpeed);
+  if (Number.isFinite(elevenlabsSpeed)) {
+    updates.ELEVENLABS_SPEED = String(Math.min(1.2, Math.max(0.7, elevenlabsSpeed)));
+  }
 
   if (Object.keys(updates).length) {
     await writeEnvUpdates(updates);
@@ -236,6 +254,7 @@ function applyConfigUpdates(updates) {
   if (updates.ELEVENLABS_API_KEY !== undefined) config.elevenlabs.apiKey = updates.ELEVENLABS_API_KEY;
   if (updates.ELEVENLABS_MODEL !== undefined) config.elevenlabs.model = updates.ELEVENLABS_MODEL;
   if (updates.ELEVENLABS_VOICE_ID !== undefined) config.elevenlabs.voiceId = updates.ELEVENLABS_VOICE_ID;
+  if (updates.ELEVENLABS_SPEED !== undefined) config.elevenlabs.speed = Number(updates.ELEVENLABS_SPEED);
   if (updates.SPEECH_TEMPO !== undefined) config.render.speechTempo = Number(updates.SPEECH_TEMPO);
   if (updates.PEXELS_API_KEY !== undefined) config.pexels.apiKey = updates.PEXELS_API_KEY;
 }

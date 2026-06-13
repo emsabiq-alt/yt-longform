@@ -147,16 +147,17 @@ function updateVoiceDropdown() {
 
   if (provider === "elevenlabs") {
     voiceSelect.innerHTML = `
+      <option value="wUrGnU2Kx934kbDdOWDo">Default ElevenLabs (Baru)</option>
       <option value="hgr2kw1PROld0DDezSZ6">Sabiq (Cloned)</option>
       <option value="KKXAp01L2aZHbsBTR7QG">Sabiq (Podcast/Voice over)</option>
       <option value="4163SRsAG711aPjxNcPF">Sabiq (Instant)</option>
       <option value="pFZP5JQG7iQjIQuC4Bku">Lily (Premade)</option>
     `;
-    const voiceIds = ["hgr2kw1PROld0DDezSZ6", "KKXAp01L2aZHbsBTR7QG", "4163SRsAG711aPjxNcPF", "pFZP5JQG7iQjIQuC4Bku"];
+    const voiceIds = ["wUrGnU2Kx934kbDdOWDo", "hgr2kw1PROld0DDezSZ6", "KKXAp01L2aZHbsBTR7QG", "4163SRsAG711aPjxNcPF", "pFZP5JQG7iQjIQuC4Bku"];
     if (voiceIds.includes(currentVal)) {
       voiceSelect.value = currentVal;
     } else {
-      voiceSelect.value = STATE.config?.elevenlabsVoiceId || "hgr2kw1PROld0DDezSZ6";
+      voiceSelect.value = STATE.config?.elevenlabsVoiceId || "wUrGnU2Kx934kbDdOWDo";
     }
   } else {
     voiceSelect.innerHTML = `

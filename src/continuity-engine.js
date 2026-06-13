@@ -9,6 +9,17 @@ import { cleanText } from "./util.js";
 const SIMILARITY_THRESHOLD = 0.5;
 const COMBO_LOOKBACK = 15;
 const TITLE_SIMILARITY_THRESHOLD = 0.55;
+const SUBJECT_STOP_WORDS = new Set([
+  "fakta", "rahasia", "misteri", "kisah", "cerita", "sejarah", "politik",
+  "kolonial", "dunia", "indonesia", "belanda", "jawa", "manusia", "orang",
+  "peran", "dampak", "keputusan", "tersembunyi", "terungkap", "salah",
+  "tentang", "dalam", "antara", "menjadi", "membuat", "mengubah", "pertama",
+  "terakhir", "terbesar", "terdalam", "sebenarnya", "utama", "modern",
+  "kenapa", "mengapa", "bagaimana", "semua", "alasan", "baterai", "bahasa",
+  "warna", "energi", "teknologi", "makanan", "material", "suara", "musik",
+  "hewan", "tumbuhan", "tubuh", "langit", "bintang", "planet", "lautan",
+  "samudra", "sistem", "angka", "waktu"
+]);
 
 function normalizeTitle(value) {
   return String(value || "")
@@ -32,6 +43,23 @@ function keywordSet(value) {
   );
 }
 
+function subjectSet(value) {
+  return new Set(
+    [...keywordSet(value)]
+      .filter((word) => word.length >= 5 && !SUBJECT_STOP_WORDS.has(word))
+  );
+}
+
+function namedSubjectSet(value) {
+  const words = String(value || "").match(/[A-Za-z\u00C0-\u024F][A-Za-z\u00C0-\u024F'-]*/g) || [];
+  return new Set(
+    words
+      .filter((word) => word.length >= 5 && /^[A-Z\u00C0-\u00DE]/.test(word))
+      .map((word) => normalizeTitle(word))
+      .filter((word) => word && !SUBJECT_STOP_WORDS.has(word))
+  );
+}
+
 function similarity(aSet, bSet) {
   if (!aSet.size || !bSet.size) return 0;
   let inter = 0;
@@ -43,13 +71,24 @@ export async function loadHistory(limit = 100) {
   try {
     const items = await listContextItems();
     return (items || [])
-      .map((it) => ({
-        topic: cleanText(it.input?.topic || it.topic || it.title || "", 160),
-        title: cleanText(it.title || "", 100),
-        category: cleanText(it.input?.category || it.category || "", 80),
-        angle: cleanText(it.input?.angle || it.angle || "", 80),
-        formatType: cleanText(it.input?.formatType || it.formatType || "", 40)
-      }))
+      .map((it) => {
+        const topic = cleanText(it.input?.topic || it.topic || it.title || "", 160);
+        const title = cleanText(it.title || "", 100);
+        const hook = cleanText(it.plan?.hook || it.hook || "", 240);
+        const summary = cleanText(it.plan?.summary || it.summary || "", 360);
+        const importantPoints = (it.plan?.importantPoints || it.importantPoints || [])
+          .map((point) => cleanText(point, 180))
+          .filter(Boolean)
+          .slice(0, 5);
+        return {
+          topic,
+          title,
+          category: cleanText(it.input?.category || it.category || "", 80),
+          angle: cleanText(it.input?.angle || it.angle || "", 80),
+          formatType: cleanText(it.input?.formatType || it.formatType || "", 40),
+          subjectText: [topic, title, hook, summary, ...importantPoints].filter(Boolean).join(" ")
+        };
+      })
       .filter((it) => it.topic)
       .slice(0, limit);
   } catch {
@@ -69,6 +108,9 @@ export function checkFreshness(candidate, history, options = {}) {
   const candNorm = normalizeTitle(candidate.topic);
   const candKeywords = keywordSet(candidate.topic);
   const candTitleKeywords = keywordSet(candidate.title || candidate.topic);
+  const candidateSubjectText = [candidate.topic, candidate.title].filter(Boolean).join(" ");
+  const candSubjects = subjectSet(candidateSubjectText);
+  const candNamedSubjects = namedSubjectSet(candidateSubjectText);
 
   const recentHistory = history.slice(0, comboLookback);
 
@@ -85,6 +127,9 @@ export function checkFreshness(candidate, history, options = {}) {
 
     // Kombinasi category + angle + formatType sama
     if (
+      candidate.category &&
+      candidate.angle &&
+      candidate.formatType &&
       past.category === candidate.category &&
       past.angle === candidate.angle &&
       past.formatType === candidate.formatType
@@ -93,8 +138,21 @@ export function checkFreshness(candidate, history, options = {}) {
     }
   }
 
-  // Cek judul mirip di seluruh history
+  // Subjek utama dan judul diperiksa terhadap seluruh history, bukan hanya lookback.
   for (const past of history) {
+    const pastSubjectText = `${past.topic} ${past.title || ""}`;
+    const pastSubjects = subjectSet(pastSubjectText);
+    const pastNamedSubjects = namedSubjectSet(pastSubjectText);
+    const sharedSubjects = [...candSubjects].filter((word) => pastSubjects.has(word));
+    const sharedNamedSubjects = [...candNamedSubjects].filter((word) => pastNamedSubjects.has(word));
+    if (sharedNamedSubjects.length || sharedSubjects.length >= 2) {
+      const blockedSubjects = sharedNamedSubjects.length ? sharedNamedSubjects : sharedSubjects;
+      return {
+        isFresh: false,
+        reason: `subjek "${blockedSubjects.join(", ")}" sudah pernah dibahas: "${past.title || past.topic}"`,
+        similarItem: past
+      };
+    }
     if (similarity(candTitleKeywords, keywordSet(past.title)) >= titleThreshold) {
       return { isFresh: false, reason: `judul terlalu mirip dengan: "${past.title}"`, similarItem: past };
     }

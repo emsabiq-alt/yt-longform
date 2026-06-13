@@ -28,7 +28,8 @@ export async function generateElevenLabsSpeech({ itemId, text, voiceId, modelId,
         stability: 0.42,
         similarity_boost: 0.78,
         style: 0.34,
-        use_speaker_boost: true
+        use_speaker_boost: true,
+        speed: config.elevenlabs.speed
       }
     })
   });

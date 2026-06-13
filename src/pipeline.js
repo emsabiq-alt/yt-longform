@@ -29,7 +29,7 @@ export async function generateFullItem(input = {}, options = {}) {
     category: input.category || "random",
     durationSec: input.durationSec || config.automation.durationSec,
     sceneCount: input.sceneCount || config.automation.sceneCount,
-    ttsProvider: input.ttsProvider || "openai",
+    ttsProvider: input.ttsProvider || "elevenlabs",
     imageQuality: input.imageQuality || config.openai.imageQuality
   }, { existingItems });
   await saveItem(item);
@@ -176,7 +176,7 @@ export async function ensureImages(item, options = {}) {
  */
 export async function ensureLongformSceneAudio(item, options = {}) {
   const warnings = options.warnings || [];
-  const provider = String(options.provider || item.input.ttsProvider || "openai").toLowerCase() === "elevenlabs"
+  const provider = String(options.provider || item.input.ttsProvider || "elevenlabs").toLowerCase() === "elevenlabs"
     ? "elevenlabs"
     : "openai";
   const scenes = item.plan?.scenes || [];

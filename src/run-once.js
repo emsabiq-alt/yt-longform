@@ -20,12 +20,17 @@ function boolValue(value, fallback = false) {
 
 ensureProjectDirs();
 
+const ttsProvider = argValue("--tts-provider", process.env.YT_TTS_PROVIDER || "elevenlabs");
+const defaultTtsVoice = String(ttsProvider).toLowerCase() === "elevenlabs"
+  ? config.elevenlabs.voiceId
+  : config.openai.ttsVoice;
+
 const input = {
   topic: argValue("--topic", process.env.YT_TOPIC || ""),
   category: argValue("--category", process.env.YT_CATEGORY || "random"),
   formatType: argValue("--format-type", process.env.YT_FORMAT_TYPE || ""),
-  ttsProvider: argValue("--tts-provider", process.env.YT_TTS_PROVIDER || "openai"),
-  ttsVoice: argValue("--tts-voice", process.env.YT_TTS_VOICE || config.openai.ttsVoice),
+  ttsProvider,
+  ttsVoice: argValue("--tts-voice", process.env.YT_TTS_VOICE || defaultTtsVoice),
   durationSec: Number(argValue("--duration", process.env.YT_DURATION_SEC || String(config.automation.durationSec))),
   sceneCount: Number(argValue("--scenes", process.env.YT_SCENE_COUNT || String(config.automation.sceneCount))),
   imageQuality: argValue("--image-quality", process.env.IMAGE_QUALITY || config.openai.imageQuality),

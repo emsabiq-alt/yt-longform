@@ -22,11 +22,11 @@ on:
       tts_provider:
         description: openai or elevenlabs
         required: false
-        default: openai
+        default: elevenlabs
       tts_voice:
         description: TTS voice
         required: false
-        default: cedar
+        default: wUrGnU2Kx934kbDdOWDo
       image_quality:
         description: low, medium, high
         required: false
@@ -82,9 +82,15 @@ jobs:
       OPENAI_TRANSCRIBE_MODEL: ${{ secrets.OPENAI_TRANSCRIBE_MODEL || 'whisper-1' }}
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
       ELEVENLABS_MODEL: ${{ secrets.ELEVENLABS_MODEL || 'eleven_multilingual_v2' }}
-      ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
+      ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID || 'wUrGnU2Kx934kbDdOWDo' }}
+      ELEVENLABS_SPEED: ${{ secrets.ELEVENLABS_SPEED || '1.08' }}
 
       SPEECH_TEMPO: ${{ secrets.SPEECH_TEMPO || '1.0' }}
+      RENDER_TITLE_FONT: Bebas Neue
+      RENDER_BODY_FONT: Noto Sans
+      RENDER_MONO_FONT: JetBrains Mono
+      YT_TTS_PROVIDER: ${{ secrets.YT_TTS_PROVIDER || 'elevenlabs' }}
+      YT_TTS_VOICE: ${{ secrets.YT_TTS_VOICE || secrets.ELEVENLABS_VOICE_ID || 'wUrGnU2Kx934kbDdOWDo' }}
       YT_TIME_ZONE: ${{ secrets.YT_TIME_ZONE || 'Asia/Bangkok' }}
       YT_DAILY_GENERATE_LIMIT: ${{ secrets.YT_DAILY_GENERATE_LIMIT || '1' }}
       YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '360' }}
@@ -109,6 +115,10 @@ jobs:
       YOUTUBE_DEFAULT_PLAYLIST_ID: ${{ secrets.YOUTUBE_DEFAULT_PLAYLIST_ID || '' }}
 
       PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      PEXELS_OVERLAY_ENABLED: ${{ secrets.PEXELS_OVERLAY_ENABLED || 'true' }}
+      PEXELS_OVERLAY_OPACITY: ${{ secrets.PEXELS_OVERLAY_OPACITY || '0.55' }}
+      PEXELS_BLACK_KEY_SIMILARITY: ${{ secrets.PEXELS_BLACK_KEY_SIMILARITY || '0.16' }}
+      PEXELS_BLACK_KEY_BLEND: ${{ secrets.PEXELS_BLACK_KEY_BLEND || '0.08' }}
 
       YOUTUBE_DATA_API_KEY: ${{ secrets.YOUTUBE_DATA_API_KEY }}
       YOUTUBE_TRENDING_ENABLED: ${{ secrets.YOUTUBE_TRENDING_ENABLED || 'true' }}
@@ -122,6 +132,16 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: package-lock.json
+
+      - name: Restore topic history
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/items.json
+            data/memory.json
+          key: yt-longform-history-${{ github.run_id }}
+          restore-keys: |
+            yt-longform-history-
 
       - name: Check FFmpeg
         id: ffmpeg
@@ -161,3 +181,12 @@ jobs:
             --image-quality "${{ github.event.inputs.image_quality }}" \
             --format-type "${{ github.event.inputs.format_type }}" \
             --force "${{ github.event.inputs.force }}"
+
+      - name: Save topic history
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/items.json
+            data/memory.json
+          key: yt-longform-history-${{ github.run_id }}

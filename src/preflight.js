@@ -30,6 +30,12 @@ export async function runPreflight() {
   }
 
   checks.push(await checkFile("background_music", path.join(paths.rootDir, "assets", "music", "Marimba Curiosity Case (5 Minute Version).mp3")));
+  checks.push(await checkFile("font_title", path.join(paths.fontDir, "BebasNeue-Regular.ttf")));
+  checks.push(await checkFile("font_body", path.join(paths.fontDir, "NotoSans-Variable.ttf")));
+  checks.push(await checkFile("font_mono", path.join(paths.fontDir, "JetBrainsMono-Variable.ttf")));
+  if (config.pexels.overlayEnabled) {
+    checks.push(await checkFile("pexels_overlay", config.pexels.overlayPath));
+  }
 
   const failed = checks.filter((check) => !check.ok);
   return {

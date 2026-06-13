@@ -6,14 +6,20 @@ export default async function handler(req, res) {
 
   try {
     const body = await readBody(req);
+    const ttsProvider = clean(body.ttsProvider || "elevenlabs").toLowerCase() === "openai"
+      ? "openai"
+      : "elevenlabs";
+    const defaultTtsVoice = ttsProvider === "elevenlabs"
+      ? process.env.ELEVENLABS_VOICE_ID || "wUrGnU2Kx934kbDdOWDo"
+      : process.env.OPENAI_TTS_VOICE || "cedar";
     const inputs = {
       topic: clean(body.topic || ""),
       category: clean(body.category || "random"),
       format_type: clean(body.formatType || body.format_type || ""),
       duration: clean(body.durationSec || body.duration || process.env.YT_DURATION_SEC || "360"),
       scenes: clean(body.sceneCount || body.scenes || process.env.YT_SCENE_COUNT || "14"),
-      tts_provider: clean(body.ttsProvider || "openai"),
-      tts_voice: clean(body.ttsVoice || process.env.OPENAI_TTS_VOICE || "cedar"),
+      tts_provider: ttsProvider,
+      tts_voice: clean(body.ttsVoice || defaultTtsVoice),
       image_quality: clean(body.imageQuality || "low"),
       force: body.force === true || body.force === "true" ? "true" : "false"
     };

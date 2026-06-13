@@ -10,6 +10,8 @@
     "preflight": "node src/preflight.js",
     "run:once": "node src/run-once.js",
     "rerender": "node src/rerender.js",
+    "test:continuity": "node scripts/test-continuity.js",
+    "test:overlay": "node scripts/test-pexels-overlay.js",
     "patch:pureimage": "node scripts/patch-pureimage.js",
     "postinstall": "node -e \"try{require('fs').accessSync('scripts/patch-pureimage.js');require('child_process').execSync('node scripts/patch-pureimage.js',{stdio:'inherit'})}catch(e){console.log('skip patch-pureimage (not needed in this environment)')}\"",
     "check": "node --check src/server.js && node --check src/config.js && node --check src/progress.js && node --check src/pipeline.js && node --check src/longform-render.js && node --check src/topic-engine.js && node --check src/longform-story-engine.js && node --check src/openai.js && node --check src/elevenlabs.js && node --check src/pexels.js && node --check src/youtube-meta.js && node --check src/youtube-publisher.js && node --check src/youtube-playlist.js && node --check src/youtube-trends.js && node --check src/remote.js && node --check src/storage.js && node --check src/thumbnail.js && node --check src/cost.js && node --check src/util.js && node --check src/run-once.js && node --check src/rerender.js && node --check src/preflight.js && node --check api/_utils.js && node --check api/auth.js && node --check api/state.js && node --check api/run.js && node --check api/queue.js && node --check api/preflight.js"

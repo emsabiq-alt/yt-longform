@@ -7,7 +7,6 @@
  */
 
 import { requestIdeaJson } from "./openai.js";
-import { listContextItems } from "./storage.js";
 import { cleanText } from "./util.js";
 import { FORMAT_TYPES, pickFormatType } from "./format-engine.js";
 import { loadHistory, checkFreshness, pickFreshIdeaFromBatch } from "./continuity-engine.js";
@@ -233,43 +232,12 @@ function pick(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
-function normalizeTitle(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\u00C0-\u024F ]+/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Token signifikan dari sebuah judul/topik untuk deteksi kemiripan. */
-function keywordSet(value) {
-  const stop = new Set([
-    "yang", "dan", "di", "ke", "dari", "untuk", "pada", "kenapa", "mengapa",
-    "bisa", "adalah", "itu", "ini", "apa", "bagaimana", "the", "of", "a", "an",
-    "padahal", "ternyata", "saja", "dengan", "atau", "juga", "para"
-  ]);
-  return new Set(
-    normalizeTitle(value)
-      .split(" ")
-      .filter((w) => w.length > 3 && !stop.has(w))
-  );
-}
-
-function similarity(aSet, bSet) {
-  if (!aSet.size || !bSet.size) return 0;
-  let inter = 0;
-  for (const w of aSet) if (bSet.has(w)) inter += 1;
-  return inter / Math.min(aSet.size, bSet.size);
-}
-
 function isDuplicate(candidate, history, threshold = 0.5) {
-  const cand = keywordSet(candidate);
-  const candNorm = normalizeTitle(candidate);
-  for (const past of history) {
-    if (normalizeTitle(past.topic) === candNorm) return true;
-    if (similarity(cand, keywordSet(past.topic)) >= threshold) return true;
-  }
-  return false;
+  return !checkFreshness(
+    { topic: candidate, title: candidate, category: "", angle: "", formatType: "" },
+    history,
+    { topicThreshold: threshold, titleThreshold: threshold }
+  ).isFresh;
 }
 
 function categoryAngles(category) {
@@ -279,7 +247,10 @@ function categoryAngles(category) {
 }
 
 function buildIdeaPrompt(history, category, angle, formatType, trendingContext = null) {
-  const recent = history.slice(0, 60).map((t) => `- ${t.topic || t}`).join("\n") || "- (belum ada)";
+  const recent = history
+    .slice(0, 80)
+    .map((item) => `- [${item.category || "umum"}] ${item.topic}${item.title && item.title !== item.topic ? ` | judul: ${item.title}` : ""}`)
+    .join("\n") || "- (belum ada)";
   const anglesForCategory = categoryAngles(category).join("; ");
   const ft = FORMAT_TYPES[formatType];
   const label = ft?.label || formatType;
@@ -296,7 +267,7 @@ function buildIdeaPrompt(history, category, angle, formatType, trendingContext =
     trendingBlock ? `\n${trendingBlock}\n` : "",
     "WAJIB hindari kemiripan dengan daftar topik yang SUDAH PERNAH dibuat berikut:",
     recent,
-    "Jangan mengusulkan ulang topik yang mirip daftar di atas.",
+    "Jangan mengusulkan ulang subjek, tokoh, objek, tempat, atau peristiwa yang sama walau judul dan angle berbeda.",
     "Variasikan objek, tokoh, tempat, dan era. Jangan semuanya tentang bisnis/perusahaan.",
     "Kembalikan JSON valid saja dengan format:",
     '{ "ideas": [ { "topic": "kalimat judul topik", "category": "kategori", "angle": "sudut", "why": "kenapa menarik" } ] }'
@@ -328,8 +299,37 @@ const OFFLINE_SEEDS = [
 
 function offlinePick(history) {
   const fresh = OFFLINE_SEEDS.filter((seed) => !isDuplicate(seed, history, 0.6));
-  const pool = fresh.length ? fresh : OFFLINE_SEEDS;
-  return pick(pool);
+  return fresh.length ? pick(fresh) : "";
+}
+
+export function pickBalancedCategory(history = []) {
+  const recent = new Set(history.slice(0, 3).map((item) => item.category).filter(Boolean));
+  const counts = new Map(TOPIC_CATEGORIES.map((category) => [category, 0]));
+  for (const item of history.slice(0, 30)) {
+    if (counts.has(item.category)) counts.set(item.category, counts.get(item.category) + 1);
+  }
+  const candidates = TOPIC_CATEGORIES.filter((category) => !recent.has(category));
+  const minimum = Math.min(...candidates.map((category) => counts.get(category) || 0));
+  const balanced = candidates.filter((category) => (counts.get(category) || 0) <= minimum + 1);
+  return pick(balanced.length ? balanced : candidates.length ? candidates : TOPIC_CATEGORIES);
+}
+
+export function filterFreshTrendingContext(context, history = []) {
+  if (!context?.themes?.length) return context;
+  const themes = context.themes.filter((theme) => {
+    const topic = [theme.theme, theme.angle].filter(Boolean).join(" ");
+    const check = checkFreshness({
+      topic,
+      title: theme.theme || topic,
+      category: theme.category || "",
+      angle: theme.angle || "",
+      formatType: ""
+    }, history, { topicThreshold: 0.42, titleThreshold: 0.5 });
+    if (!check.isFresh) console.log(`[Trends] Skip tema lama: ${check.reason}`);
+    return check.isFresh;
+  });
+  const topKeywords = (context.topKeywords || []).filter((keyword) => !isDuplicate(keyword, history, 0.8));
+  return { ...context, themes, topKeywords };
 }
 
 /**
@@ -339,12 +339,12 @@ function offlinePick(history) {
 export async function pickFreshTopic(options = {}) {
   const history = await loadHistory(80);
   const category = cleanText(options.category && options.category !== "random"
-    ? options.category : pick(TOPIC_CATEGORIES), 80);
+    ? options.category : pickBalancedCategory(history), 80);
 
   // Ambil sinyal trending (graceful skip jika API key tidak ada)
   let trendingContext = null;
   try {
-    trendingContext = await buildTrendingContext();
+    trendingContext = filterFreshTrendingContext(await buildTrendingContext(), history);
     if (trendingContext?.enabled && trendingContext.themes.length) {
       console.log(`[Topic Engine] Trending context: ${trendingContext.themes.length} tema, skor ${trendingContext.trendingScore}/100`);
     }
@@ -384,6 +384,9 @@ export async function pickFreshTopic(options = {}) {
 
   // Fallback: offline seed dengan formatType baru
   const offlineTopic = offlinePick(history);
+  if (!offlineTopic) {
+    throw new Error("Tidak ada topik offline yang benar-benar baru. Hentikan run agar tidak mengulang topik lama.");
+  }
   const formatType = pickFormatType();
   return {
     topic: offlineTopic,
