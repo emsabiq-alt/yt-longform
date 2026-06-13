@@ -10,7 +10,8 @@ export async function runPreflight() {
   checks.push(checkCommand("ffmpeg"));
   checks.push(checkCommand("ffprobe"));
   checks.push(checkValue("OPENAI_API_KEY", Boolean(config.openai.apiKey), "Story, gambar, TTS, dan transkripsi butuh key ini."));
-  checks.push(checkValue("PEXELS_API_KEY", Boolean(config.pexels?.apiKey), "Video B-roll Pexels butuh key ini. Tanpa key, semua scene pakai gambar DALL-E."));
+  checks.push(checkOptional("PEXELS_API_KEY", Boolean(config.pexels?.apiKey), "Video B-roll Pexels butuh key ini. Tanpa key, semua scene pakai gambar DALL-E."));
+  checks.push(checkOptional("YOUTUBE_DATA_API_KEY", Boolean(config.youtube?.dataApiKey), "Trending topic engine butuh key ini. Tanpa key, topik dipilih tanpa sinyal trending."));
   checks.push(checkValue("PUBLIC_BASE_URL", Boolean(config.publicBaseUrl || process.env.PUBLIC_BASE_URL), "Butuh base URL publik untuk preview asset dan upload YouTube fetchable."));
 
   const remote = remoteConfig();
@@ -46,6 +47,10 @@ function checkCommand(name) {
 
 function checkValue(name, ok, detail) {
   return { name, ok: Boolean(ok), detail };
+}
+
+function checkOptional(name, ok, detail) {
+  return { name, ok: true, detail: ok ? detail : `[opsional] ${detail}` };
 }
 
 async function checkFile(name, filePath) {

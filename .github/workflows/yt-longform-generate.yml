@@ -110,6 +110,10 @@ jobs:
 
       PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
 
+      YOUTUBE_DATA_API_KEY: ${{ secrets.YOUTUBE_DATA_API_KEY }}
+      YOUTUBE_TRENDING_ENABLED: ${{ secrets.YOUTUBE_TRENDING_ENABLED || 'true' }}
+      YOUTUBE_TRENDING_REGION: ${{ secrets.YOUTUBE_TRENDING_REGION || 'ID' }}
+
     steps:
       - uses: actions/checkout@v5
 

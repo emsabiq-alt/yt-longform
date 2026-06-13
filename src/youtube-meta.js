@@ -39,7 +39,7 @@ export function buildTitle(item) {
   return title;
 }
 
-/** Tag dari kata kunci judul + kategori. */
+/** Tag dari kata kunci judul + kategori + trending keywords. */
 export function buildTags(item) {
   const stop = new Set(["yang", "dan", "di", "ke", "dari", "untuk", "pada", "kenapa",
     "mengapa", "bisa", "adalah", "itu", "ini", "apa", "bagaimana", "padahal", "the", "of"]);
@@ -49,7 +49,10 @@ export function buildTags(item) {
     .filter((w) => w.length > 3 && !stop.has(w));
   const base = ["edukasi", "pengetahuan", "fakta menarik", "belajar",
     oneLine(item.input?.category || "", 40)].filter(Boolean);
-  const all = [...new Set([...base, ...fromTitle])].slice(0, 15);
+  const trendingKw = Array.isArray(item.input?.trendingKeywords)
+    ? item.input.trendingKeywords.filter((kw) => kw && kw.length > 2 && kw.length < 40)
+    : [];
+  const all = [...new Set([...base, ...trendingKw.slice(0, 5), ...fromTitle])].slice(0, 18);
   return all;
 }
 

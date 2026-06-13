@@ -11,6 +11,7 @@ import { listContextItems } from "./storage.js";
 import { cleanText } from "./util.js";
 import { FORMAT_TYPES, pickFormatType } from "./format-engine.js";
 import { loadHistory, checkFreshness, pickFreshIdeaFromBatch } from "./continuity-engine.js";
+import { buildTrendingContext, formatTrendingForPrompt } from "./youtube-trends.js";
 
 export const TOPIC_CATEGORIES = [
   "sains", "penemuan", "sejarah", "tubuh manusia", "alam semesta",
@@ -277,12 +278,13 @@ function categoryAngles(category) {
   return list && list.length ? list : DEFAULT_ANGLES;
 }
 
-function buildIdeaPrompt(history, category, angle, formatType) {
+function buildIdeaPrompt(history, category, angle, formatType, trendingContext = null) {
   const recent = history.slice(0, 60).map((t) => `- ${t.topic || t}`).join("\n") || "- (belum ada)";
   const anglesForCategory = categoryAngles(category).join("; ");
   const ft = FORMAT_TYPES[formatType];
   const label = ft?.label || formatType;
   const description = ft?.description || "";
+  const trendingBlock = formatTrendingForPrompt(trendingContext);
 
   return [
     "Kamu produser konten edukasi YouTube berbahasa Indonesia.",
@@ -291,13 +293,14 @@ function buildIdeaPrompt(history, category, angle, formatType) {
     `Format video yang wajib digunakan: ${label}. ${description}`,
     "Topik harus SPESIFIK dan unik, bukan tema umum yang luas.",
     `Daftar sudut pandang yang tersedia untuk kategori ${category}: ${anglesForCategory}.`,
+    trendingBlock ? `\n${trendingBlock}\n` : "",
     "WAJIB hindari kemiripan dengan daftar topik yang SUDAH PERNAH dibuat berikut:",
     recent,
     "Jangan mengusulkan ulang topik yang mirip daftar di atas.",
     "Variasikan objek, tokoh, tempat, dan era. Jangan semuanya tentang bisnis/perusahaan.",
     "Kembalikan JSON valid saja dengan format:",
     '{ "ideas": [ { "topic": "kalimat judul topik", "category": "kategori", "angle": "sudut", "why": "kenapa menarik" } ] }'
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 const OFFLINE_SEEDS = [
@@ -338,13 +341,24 @@ export async function pickFreshTopic(options = {}) {
   const category = cleanText(options.category && options.category !== "random"
     ? options.category : pick(TOPIC_CATEGORIES), 80);
 
+  // Ambil sinyal trending (graceful skip jika API key tidak ada)
+  let trendingContext = null;
+  try {
+    trendingContext = await buildTrendingContext();
+    if (trendingContext?.enabled && trendingContext.themes.length) {
+      console.log(`[Topic Engine] Trending context: ${trendingContext.themes.length} tema, skor ${trendingContext.trendingScore}/100`);
+    }
+  } catch (error) {
+    console.warn(`[Topic Engine] Trending context gagal: ${error.message}`);
+  }
+
   // Coba hingga 5 kali untuk menemukan kombinasi yang benar-benar segar
   for (let attempt = 1; attempt <= 5; attempt++) {
     const angle = pick(categoryAngles(category));
     const formatType = pickFormatType();
 
     try {
-      const data = await requestIdeaJson(buildIdeaPrompt(history, category, angle, formatType));
+      const data = await requestIdeaJson(buildIdeaPrompt(history, category, angle, formatType, trendingContext));
       const ideas = Array.isArray(data?.ideas) ? data.ideas : [];
       const fresh = ideas.filter((idea) => idea?.topic && !isDuplicate(idea.topic, history));
       const chosen = pickFreshIdeaFromBatch(fresh, formatType, angle, category, history)
@@ -356,7 +370,9 @@ export async function pickFreshTopic(options = {}) {
           category: chosen.category,
           angle: chosen.angle,
           formatType,
-          source: "openai"
+          source: "openai",
+          trendingScore: trendingContext?.trendingScore || 0,
+          trendingKeywords: trendingContext?.topKeywords || []
         };
       }
 
@@ -374,6 +390,8 @@ export async function pickFreshTopic(options = {}) {
     category,
     angle: pick(categoryAngles(category)),
     formatType,
-    source: "offline"
+    source: "offline",
+    trendingScore: 0,
+    trendingKeywords: []
   };
 }

@@ -103,7 +103,10 @@ export const config = {
     thumbnailUploadAttempts: Math.min(3, Math.max(1, numberEnv("YOUTUBE_THUMBNAIL_UPLOAD_ATTEMPTS", 1))),
     dailyUploadLimit: Math.max(0, numberEnv("YOUTUBE_DAILY_UPLOAD_LIMIT", 2)),
     defaultPlaylistId: clean(process.env.YOUTUBE_DEFAULT_PLAYLIST_ID),
-    playlists: parsePlaylistMap(process.env.YOUTUBE_PLAYLISTS || "")
+    playlists: parsePlaylistMap(process.env.YOUTUBE_PLAYLISTS || ""),
+    dataApiKey: process.env.YOUTUBE_DATA_API_KEY || "",
+    trendingEnabled: boolDefault(process.env.YOUTUBE_TRENDING_ENABLED, true),
+    trendingRegion: clean(process.env.YOUTUBE_TRENDING_REGION || "ID")
   },
   pricing: {
     storyInputUsdPer1MTokens: numberEnv("STORY_INPUT_USD_PER_1M_TOKENS", 0.4),
