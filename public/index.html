@@ -6,6 +6,9 @@
   <meta name="theme-color" content="#0a0e14" />
   <title>YT Longform Control Center</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a0e14'/%3E%3Cpath d='M24 20l20 12-20 12z' fill='%23f5c84c'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -36,16 +39,16 @@
     <aside class="sidebar">
       <div class="side-brand"><span class="logo">&#9654;</span><b>YT Longform</b></div>
       <nav class="side-nav">
-        <button class="nav-item active" data-view="overview">Ringkasan</button>
-        <button class="nav-item" data-view="create">Buat Video</button>
-        <button class="nav-item" data-view="library">Pustaka</button>
-        <button class="nav-item" data-view="queue">Antrian</button>
-        <button class="nav-item" data-view="runs">Proses</button>
-        <button class="nav-item" data-view="health">Diagnostik</button>
+        <button class="nav-item active" data-view="overview">📊 Ringkasan</button>
+        <button class="nav-item" data-view="create">✨ Buat Video</button>
+        <button class="nav-item" data-view="library">📁 Pustaka</button>
+        <button class="nav-item" data-view="queue">⏳ Antrian</button>
+        <button class="nav-item" data-view="runs">⚙️ Proses</button>
+        <button class="nav-item" data-view="health">🛡️ Diagnostik</button>
       </nav>
       <div class="side-foot">
-        <button id="refreshBtn" class="btn ghost tiny">Refresh</button>
-        <button id="logoutBtn" class="btn ghost tiny">Keluar</button>
+        <button id="refreshBtn" class="btn ghost tiny">🔄 Refresh</button>
+        <button id="logoutBtn" class="btn ghost tiny">🚪 Keluar</button>
         <span id="clock" class="clock">--:--</span>
       </div>
     </aside>
@@ -75,7 +78,7 @@
             <div id="runSteps" class="run-steps"></div>
           </div>
           <div class="panel">
-            <div class="panel-head"><h3>Konsol Live</h3><button id="copyLog" class="btn ghost tiny">Copy</button></div>
+            <div class="panel-head"><h3>Konsol Live</h3><button id="copyLog" class="btn ghost tiny">📋 Copy</button></div>
             <pre id="console" class="console">Belum ada output.</pre>
           </div>
         </div>
@@ -104,7 +107,7 @@
             <label class="field"><span>TTS provider</span>
               <select name="ttsProvider"><option>openai</option><option>elevenlabs</option></select></label>
             <label class="field"><span>TTS voice</span>
-              <select name="ttsVoice"><option>cedar</option><option>ash</option><option>ballad</option><option>shimmer</option><option>verse</option></select></label>
+              <select name="ttsVoice" id="ttsVoiceSelect"></select></label>
             <label class="field"><span>Kualitas gambar</span>
               <select name="imageQuality"><option selected>low</option><option>medium</option><option>high</option></select></label>
             <label class="field span2 check"><input type="checkbox" name="force" checked /> <span>Paksa (abaikan batas harian)</span></label>

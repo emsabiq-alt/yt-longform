@@ -99,6 +99,8 @@ document.addEventListener("click", (e) => {
 });
 
 // ---------- Render ----------
+let configLoaded = false;
+
 function render() {
   renderMetrics();
   renderRun();
@@ -108,6 +110,73 @@ function render() {
   renderQueue();
   renderRuns();
   renderConfigLine();
+
+  if (!configLoaded && STATE.config && Object.keys(STATE.config).length > 0) {
+    initFormDefaults();
+    configLoaded = true;
+  }
+}
+
+function updateVoiceDropdown() {
+  const f = $("#createForm");
+  if (!f) return;
+  const provider = f.ttsProvider.value;
+  const voiceSelect = $("#ttsVoiceSelect");
+  if (!voiceSelect) return;
+
+  const currentVal = voiceSelect.value;
+
+  if (provider === "elevenlabs") {
+    voiceSelect.innerHTML = `
+      <option value="hgr2kw1PROld0DDezSZ6">Sabiq (Cloned)</option>
+      <option value="KKXAp01L2aZHbsBTR7QG">Sabiq (Podcast/Voice over)</option>
+      <option value="4163SRsAG711aPjxNcPF">Sabiq (Instant)</option>
+      <option value="pFZP5JQG7iQjIQuC4Bku">Lily (Premade)</option>
+    `;
+    const voiceIds = ["hgr2kw1PROld0DDezSZ6", "KKXAp01L2aZHbsBTR7QG", "4163SRsAG711aPjxNcPF", "pFZP5JQG7iQjIQuC4Bku"];
+    if (voiceIds.includes(currentVal)) {
+      voiceSelect.value = currentVal;
+    } else {
+      voiceSelect.value = STATE.config?.elevenlabsVoiceId || "hgr2kw1PROld0DDezSZ6";
+    }
+  } else {
+    voiceSelect.innerHTML = `
+      <option value="cedar">cedar</option>
+      <option value="ash">ash</option>
+      <option value="ballad">ballad</option>
+      <option value="shimmer">shimmer</option>
+      <option value="verse">verse</option>
+    `;
+    const openaiVoices = ["cedar", "ash", "ballad", "shimmer", "verse"];
+    if (openaiVoices.includes(currentVal)) {
+      voiceSelect.value = currentVal;
+    } else {
+      voiceSelect.value = STATE.config?.ttsVoice || "cedar";
+    }
+  }
+}
+
+function initFormDefaults() {
+  const c = STATE.config || {};
+  const f = $("#createForm");
+  if (!f) return;
+
+  if (c.ttsProvider) {
+    f.ttsProvider.value = c.ttsProvider;
+  }
+
+  updateVoiceDropdown();
+
+  if (c.ttsProvider === "elevenlabs" && c.elevenlabsVoiceId) {
+    const voiceSelect = $("#ttsVoiceSelect");
+    if (voiceSelect) voiceSelect.value = c.elevenlabsVoiceId;
+  } else if (c.ttsProvider === "openai" && c.ttsVoice) {
+    const voiceSelect = $("#ttsVoiceSelect");
+    if (voiceSelect) voiceSelect.value = c.ttsVoice;
+  }
+
+  if (c.durationSec) f.durationSec.value = String(c.durationSec);
+  if (c.sceneCount) f.sceneCount.value = String(c.sceneCount);
 }
 
 function renderConfigLine() {
@@ -339,6 +408,10 @@ $("#copyLog").addEventListener("click", () => {
 $("#librarySearch").addEventListener("input", renderLibrary);
 $("#libraryFilter").addEventListener("change", renderLibrary);
 $("#refreshBtn").addEventListener("click", refresh);
+const providerSelect = $("#createForm [name=ttsProvider]");
+if (providerSelect) {
+  providerSelect.addEventListener("change", updateVoiceDropdown);
+}
 
 // ---------- Data ----------
 async function refresh() {

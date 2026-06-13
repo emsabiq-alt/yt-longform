@@ -159,6 +159,8 @@ export function configSummary() {
     youtubePrivacy: clean(process.env.YOUTUBE_PRIVACY_STATUS || "public"),
     ttsModel: clean(process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts"),
     ttsVoice: clean(process.env.OPENAI_TTS_VOICE || "cedar"),
+    ttsProvider: clean(process.env.YT_TTS_PROVIDER || "elevenlabs"),
+    elevenlabsVoiceId: clean(process.env.ELEVENLABS_VOICE_ID || "hgr2kw1PROld0DDezSZ6"),
     storyModel: clean(process.env.STORY_MODEL || "gpt-4.1-mini"),
     imageModel: clean(process.env.IMAGE_MODEL || "gpt-image-1-mini"),
     workflow: clean(process.env.DASHBOARD_WORKFLOW_FILE || process.env.YT_WORKFLOW_FILE || "yt-longform-generate.yml"),
