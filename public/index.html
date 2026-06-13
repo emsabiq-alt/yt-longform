@@ -36,7 +36,8 @@
 
   <!-- App -->
   <main id="app" class="shell hidden">
-    <aside class="sidebar">
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
+    <aside id="sidebar" class="sidebar">
       <div class="side-brand"><span class="logo">&#9654;</span><b>YT Longform</b></div>
       <nav class="side-nav">
         <button class="nav-item active" data-view="overview">📊 Ringkasan</button>
@@ -55,9 +56,12 @@
 
     <div class="content">
       <header class="topbar">
-        <div>
-          <p class="kicker" id="viewKicker">Ringkasan</p>
-          <h2 id="viewTitle">Operational Overview</h2>
+        <div class="topbar-left">
+          <button id="menuBtn" class="menu-btn" aria-label="Menu">☰</button>
+          <div>
+            <p class="kicker" id="viewKicker">Ringkasan</p>
+            <h2 id="viewTitle">Operational Overview</h2>
+          </div>
         </div>
         <div class="topbar-right">
           <span id="configLine" class="muted">Memuat konfigurasi...</span>
@@ -84,7 +88,7 @@
         </div>
         <div class="panel">
           <div class="panel-head"><h3>Video Terakhir</h3><button class="btn ghost tiny" data-goto="library">Lihat semua</button></div>
-          <div id="recentList" class="card-grid"></div>
+          <div id="recentList" class="card-grid recent-grid"></div>
         </div>
       </section>
 

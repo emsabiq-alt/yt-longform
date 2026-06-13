@@ -91,12 +91,31 @@ function switchView(view) {
   const [k, t] = VIEW_TITLES[view] || ["", ""];
   $("#viewKicker").textContent = k;
   $("#viewTitle").textContent = t;
+  
+  // Close sidebar drawer on mobile
+  $("#sidebar")?.classList.remove("active");
+  $("#sidebarOverlay")?.classList.remove("active");
 }
 $$(".nav-item").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.view)));
 document.addEventListener("click", (e) => {
   const goto = e.target.closest("[data-goto]");
   if (goto) switchView(goto.dataset.goto);
 });
+
+// Mobile drawer toggle bindings
+const menuBtn = $("#menuBtn");
+const sidebar = $("#sidebar");
+const sidebarOverlay = $("#sidebarOverlay");
+if (menuBtn && sidebar && sidebarOverlay) {
+  menuBtn.addEventListener("click", () => {
+    sidebar.classList.toggle("active");
+    sidebarOverlay.classList.toggle("active");
+  });
+  sidebarOverlay.addEventListener("click", () => {
+    sidebar.classList.remove("active");
+    sidebarOverlay.classList.remove("active");
+  });
+}
 
 // ---------- Render ----------
 let configLoaded = false;
@@ -249,7 +268,7 @@ function bindCards(container) {
 }
 
 function renderRecent() {
-  const items = (STATE.items || []).slice(0, 4);
+  const items = (STATE.items || []).slice(0, 6);
   const el = $("#recentList");
   el.innerHTML = items.length ? items.map(cardHtml).join("") : '<p class="muted">Belum ada video.</p>';
   bindCards(el);
