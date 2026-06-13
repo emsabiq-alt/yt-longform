@@ -195,16 +195,33 @@ export async function ensureLongformSceneAudio(item, options = {}) {
     reportProgress("audio", "Membuat suara TTS per scene", Math.round((audioDone / scenes.length) * 100), `scene ${scene.index}`);
     const suffix = `scene-${String(scene.index).padStart(2, "0")}-${provider}-natural`;
     let audio;
+    let currentProvider = provider;
     try {
-      audio = provider === "elevenlabs"
-        ? await generateElevenLabsSpeech({ itemId: item.id, text, filenameSuffix: suffix })
-        : await generateOpenAiSpeech({
+      if (provider === "elevenlabs") {
+        try {
+          audio = await generateElevenLabsSpeech({ itemId: item.id, text, voiceId: options.voice, filenameSuffix: suffix });
+        } catch (elError) {
+          console.warn(`[TTS] ElevenLabs gagal, fallback ke OpenAI: ${elError.message}`);
+          warnings.push(`ElevenLabs scene ${scene.index} gagal: ${elError.message}. Menggunakan fallback OpenAI.`);
+          currentProvider = "openai";
+          const fallbackSuffix = `scene-${String(scene.index).padStart(2, "0")}-openai-fallback`;
+          audio = await generateOpenAiSpeech({
             itemId: item.id,
             text,
-            voice: options.voice,
+            voice: config.openai.ttsVoice,
             instructions: options.instructions || SCENE_TTS_INSTRUCTIONS,
-            filenameSuffix: suffix
+            filenameSuffix: fallbackSuffix
           });
+        }
+      } else {
+        audio = await generateOpenAiSpeech({
+          itemId: item.id,
+          text,
+          voice: options.voice,
+          instructions: options.instructions || SCENE_TTS_INSTRUCTIONS,
+          filenameSuffix: suffix
+        });
+      }
     } catch (error) {
       if (options.strict) throw error;
       warnings.push(`TTS scene ${scene.index} gagal: ${error.message}`);
@@ -226,7 +243,7 @@ export async function ensureLongformSceneAudio(item, options = {}) {
     sceneAudio.push({
       sceneIndex: scene.index,
       sceneType: scene.sceneType || "image",
-      provider,
+      provider: currentProvider,
       path: audio.path,
       url: audio.url,
       characters: text.length,
