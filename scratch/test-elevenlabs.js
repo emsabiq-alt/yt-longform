@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const API_KEY = process.env.ELEVENLABS_API_KEY;
 const VOICE_ID = "4163SRsAG711aPjxNcPF";
