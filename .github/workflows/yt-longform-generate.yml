@@ -58,7 +58,7 @@ jobs:
     env:
       PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
       AUTO_DASHBOARD_PIN: ${{ secrets.AUTO_DASHBOARD_PIN || '123456' }}
-      UPLOAD_DRIVER: ${{ secrets.UPLOAD_DRIVER || 'auto' }}
+      UPLOAD_DRIVER: ${{ secrets.UPLOAD_DRIVER || 'sftp' }}
       SFTP_HOST: ${{ secrets.SFTP_HOST }}
       SFTP_PORT: ${{ secrets.SFTP_PORT || '22' }}
       SFTP_USER: ${{ secrets.SFTP_USER }}

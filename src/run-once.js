@@ -90,6 +90,7 @@ if (localOnly) {
   process.exit(0);
 }
 
+let remoteUploadError = null;
 if (remoteEnabled()) {
   result.item = absolutizeGeneratedUrls(result.item);
   await mergeMemoryItems([result.item]);
@@ -97,16 +98,20 @@ if (remoteEnabled()) {
   try {
     await uploadGeneratedStateAndAssets({ item: result.item });
     console.log("Remote upload complete.");
-    await publishYoutubeIfEnabled(result);
   } catch (error) {
     const message = `Remote upload gagal: ${error.message}`;
     result.warnings.push(message);
     console.warn(message);
-    if (config.automation.strictRemote) throw error;
+    remoteUploadError = error;
   }
-} else if (config.youtube.enabled) {
+}
+
+if (config.youtube.enabled) {
+  console.log("[Publish] Memulai upload YouTube dari file lokal runner.");
   await publishYoutubeIfEnabled(result);
 }
+
+if (remoteUploadError && config.automation.strictRemote) throw remoteUploadError;
 
 console.log(JSON.stringify({
   status: "done",
@@ -176,6 +181,7 @@ async function publishYoutubeIfEnabled(result) {
     console.warn(message);
     item.publish = { ...(item.publish || {}), errors: { ...(item.publish?.errors || {}), youtube: error.message } };
     await saveItem(item);
+    throw error;
   }
 }
 
