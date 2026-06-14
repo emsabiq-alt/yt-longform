@@ -8,6 +8,7 @@ import { reportProgress } from "./progress.js";
 const fps = 30;
 const minLongformDurationSec = 300;
 const maxLongformDurationSec = 900;
+const backgroundMusicVolume = 0.07;
 
 /**
  * Resolves paths dynamically supporting both assets/personal and assets/music/personal
@@ -141,7 +142,7 @@ async function makeIntroSegment({ bgPath, bgType, introPath, outputPath, duratio
     [
       `[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,format=yuv420p[v]`,
       `[0:a]volume=1.0[speech]`,
-      `[1:a]volume=0.06[music]`,
+      `[1:a]volume=${backgroundMusicVolume}[music]`,
       `[speech][music]amix=inputs=2:duration=first,alimiter=limit=0.95[a]`
     ].join(";"),
     "-map", "[v]",
@@ -173,7 +174,7 @@ async function makeOutroSegment({ bgPath, bgType, outroPath, outputPath, duratio
     [
       `[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,format=yuv420p[v]`,
       `[0:a]volume=1.0[speech]`,
-      `[1:a]volume=0.06,afade=t=out:st=${fadeOutAt}:d=1.5[music]`,
+      `[1:a]volume=${backgroundMusicVolume},afade=t=out:st=${fadeOutAt}:d=1.5[music]`,
       `[speech][music]amix=inputs=2:duration=first,alimiter=limit=0.95[a]`
     ].join(";"),
     "-map", "[v]",
@@ -230,7 +231,7 @@ async function makeContentAudio({ narrationPath, musicPath, outputPath, duration
     "-filter_complex",
     [
       ...timelineFilters,
-      `[1:a]volume=0.06[music]`,
+      `[1:a]volume=${backgroundMusicVolume}[music]`,
       `[timeline][music]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]`
     ].join(";"),
     "-map", "[a]",
@@ -252,7 +253,7 @@ async function makeContentAudioOnlyMusic({ musicPath, outputPath, duration, musi
     "-stream_loop", "-1",
     "-i", musicPath,
     "-filter_complex",
-    `[0:a]volume=0.06[music]`,
+    `[0:a]volume=${backgroundMusicVolume}[music]`,
     "-map", "[music]",
     "-t", String(duration),
     "-c:a", "aac",
@@ -626,7 +627,7 @@ async function makeContentAudioFromScenes({ scenes, musicPath, outputPath, durat
   // Musik latar sebagai input terakhir (looping).
   inputs.push("-stream_loop", "-1", "-i", musicPath);
   const musicInputIdx = inputIndex;
-  filters.push(`[${musicInputIdx}:a]volume=0.06[music]`);
+  filters.push(`[${musicInputIdx}:a]volume=${backgroundMusicVolume}[music]`);
   filters.push(`[timeline][music]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]`);
 
   await runFfmpeg([
