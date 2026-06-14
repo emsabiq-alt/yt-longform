@@ -6,6 +6,7 @@ import { requestKnowledgeJson } from "./openai.js";
 import { clamp, cleanText, createId, nowIso } from "./util.js";
 import { pickFreshTopic } from "./topic-engine.js";
 import { buildScenePattern, formatTypeDescription, formatTypeNarrativeCue, pickFormatType, resolveSceneType } from "./format-engine.js";
+import { getViralAngleById, pickViralAngle, viralAngleSummary } from "./viral-angle-library.js";
 
 const categories = [
   "sains",
@@ -93,10 +94,17 @@ export async function createLongformDraft(rawInput) {
     if (!seed.category || seed.category === "random") seed.category = fresh.category;
     seed.angle = fresh.angle;
     seed.formatType = fresh.formatType;
-    console.log(`[Topic Engine] Topik otomatis (${fresh.source}): "${fresh.topic}" [${fresh.category}] [${fresh.formatType}]`);
+    seed.viralAngleId = fresh.viralAngleId;
+    seed.viralAngleLabel = fresh.viralAngleLabel;
+    console.log(`[Topic Engine] Topik otomatis (${fresh.source}): "${fresh.topic}" [${fresh.category}] [${fresh.formatType}] [${fresh.viralAngleLabel || "viral angle acak"}]`);
   } else {
     if (!seed.angle) seed.angle = "asal-usul yang jarang diketahui";
     if (!seed.formatType) seed.formatType = pickFormatType();
+    if (!seed.viralAngleId) {
+      const viralAngle = pickViralAngle();
+      seed.viralAngleId = viralAngle.id;
+      seed.viralAngleLabel = viralAngle.label;
+    }
   }
   const input = normalizeInput(seed);
   const promptText = buildPrompt(input);
@@ -183,6 +191,8 @@ function normalizeInput(input) {
     category: cleanText(input.category && input.category !== "random" ? input.category : "umum", 80),
     angle: cleanText(input.angle || "asal-usul yang jarang diketahui", 80),
     formatType: cleanText(input.formatType || "dokumenter_klasik", 40),
+    viralAngleId: cleanText(input.viralAngleId || "", 40),
+    viralAngleLabel: cleanText(input.viralAngleLabel || "", 80),
     tone: cleanText(input.tone || "narrator, serius tapi menarik, informatif, mendalam, seperti video dokumenter Vox atau Lemmino", 180),
     durationSec,
     sceneCount,
@@ -198,6 +208,8 @@ function buildPrompt(input) {
   const formatDesc = formatTypeDescription(input.formatType);
   const formatCue = formatTypeNarrativeCue(input.formatType);
   const scenePattern = buildScenePattern(input.sceneCount, input.formatType).join(", ");
+  const viralAngle = getViralAngleById(input.viralAngleId);
+  const viralBlock = viralAngleSummary(viralAngle) || `${input.viralAngleLabel || "angle viral"}: Gunakan kemasan yang membuat topik terasa punya konflik, misteri, taruhan, atau konsekuensi.`;
   return [
     `FORMAT VIDEO: ${input.formatType}. ${formatDesc}`,
     `PANDUAN NARASI FORMAT: ${formatCue}`,
@@ -215,6 +227,8 @@ function buildPrompt(input) {
     "Buat storyboard longform yang komprehensif: banyak beat kecil, punya fungsi naratif jelas, dan tidak terasa seperti storyboard Shorts.",
     `CATATAN KATEGORI (${input.category}): ${categoryNote}`,
     `VARIASI CERITA UNTUK NASKAH INI: ${variation}`,
+    `KEMASAN VIRAL UTAMA:\n${viralBlock}`,
+    "Gunakan kemasan viral ini sebagai tulang punggung judul, hook 30 detik pertama, dan transisi antar babak. Jangan hanya menempelkannya di judul.",
     "Kembalikan JSON valid saja dengan format:",
     "{ title, hook, summary, importantPoints:[string], factCheckNote, scenes:[{ index, sceneType:'image'|'reaction'|'summary', durationSec, narration, screenText, visualKeywords, imagePrompt, chapter, beatPurpose, reactionCue }] }",
     "",
@@ -247,6 +261,7 @@ function buildPrompt(input) {
     `Topik Utama: ${input.topic}`,
     `Kategori: ${input.category}`,
     `Sudut Pandang: ${input.angle}`,
+    `Kemasan Viral: ${input.viralAngleLabel || viralAngle?.label || input.viralAngleId || "acak"}`,
     `Tone Narasi: ${input.tone}`,
     `Durasi Total: ${input.durationSec} detik`,
     `Jumlah Scene: ${input.sceneCount}`,

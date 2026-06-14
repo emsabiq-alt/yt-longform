@@ -84,6 +84,8 @@ export function compactMemoryItem(item = {}) {
     title: item.title || item.plan?.title || "",
     topic: item.input?.topic || item.topic || "",
     category: item.input?.category || item.category || "",
+    viralAngleId: item.input?.viralAngleId || item.viralAngleId || "",
+    viralAngleLabel: item.input?.viralAngleLabel || item.viralAngleLabel || "",
     hook: item.plan?.hook || item.hook || "",
     summary: item.plan?.summary || item.summary || "",
     importantPoints: (item.plan?.importantPoints || item.importantPoints || []).slice(0, 5),

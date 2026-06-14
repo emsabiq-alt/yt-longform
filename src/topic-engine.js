@@ -11,6 +11,7 @@ import { cleanText } from "./util.js";
 import { FORMAT_TYPES, pickFormatType } from "./format-engine.js";
 import { loadHistory, checkFreshness, pickFreshIdeaFromBatch } from "./continuity-engine.js";
 import { buildTrendingContext, formatTrendingForPrompt } from "./youtube-trends.js";
+import { pickViralAngle, viralAnglePromptList, viralAngleSummary } from "./viral-angle-library.js";
 
 export const TOPIC_CATEGORIES = [
   "sains", "penemuan", "sejarah", "tubuh manusia", "alam semesta",
@@ -246,7 +247,7 @@ function categoryAngles(category) {
   return list && list.length ? list : DEFAULT_ANGLES;
 }
 
-function buildIdeaPrompt(history, category, angle, formatType, trendingContext = null) {
+function buildIdeaPrompt(history, category, angle, formatType, viralAngle, trendingContext = null) {
   const recent = history
     .slice(0, 80)
     .map((item) => `- [${item.category || "umum"}] ${item.topic}${item.title && item.title !== item.topic ? ` | judul: ${item.title}` : ""}`)
@@ -256,13 +257,19 @@ function buildIdeaPrompt(history, category, angle, formatType, trendingContext =
   const label = ft?.label || formatType;
   const description = ft?.description || "";
   const trendingBlock = formatTrendingForPrompt(trendingContext);
+  const viralBlock = viralAngleSummary(viralAngle);
 
   return [
     "Kamu produser konten edukasi YouTube berbahasa Indonesia.",
     "Usulkan 8 IDE TOPIK video panjang yang faktual, menarik, dan membuat penasaran.",
     `Fokus kategori: ${category}. Sudut pandang yang diutamakan: ${angle}.`,
     `Format video yang wajib digunakan: ${label}. ${description}`,
+    `Kemasan viral utama yang wajib dipakai:\n${viralBlock}`,
+    "Bank angle viral lain untuk variasi diksi, jangan dipakai semuanya sekaligus:",
+    viralAnglePromptList(),
     "Topik harus SPESIFIK dan unik, bukan tema umum yang luas.",
+    "Topik harus sudah terasa seperti ide video yang punya konflik, misteri, taruhan, atau konsekuensi.",
+    "Jangan buat topik netral seperti judul ensiklopedia. Hindari format 'Penjelasan tentang X'.",
     `Daftar sudut pandang yang tersedia untuk kategori ${category}: ${anglesForCategory}.`,
     trendingBlock ? `\n${trendingBlock}\n` : "",
     "WAJIB hindari kemiripan dengan daftar topik yang SUDAH PERNAH dibuat berikut:",
@@ -270,7 +277,7 @@ function buildIdeaPrompt(history, category, angle, formatType, trendingContext =
     "Jangan mengusulkan ulang subjek, tokoh, objek, tempat, atau peristiwa yang sama walau judul dan angle berbeda.",
     "Variasikan objek, tokoh, tempat, dan era. Jangan semuanya tentang bisnis/perusahaan.",
     "Kembalikan JSON valid saja dengan format:",
-    '{ "ideas": [ { "topic": "kalimat judul topik", "category": "kategori", "angle": "sudut", "why": "kenapa menarik" } ] }'
+    '{ "ideas": [ { "topic": "kalimat judul topik yang sudah punya hook", "category": "kategori", "angle": "sudut", "why": "kenapa menarik" } ] }'
   ].filter(Boolean).join("\n");
 }
 
@@ -356,13 +363,14 @@ export async function pickFreshTopic(options = {}) {
   for (let attempt = 1; attempt <= 5; attempt++) {
     const angle = pick(categoryAngles(category));
     const formatType = pickFormatType();
+    const viralAngle = pickViralAngle(history);
 
     try {
-      const data = await requestIdeaJson(buildIdeaPrompt(history, category, angle, formatType, trendingContext));
+      const data = await requestIdeaJson(buildIdeaPrompt(history, category, angle, formatType, viralAngle, trendingContext));
       const ideas = Array.isArray(data?.ideas) ? data.ideas : [];
       const fresh = ideas.filter((idea) => idea?.topic && !isDuplicate(idea.topic, history));
-      const chosen = pickFreshIdeaFromBatch(fresh, formatType, angle, category, history)
-        || pickFreshIdeaFromBatch(ideas, formatType, angle, category, history);
+      const chosen = pickFreshIdeaFromBatch(fresh, formatType, angle, category, history, viralAngle)
+        || pickFreshIdeaFromBatch(ideas, formatType, angle, category, history, viralAngle);
 
       if (chosen) {
         return {
@@ -370,6 +378,8 @@ export async function pickFreshTopic(options = {}) {
           category: chosen.category,
           angle: chosen.angle,
           formatType,
+          viralAngleId: viralAngle.id,
+          viralAngleLabel: viralAngle.label,
           source: "openai",
           trendingScore: trendingContext?.trendingScore || 0,
           trendingKeywords: trendingContext?.topKeywords || []
@@ -388,11 +398,14 @@ export async function pickFreshTopic(options = {}) {
     throw new Error("Tidak ada topik offline yang benar-benar baru. Hentikan run agar tidak mengulang topik lama.");
   }
   const formatType = pickFormatType();
+  const viralAngle = pickViralAngle(history);
   return {
     topic: offlineTopic,
     category,
     angle: pick(categoryAngles(category)),
     formatType,
+    viralAngleId: viralAngle.id,
+    viralAngleLabel: viralAngle.label,
     source: "offline",
     trendingScore: 0,
     trendingKeywords: []

@@ -86,6 +86,7 @@ export async function loadHistory(limit = 100) {
           category: cleanText(it.input?.category || it.category || "", 80),
           angle: cleanText(it.input?.angle || it.angle || "", 80),
           formatType: cleanText(it.input?.formatType || it.formatType || "", 40),
+          viralAngleId: cleanText(it.input?.viralAngleId || it.viralAngleId || "", 40),
           subjectText: [topic, title, hook, summary, ...importantPoints].filter(Boolean).join(" ")
         };
       })
@@ -136,6 +137,17 @@ export function checkFreshness(candidate, history, options = {}) {
     ) {
       return { isFresh: false, reason: `kombinasi kategori+angle+formatType sama dengan: "${past.title || past.topic}"`, similarItem: past };
     }
+
+    if (
+      candidate.category &&
+      candidate.viralAngleId &&
+      candidate.formatType &&
+      past.category === candidate.category &&
+      past.viralAngleId === candidate.viralAngleId &&
+      past.formatType === candidate.formatType
+    ) {
+      return { isFresh: false, reason: `kombinasi kategori+viralAngle+formatType sama dengan: "${past.title || past.topic}"`, similarItem: past };
+    }
   }
 
   // Subjek utama dan judul diperiksa terhadap seluruh history, bukan hanya lookback.
@@ -165,7 +177,7 @@ export function checkFreshness(candidate, history, options = {}) {
  * Verifikasi batch ide dari AI dan ambil yang pertama kali fresh.
  * @returns {object|null} idea yang fresh, atau null jika tidak ada.
  */
-export function pickFreshIdeaFromBatch(ideas, formatType, angle, category, history) {
+export function pickFreshIdeaFromBatch(ideas, formatType, angle, category, history, viralAngle = null) {
   for (const idea of ideas) {
     if (!idea?.topic) continue;
     const candidate = {
@@ -173,7 +185,8 @@ export function pickFreshIdeaFromBatch(ideas, formatType, angle, category, histo
       title: cleanText(idea.topic, 160),
       category: cleanText(idea.category || category, 80),
       angle: cleanText(idea.angle || angle, 80),
-      formatType
+      formatType,
+      viralAngleId: cleanText(viralAngle?.id || idea.viralAngleId || "", 40)
     };
     const check = checkFreshness(candidate, history);
     if (check.isFresh) return candidate;
