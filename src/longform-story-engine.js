@@ -5,6 +5,7 @@ import { estimateTotalCost } from "./cost.js";
 import { requestKnowledgeJson } from "./openai.js";
 import { clamp, cleanText, createId, nowIso } from "./util.js";
 import { pickFreshTopic } from "./topic-engine.js";
+import { generateViralTitle } from "./title-engine.js";
 import { buildScenePattern, formatTypeDescription, formatTypeNarrativeCue, pickFormatType, resolveSceneType } from "./format-engine.js";
 import { getViralAngleById, pickViralAngle, viralAngleSummary } from "./viral-angle-library.js";
 
@@ -125,6 +126,19 @@ export async function createLongformDraft(rawInput) {
   }
 
   let normalized = normalizePlan(plan, input);
+
+  // Generate judul viral dari ringkasan konten jika diaktifkan.
+  if (config.automation.viralTitleEnabled && config.openai.apiKey) {
+    try {
+      const viralTitle = await generateViralTitle(normalized, input);
+      if (viralTitle) {
+        normalized.title = viralTitle;
+      }
+    } catch (error) {
+      console.warn(`[Story Longform] Title engine error: ${error.message}`);
+    }
+  }
+
   const minimumNarrationWords = Math.round(input.durationSec * 1.75);
   if (config.openai.apiKey && narrationWordCount(normalized) < minimumNarrationWords) {
     try {

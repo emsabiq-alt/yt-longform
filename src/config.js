@@ -129,7 +129,8 @@ export const config = {
     durationSec: Math.max(300, numberEnv("YT_DURATION_SEC", 360)),
     sceneCount: Math.max(8, numberEnv("YT_SCENE_COUNT", 14)),
     workflowFile: clean(process.env.YT_WORKFLOW_FILE || "yt-longform-generate.yml"),
-    strictRemote: bool(process.env.YT_STRICT_REMOTE)
+    strictRemote: bool(process.env.YT_STRICT_REMOTE),
+    viralTitleEnabled: boolDefault(process.env.YT_VIRAL_TITLE_ENABLED, true)
   },
   pexels: {
     apiKey: process.env.PEXELS_API_KEY || "",
