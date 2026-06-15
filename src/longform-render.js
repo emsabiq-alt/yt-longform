@@ -900,15 +900,6 @@ async function writeContentCaptionAss({ outputPath, item, scenes, contentDuratio
     }
   }
 
-  const subtitleEnd = Math.max(0.2, contentDuration - 0.08);
-  for (const caption of sceneCaptionSegments(scenes)) {
-    const start = Math.min(caption.start, subtitleEnd);
-    const end = Math.min(caption.end, subtitleEnd);
-    if (end - start >= 0.25) {
-      events.push(dialogue(start, end, "Subtitle", `{\\fad(50,50)}${assEscape(caption.text)}`));
-    }
-  }
-
   const ass = [
     "[Script Info]",
     "ScriptType: v4.00+",
