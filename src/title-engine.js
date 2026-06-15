@@ -13,7 +13,7 @@ const DEFAULT_TITLE_PATTERNS = [
   "Hal Kecil yang Mengubah Sejarah Besar",
   "Ternyata Penyebabnya Bukan yang Kita Kira",
   "Keputusan Kecil yang Efeknya Mendunia",
-  "Petunjuk yang Lama Diabaikan Sejarah",
+  "Petunjuk Lama yang Sengaja Dihapus dari Sejarah",
   "7 Fakta Aneh di Balik Peristiwa Ini",
   "Yang Jarang Diceritakan di Buku Sekolah",
   "Otak Kita Ternyata Gampang Ditipu… Ini Alasannya",
