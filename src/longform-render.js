@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { config, paths } from "./config.js";
-import { clamp, safeFilename, splitLines } from "./util.js";
+import { clamp, normalizeTtsText, safeFilename, splitLines } from "./util.js";
 import { reportProgress } from "./progress.js";
 
 const fps = 30;
@@ -549,7 +549,7 @@ async function buildSceneAudioTiming(item, { introDuration, outroDuration, bumpe
   const audioByIndex = new Map(sceneAudio.map((entry) => [Number(entry.sceneIndex), entry]));
 
   // Jeda kecil di akhir tiap scene agar narasi tidak terdengar dempet/terpotong.
-  const tailPadByType = { reaction: 0.25, summary: 0.6, image: 0.35 };
+  const tailPadByType = { reaction: 0.12, summary: 0.25, image: 0.18 };
   const minDurationByType = { reaction: 2.4, summary: 3.0, image: 1.5 };
 
   let cursor = 0;
@@ -1117,7 +1117,14 @@ function sceneCaptionSegments(scenes) {
       // Gunakan timestamp transkripsi asli per scene bila tersedia (mode TTS per scene).
       const captions = Array.isArray(scene.sceneCaptions) ? scene.sceneCaptions : [];
       const audioDuration = Number(scene.audioDurationSec || 0);
-      if (captions.length && audioDuration > 0) {
+
+      const reliable = captions.length > 0 && audioDuration > 0 &&
+        captions.every((c) =>
+          (c.avgLogprob ?? -0.2) > -0.5 &&
+          (c.noSpeechProb ?? 0) < 0.6
+        );
+
+      if (reliable) {
         return captions
           .filter((entry) => entry.text && Number(entry.end) > Number(entry.start))
           .flatMap((entry) => captionSegments(
@@ -1126,9 +1133,11 @@ function sceneCaptionSegments(scenes) {
             Math.min(scene.endSec - 0.05, scene.startSec + Number(entry.end))
           ));
       }
-      // Fallback lama: bagi narasi berdasarkan proporsi kata.
+
+      // Fallback: pakai naskah sumber yang sudah normalisasi supaya subtitle selalu cocok dengan yang dibaca.
+      const sourceText = normalizeTtsText(scene.narration || scene.screenText || "");
       return captionSegments(
-        scene.narration,
+        sourceText,
         scene.startSec + 0.05,
         Math.max(scene.startSec + 0.4, scene.endSec - 0.05)
       );
@@ -1177,6 +1186,11 @@ function normalizeSubtitleText(value) {
     .replace(/\blembab\b/gi, "lembap")
     .replace(/\bnggak\b/gi, "tidak")
     .replace(/\bkayak\b/gi, "seperti")
+    .replace(/\bkm\/jam\b/gi, "kilometer per jam")
+    .replace(/\bkm\/h\b/gi, "kilometer per jam")
+    .replace(/°C/g, "derajat Celcius")
+    .replace(/([.!?])\1+/g, "$1")
+    .replace(/\s*([,;:])\s*/g, "$1 ")
     .replace(/\s+/g, " ")
     .trim();
 }

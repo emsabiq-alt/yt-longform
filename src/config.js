@@ -154,7 +154,7 @@ export function publicConfig() {
     publicBaseUrl: config.publicBaseUrl,
     durationSec: config.automation.durationSec,
     sceneCount: config.automation.sceneCount,
-    ttsProvider: clean(process.env.YT_TTS_PROVIDER || "elevenlabs"),
+    ttsProvider: clean(process.env.YT_TTS_PROVIDER || "openai"),
     ttsVoice: config.openai.ttsVoice,
     elevenlabsVoiceId: config.elevenlabs.voiceId,
     elevenlabsSpeed: config.elevenlabs.speed,

@@ -145,7 +145,7 @@ export async function generateOpenAiSpeech({ itemId, text, voice, instructions, 
     response_format: "mp3"
   };
   if (!/dinoiki/i.test(config.openai.baseUrl)) {
-    payload.instructions = instructions || "Bacakan sepenuhnya dalam Bahasa Indonesia natural. Gaya suara hangat, penasaran, jelas, seperti kreator pengetahuan sedang menjelaskan fakta menarik kepada teman. Tempo sedang dan tetap santai; jangan terdengar seperti robot, beri jeda ringan setelah kalimat penting, dan tekankan pertanyaan transisi dengan rasa ingin tahu.";
+    payload.instructions = instructions || "Bacakan sepenuhnya dalam Bahasa Indonesia natural. Gaya suara hangat, penasaran, jelas, seperti kreator pengetahuan sedang menjelaskan fakta menarik kepada teman. Tempo sedang dan tetap santai; jangan terdengar seperti robot, hindari jeda berlebihan terutama di tengah kalimat, dan tekankan pertanyaan transisi dengan rasa ingin tahu.";
   }
   const response = await fetch(`${config.openai.baseUrl}/audio/speech`, {
     method: "POST",
@@ -167,25 +167,30 @@ export async function generateOpenAiSpeech({ itemId, text, voice, instructions, 
   };
 }
 
-export async function transcribeSpeechSegments(audioPath) {
+export async function transcribeSpeechSegments(audioPath, options = {}) {
   assertOpenAi();
   try {
-    return await transcribeSpeechSegmentsWithModel(audioPath, config.openai.transcribeModel);
+    return await transcribeSpeechSegmentsWithModel(audioPath, config.openai.transcribeModel, options);
   } catch (error) {
     if (!/verbose_json|response_format|timestamp/i.test(error.message) || config.openai.transcribeModel === "whisper-1") {
       throw error;
     }
-    return transcribeSpeechSegmentsWithModel(audioPath, "whisper-1");
+    return transcribeSpeechSegmentsWithModel(audioPath, "whisper-1", options);
   }
 }
 
-async function transcribeSpeechSegmentsWithModel(audioPath, model) {
+async function transcribeSpeechSegmentsWithModel(audioPath, model, options = {}) {
   const buffer = await fs.readFile(audioPath);
   const form = new FormData();
   form.append("file", new Blob([buffer]), path.basename(audioPath));
   form.append("model", model);
-  form.append("language", "id");
+  form.append("language", options.language || "id");
   form.append("response_format", "verbose_json");
+  form.append("temperature", String(options.temperature ?? 0));
+
+  if (options.prompt) {
+    form.append("prompt", String(options.prompt).slice(0, 220));
+  }
 
   const response = await fetch(`${config.openai.baseUrl}/audio/transcriptions`, {
     method: "POST",
@@ -199,13 +204,15 @@ async function transcribeSpeechSegmentsWithModel(audioPath, model) {
       .map((segment) => ({
         start: Number(segment.start || 0),
         end: Number(segment.end || 0),
-        text: String(segment.text || "").replace(/\s+/g, " ").trim()
+        text: String(segment.text || "").replace(/\s+/g, " ").trim(),
+        avgLogprob: Number(segment.avg_logprob ?? 0),
+        noSpeechProb: Number(segment.no_speech_prob ?? 0)
       }))
       .filter((segment) => segment.text && segment.end > segment.start);
   }
 
   const text = String(data.text || "").replace(/\s+/g, " ").trim();
-  return text ? [{ start: 0, end: 0, text }] : [];
+  return text ? [{ start: 0, end: 0, text, avgLogprob: 0, noSpeechProb: 0 }] : [];
 }
 
 function providerName() {

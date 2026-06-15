@@ -8,7 +8,7 @@ import { renderLongformVideo } from "./longform-render.js";
 import { generateThumbnail } from "./thumbnail.js";
 import { saveItem, listContextItems } from "./storage.js";
 import { createLongformDraft } from "./longform-story-engine.js";
-import { nowIso } from "./util.js";
+import { nowIso, normalizeTtsText } from "./util.js";
 import { reportProgress } from "./progress.js";
 
 const LANDSCAPE_SIZE = "1536x1024";
@@ -16,7 +16,7 @@ const LANDSCAPE_SIZE = "1536x1024";
 const SCENE_TTS_INSTRUCTIONS = [
   "Bacakan dalam Bahasa Indonesia dengan suara yang natural, hangat, dan percaya diri.",
   "Gaya dokumenter santai, bukan suara iklan dan bukan membaca teks secara kaku.",
-  "Gunakan tempo sedang, variasikan intonasi, dan beri jeda pendek pada tanda baca.",
+  "Gunakan tempo sedang, variasikan intonasi, dan hindari jeda berlebihan, terutama di tengah kalimat.",
   "Tekankan kata penting secara halus. Hindari nada monoton dan jangan berbicara terlalu cepat."
 ].join(" ");
 
@@ -29,7 +29,7 @@ export async function generateFullItem(input = {}, options = {}) {
     category: input.category || "random",
     durationSec: input.durationSec || config.automation.durationSec,
     sceneCount: input.sceneCount || config.automation.sceneCount,
-    ttsProvider: input.ttsProvider || "elevenlabs",
+    ttsProvider: input.ttsProvider || "openai",
     imageQuality: input.imageQuality || config.openai.imageQuality
   }, { existingItems });
   await saveItem(item);
@@ -186,7 +186,7 @@ export async function ensureLongformSceneAudio(item, options = {}) {
   reportProgress("audio", "Membuat suara TTS per scene", 0, `0/${scenes.length}`);
 
   for (const scene of scenes) {
-    const text = sceneNarrationText(scene);
+    const text = normalizeTtsText(sceneNarrationText(scene));
     if (!text) {
       sceneAudio.push({ sceneIndex: scene.index, sceneType: scene.sceneType || "image", path: null, captions: [], characters: 0 });
       continue;
@@ -231,7 +231,7 @@ export async function ensureLongformSceneAudio(item, options = {}) {
 
     let captions = [];
     try {
-      captions = await transcribeSpeechSegments(audio.path);
+      captions = await transcribeSpeechSegments(audio.path, { prompt: text.slice(0, 220) });
     } catch (error) {
       warnings.push(`Transkripsi subtitle scene ${scene.index} gagal: ${error.message}`);
       captions = [];

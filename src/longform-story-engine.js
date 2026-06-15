@@ -232,7 +232,7 @@ function buildPrompt(input) {
     "Video berdurasi panjang, sehingga gaya bahasanya harus mendalam, analitis, kaya akan informasi, dan mengalir seperti esai dokumenter profesional.",
     "Hindari gaya bahasa lebay atau pembuka Shorts yang berisik. Penonton video panjang mencari detail faktual ('isinya daging semua').",
     "Struktur cerita harus memiliki babak pembuka (Hook & Paradoks), isi pembahasan logis (Babak 1, 2, dst.), klimaks/analisis masalah, dan kesimpulan inspiratif di akhir.",
-    "Setiap scene harus berisi narasi yang dibacakan oleh TTS dan teks layar (screenText) yang sinkron.",
+    "Setiap scene harus berisi narasi yang dibacakan oleh TTS dan teks layar (screenText) yang sinkron. Tulis narasi agar mudah dibaca TTS: angka dan satuan ditulis dengan kata-kata (misal 'tiga puluh derajat Celcius', 'seribu kilometer per jam'), hindari singkatan dan simbol seperti %, Rp, AI, 3D, &, kecuali sangat umum.",
     "Scene reaction adalah jembatan singkat berupa pertanyaan atau pernyataan penasaran 8-16 kata. Jangan menjelaskan jawaban pada scene reaction; jawabannya dilanjutkan pada scene image berikutnya.",
     "Narasi scene reaction tidak akan dibacakan TTS. Teksnya hanya muncul di layar sebagai jeda hening singkat.",
     "Setiap scene image wajib memiliki 48-65 kata narasi. Scene summary wajib memiliki 55-75 kata narasi.",

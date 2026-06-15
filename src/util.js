@@ -9,7 +9,7 @@ export function nowIso() {
 }
 
 export function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
+  return Math.max(min, Math.min(value, max));
 }
 
 export function cleanText(value, max = 2000) {
@@ -46,4 +46,94 @@ export function splitLines(value, maxChars = 34, maxLines = 4) {
   }
   if (line) lines.push(line);
   return lines.slice(0, maxLines);
+}
+
+const digitWords = ["nol", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan", "sepuluh", "sebelas"];
+
+function numberToIndonesianWords(n) {
+  if (!Number.isFinite(n)) return String(n);
+  if (n < 0) return "minus " + numberToIndonesianWords(-n);
+  if (n < 12) return digitWords[n] || String(n);
+  if (n < 20) return digitWords[n % 10] + " belas";
+  if (n < 100) {
+    const tens = Math.floor(n / 10);
+    const rem = n % 10;
+    const head = tens === 1 ? "sepuluh" : digitWords[tens] + " puluh";
+    return head + (rem ? " " + numberToIndonesianWords(rem) : "");
+  }
+  if (n < 200) {
+    const rem = n % 100;
+    return "seratus" + (rem ? " " + numberToIndonesianWords(rem) : "");
+  }
+  if (n < 1000) {
+    const hundreds = Math.floor(n / 100);
+    const rem = n % 100;
+    return digitWords[hundreds] + " ratus" + (rem ? " " + numberToIndonesianWords(rem) : "");
+  }
+  if (n < 2000) {
+    const rem = n % 1000;
+    return "seribu" + (rem ? " " + numberToIndonesianWords(rem) : "");
+  }
+  if (n < 1_000_000) {
+    const thousands = Math.floor(n / 1000);
+    const rem = n % 1000;
+    return numberToIndonesianWords(thousands) + " ribu" + (rem ? " " + numberToIndonesianWords(rem) : "");
+  }
+  if (n < 1_000_000_000) {
+    const millions = Math.floor(n / 1_000_000);
+    const rem = n % 1_000_000;
+    return numberToIndonesianWords(millions) + " juta" + (rem ? " " + numberToIndonesianWords(rem) : "");
+  }
+  return String(n);
+}
+
+/**
+ * Normalisasi teks untuk TTS:
+ * - Hapus tanda baca yang memicu jeda berlebihan.
+ * - Ubah angka, simbol, dan singkatan jadi kata-kata.
+ * - Hasil tetap mempertahankan koma dan titik supaya intonasi natural.
+ */
+export function normalizeTtsText(value) {
+  let text = String(value || "")
+    .replace(/[—–]/g, " ")
+    .replace(/[()\[\]"""']/g, " ")
+    .replace(/;/g, ". ")
+    .replace(/…/g, ". ")
+    .replace(/\.\.\./g, ". ")
+    .replace(/:\s*/g, ", ")
+    .replace(/\s+,\s*/g, ", ")
+    .replace(/,\s*,/g, ",")
+    .trim();
+
+  const replacements = [
+    [/km\/jam/gi, "kilometer per jam"],
+    [/km\/h/gi, "kilometer per jam"],
+    [/\bkm\b/gi, "kilometer"],
+    [/\bkg\b/gi, "kilogram"],
+    [/m\/s/gi, "meter per detik"],
+    [/°C/g, " derajat Celcius"],
+    [/%/g, " persen"],
+    [/Rp\.?\s*/g, "rupiah "],
+    [/vs\.?\b/gi, "versus"],
+    [/\bAI\b/g, "kecerdasan buatan"],
+    [/\b3D\b/g, "tiga dimensi"],
+    [/\b2D\b/g, "dua dimensi"],
+    [/&/g, " dan "],
+    [/\//g, " per "]
+  ];
+  for (const [re, repl] of replacements) text = text.replace(re, repl);
+
+  // Angka dengan pemisah ribuan (titik) dan desimal (koma) dalam format Indonesia.
+  text = text.replace(/\b(\d{1,3}(?:\.\d{3})+)(?:,(\d+))?\b/g, (_, intPart, decPart) => {
+    const n = parseInt(intPart.replace(/\./g, ""), 10);
+    return numberToIndonesianWords(n) +
+      (decPart ? " koma " + decPart.split("").map((d) => digitWords[Number(d)]).join(" ") : "");
+  });
+  text = text.replace(/\b(\d+),(\d+)\b/g, (_, intPart, decPart) => {
+    return numberToIndonesianWords(Number(intPart)) +
+      " koma " + decPart.split("").map((d) => digitWords[Number(d)]).join(" ");
+  });
+  text = text.replace(/\d+/g, (m) => numberToIndonesianWords(Number(m)));
+
+  return text.replace(/\s+/g, " ").trim();
 }
