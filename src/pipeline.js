@@ -8,7 +8,7 @@ import { renderLongformVideo } from "./longform-render.js";
 import { generateThumbnail } from "./thumbnail.js";
 import { saveItem, listContextItems } from "./storage.js";
 import { createLongformDraft } from "./longform-story-engine.js";
-import { nowIso, normalizeTtsText } from "./util.js";
+import { nowIso, normalizeTtsText, alignCaptionsToSource } from "./util.js";
 import { reportProgress } from "./progress.js";
 
 const LANDSCAPE_SIZE = "1536x1024";
@@ -231,7 +231,8 @@ export async function ensureLongformSceneAudio(item, options = {}) {
 
     let captions = [];
     try {
-      captions = await transcribeSpeechSegments(audio.path, { prompt: text.slice(0, 220) });
+      const whisperSegments = await transcribeSpeechSegments(audio.path);
+      captions = alignCaptionsToSource(text, whisperSegments);
     } catch (error) {
       warnings.push(`Transkripsi subtitle scene ${scene.index} gagal: ${error.message}`);
       captions = [];

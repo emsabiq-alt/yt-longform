@@ -48,6 +48,46 @@ export function splitLines(value, maxChars = 34, maxLines = 4) {
   return lines.slice(0, maxLines);
 }
 
+/**
+ * Ganti teks hasil transkripsi Whisper dengan teks naskah sumber,
+ * sambil mempertahankan timing dari audio. Ini membuat subtitle selalu
+ * cocok dengan naskah asli dan tetap sinkron dengan suara.
+ */
+export function alignCaptionsToSource(sourceText, segments) {
+  const words = cleanText(sourceText, 5000).split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const valid = (segments || []).filter((s) => s && Number(s.end) > Number(s.start));
+  if (!valid.length) return [];
+
+  const totalDuration = valid.reduce((sum, s) => sum + (Number(s.end) - Number(s.start)), 0);
+  if (totalDuration <= 0) return [];
+
+  let wordIndex = 0;
+  const aligned = [];
+  for (let i = 0; i < valid.length; i++) {
+    const seg = valid[i];
+    const isLast = i === valid.length - 1;
+    const weight = (Number(seg.end) - Number(seg.start)) / totalDuration;
+    const count = isLast
+      ? words.length - wordIndex
+      : Math.max(1, Math.floor(words.length * weight));
+
+    if (wordIndex >= words.length) break;
+    const slice = words.slice(wordIndex, wordIndex + count);
+    if (!slice.length) continue;
+
+    wordIndex += slice.length;
+    aligned.push({
+      start: Number(seg.start),
+      end: Number(seg.end),
+      text: slice.join(" "),
+      avgLogprob: Number(seg.avgLogprob ?? 0),
+      noSpeechProb: Number(seg.noSpeechProb ?? 0)
+    });
+  }
+  return aligned;
+}
+
 const digitWords = ["nol", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan", "sepuluh", "sebelas"];
 
 function numberToIndonesianWords(n) {
