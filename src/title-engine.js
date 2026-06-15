@@ -15,7 +15,24 @@ const DEFAULT_TITLE_PATTERNS = [
   "Keputusan Kecil yang Efeknya Mendunia",
   "Petunjuk yang Lama Diabaikan Sejarah",
   "7 Fakta Aneh di Balik Peristiwa Ini",
-  "Yang Jarang Diceritakan di Buku Sekolah"
+  "Yang Jarang Diceritakan di Buku Sekolah",
+  "Otak Kita Ternyata Gampang Ditipu… Ini Alasannya",
+  "Mata Bisa Melihat Sesuatu yang Sebenarnya Tidak Ada",
+  "Ternyata Kebohongan Lebih Mudah Diingat daripada Fakta",
+  "Rahasia Dibalik [Subjek] yang Jarang Dibahas",
+  "Sering Disebut Berbahaya, Ternyata [Subjek] Ini Aman",
+  "Mitos [Subjek] yang Masih Banyak Dipercaya",
+  "5 Trik Pikiran yang Diam-diam Memanipulasimu",
+  "Bagaimana Jika [Skenaria Ekstrem] Terjadi?",
+  "Kesalahan Kecil Saat [Aktivitas] yang Bikin [Akibat Buruk]",
+  "Fenomena yang Bikin Otakmu Sulit Mempercayai Matamu",
+  "Suara Ini Bikin 90% Orang Merinding, Ini Penjelasan Ilmiahnya",
+  "Sejarah Tersembunyi di Balik Benda yang Kamu Pakai Tiap Hari",
+  "Teknologi yang Akan Mengubah Cara Manusia [Melakukan Sesuatu]",
+  "Mengapa [Sesuatu yang Biasa] Bisa [Hasil Tak Terduga]?",
+  "Apa yang Terjadi Kalau [Tindakan Sederhana] Dihentikan?",
+  "[Angka] [Sesuatu] yang Akan Merubah Cara Berpikirmu",
+  "Rahasia Cara [Proses] yang Terlihat Seperti Asli"
 ];
 
 /**
@@ -82,6 +99,7 @@ function buildTitlePrompt(digest, currentTitle, category) {
     "- Boleh pakai angka, pertanyaan, paradoks, atau konsekuensi tersembunyi.",
     "- Judul harus akurat sesuai konten; jangan clickbait yang menipu.",
     "",
+    "Panduan tambahan: gabungkan pola di atas, buat judul yang bikin orang berhenti scroll karena penasaran, dan jangan langsung memberi jawaban di judul.",
     "Contoh pola yang bisa dipakai (variasikan diksinya):",
     ...DEFAULT_TITLE_PATTERNS.map((p) => `- ${p}`),
     "",
