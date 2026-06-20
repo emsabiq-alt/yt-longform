@@ -229,6 +229,31 @@ const DEFAULT_ANGLES = [
   "penemuan tak sengaja", "fakta yang melawan akal sehat", "evolusi dari masa ke masa"
 ];
 
+// Kategori "pertanyaan sehari-hari" yang paling relatable bagi orang awam.
+// Mode "Seimbang": ~60% topik diambil dari kategori ini, sisanya tetap variasi penuh.
+const EVERYDAY_CATEGORIES = new Set([
+  "sains", "tubuh manusia", "benda sehari-hari", "makanan dan dapur",
+  "hewan dan tumbuhan", "psikologi", "material dan warna", "suara dan musik",
+  "matematika sehari-hari", "alam semesta", "peta dan navigasi"
+]);
+
+// Tebak kategori everyday dari kata kunci seed offline agar topik↔kategori↔angle koheren.
+function inferEverydayCategory(topic) {
+  const t = String(topic || "").toLowerCase();
+  const map = [
+    [/kucing|anjing|hewan|semut|burung|ikan|lebah|tumbuh|pohon|tanaman|terumbu|karang/, "hewan dan tumbuhan"],
+    [/tubuh|otak|mata|tidur|darah|jantung|bayi|ingat|lupa|menangis|mendengkur/, "tubuh manusia"],
+    [/madu|roti|garam|makan|masak|dapur|kopi|teh|ragi|bawang|gula/, "makanan dan dapur"],
+    [/langit|bintang|planet|bulan|matahari|galaksi|angkasa|kosmos/, "alam semesta"],
+    [/kompas|peta|navigasi|arah|utara|gps/, "peta dan navigasi"],
+    [/kaca|es|air|logam|warna|material|baterai|cermin|biru/, "material dan warna"],
+    [/keyboard|ponsel|listrik|mesin|komputer|internet|lampu/, "teknologi"],
+    [/angka|nol|matematik|statistik|waktu|jam/, "matematika sehari-hari"]
+  ];
+  for (const [re, cat] of map) if (re.test(t)) return cat;
+  return "benda sehari-hari";
+}
+
 function pick(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
@@ -262,6 +287,12 @@ function buildIdeaPrompt(history, category, angle, formatType, viralAngle, trend
   return [
     "Kamu produser konten edukasi YouTube berbahasa Indonesia.",
     "Usulkan 8 IDE TOPIK video panjang yang faktual, menarik, dan membuat penasaran.",
+    "PRIORITAS UTAMA: pertanyaan SEHARI-HARI yang relatable dan masih jadi teka-teki bagi orang awam",
+    "(contoh: kenapa madu tidak pernah basi, kenapa kucing mendengkur, kenapa langit malam gelap,",
+    "kenapa es mengambang). Boleh juga sejarah/sains/misteri lebih dalam ASALKAN tetap memancing rasa",
+    "penasaran tinggi dan menyebut subjek konkret yang dikenal orang.",
+    "Tulis setiap 'topic' sebagai PERTANYAAN yang menyebut SUBJEK KONKRET (benda/makhluk/tempat nyata),",
+    "bukan tema abstrak. Hindari kata ganti kabur seperti 'hal ini' atau 'fenomena ini'.",
     `Fokus kategori: ${category}. Sudut pandang yang diutamakan: ${angle}.`,
     `Format video yang wajib digunakan: ${label}. ${description}`,
     `Kemasan viral utama yang wajib dipakai:\n${viralBlock}`,
@@ -276,8 +307,10 @@ function buildIdeaPrompt(history, category, angle, formatType, viralAngle, trend
     recent,
     "Jangan mengusulkan ulang subjek, tokoh, objek, tempat, atau peristiwa yang sama walau judul dan angle berbeda.",
     "Variasikan objek, tokoh, tempat, dan era. Jangan semuanya tentang bisnis/perusahaan.",
+    "Untuk SETIAP ide, beri 'viralScore' 0-100 = perkiraan potensi banyak ditonton, dinilai dari:",
+    "relatable bagi orang awam + rasa penasaran + sering dicari/ditanyakan orang + evergreen (tahan lama).",
     "Kembalikan JSON valid saja dengan format:",
-    '{ "ideas": [ { "topic": "kalimat judul topik yang sudah punya hook", "category": "kategori", "angle": "sudut", "why": "kenapa menarik" } ] }'
+    '{ "ideas": [ { "topic": "pertanyaan sehari-hari dengan subjek konkret", "category": "kategori", "angle": "sudut", "viralScore": 0, "why": "kenapa menarik & banyak dicari" } ] }'
   ].filter(Boolean).join("\n");
 }
 
@@ -318,7 +351,10 @@ export function pickBalancedCategory(history = []) {
   const candidates = TOPIC_CATEGORIES.filter((category) => !recent.has(category));
   const minimum = Math.min(...candidates.map((category) => counts.get(category) || 0));
   const balanced = candidates.filter((category) => (counts.get(category) || 0) <= minimum + 1);
-  return pick(balanced.length ? balanced : candidates.length ? candidates : TOPIC_CATEGORIES);
+  const pool = balanced.length ? balanced : candidates.length ? candidates : TOPIC_CATEGORIES;
+  // Mode "Seimbang": condong (~60%) ke kategori everyday yang relatable, sisanya variasi penuh.
+  const everyday = pool.filter((category) => EVERYDAY_CATEGORIES.has(category));
+  return pick(everyday.length && Math.random() < 0.6 ? everyday : pool);
 }
 
 export function filterFreshTrendingContext(context, history = []) {
@@ -368,9 +404,15 @@ export async function pickFreshTopic(options = {}) {
     try {
       const data = await requestIdeaJson(buildIdeaPrompt(history, category, angle, formatType, viralAngle, trendingContext));
       const ideas = Array.isArray(data?.ideas) ? data.ideas : [];
-      const fresh = ideas.filter((idea) => idea?.topic && !isDuplicate(idea.topic, history));
+      // Pilih ide paling berpotensi viral lebih dulu (skor tinggi → urutan awal),
+      // lalu pickFreshIdeaFromBatch menjamin tetap lolos anti-duplikat.
+      const ranked = [...ideas].sort((a, b) => (Number(b?.viralScore) || 0) - (Number(a?.viralScore) || 0));
+      const fresh = ranked.filter((idea) => idea?.topic && !isDuplicate(idea.topic, history));
       const chosen = pickFreshIdeaFromBatch(fresh, formatType, angle, category, history, viralAngle)
-        || pickFreshIdeaFromBatch(ideas, formatType, angle, category, history, viralAngle);
+        || pickFreshIdeaFromBatch(ranked, formatType, angle, category, history, viralAngle);
+      if (chosen && fresh[0]?.topic === chosen.topic) {
+        console.log(`[Topic Engine] Ide terpilih (viralScore ${fresh[0]?.viralScore ?? "-"}): ${chosen.topic}`);
+      }
 
       if (chosen) {
         return {
@@ -399,10 +441,13 @@ export async function pickFreshTopic(options = {}) {
   }
   const formatType = pickFormatType();
   const viralAngle = pickViralAngle(history);
+  // Koheren dgn seed: kategori ditebak dari topik & angle netral, BUKAN kategori acak —
+  // mencegah cerita/judul melenceng dari topik aslinya (mis. topik kucing → judul transportasi).
+  const offlineCategory = inferEverydayCategory(offlineTopic);
   return {
     topic: offlineTopic,
-    category,
-    angle: pick(categoryAngles(category)),
+    category: offlineCategory,
+    angle: "kenapa bisa terjadi",
     formatType,
     viralAngleId: viralAngle.id,
     viralAngleLabel: viralAngle.label,

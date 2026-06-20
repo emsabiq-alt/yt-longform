@@ -7,28 +7,27 @@ import { config } from "./config.js";
 import { requestKnowledgeJson } from "./openai.js";
 import { cleanText } from "./util.js";
 
+// Pola contoh: SELALU menyebut subjek konkret (benda/makhluk/tempat nyata) + rasa penasaran.
+// Penonton harus langsung paham videonya tentang apa, tapi jawabannya tetap ditahan.
 const DEFAULT_TITLE_PATTERNS = [
-  "Bagaimana Otak Kita Bisa Ditipu Begitu Mudahnya",
-  "Kenapa Mata Bisa Melihat Sesuatu yang Tidak Ada",
-  "Mengapa Kebohongan Lebih Mudah Diingat daripada Fakta",
-  "Bagaimana Rahasia Ini Baru Terbuka Setelah Puluhan Tahun",
-  "Kenapa Fenomena Ini Sulit Dijelaskan Sampai Sekarang",
-  "Bagaimana Hal Kecil Ini Mengubah Sejarah Besar",
-  "Kenapa Penyebabnya Bukan yang Selama Ini Kita Kira",
-  "Bagaimana Satu Keputusan Kecil Mengubah Segalanya",
-  "Kenapa Petunjuk Ini Sengaja Dihapus dari Sejarah",
-  "Mengapa Mitos Ini Masih Banyak Dipercaya Orang",
-  "Kenapa yang Disebut Berbahaya Ternyata Justru Aman",
-  "Bagaimana Pikiran Diam-diam Memanipulasi Kita",
-  "Kenapa Hal Biasa Ini Bisa Menghasilkan Efek Menakjubkan",
-  "Bagaimana Benda Sehari-hari Menyimpan Rahasia Besar",
-  "Kenapa Suara Ini Bikin 90% Orang Merinding",
-  "Mengapa Teknologi Ini Akan Mengubah Cara Manusia Hidup",
-  "Bagaimana Sesuatu yang Terlihat Asli Ternyata Bukan",
-  "Kenapa Hal Ini Jarang Diceritakan di Buku Sekolah",
-  "Bagaimana Alam Menyembunyikan Pola yang Luar Biasa",
-  "Kenapa Kita Tidak Pernah Menyadari Hal Ini Sebelumnya"
+  "Kenapa Madu Tidak Pernah Basi Meski Disimpan Ribuan Tahun",
+  "Bagaimana Kompas Tahu Arah Utara di Tengah Lautan",
+  "Kenapa Langit Malam Gelap Padahal Ada Miliaran Bintang",
+  "Mengapa Kucing Mendengkur Padahal Tak Selalu Sedang Senang",
+  "Kenapa Es Mengambang dan Tidak Tenggelam Seperti Benda Padat Lain",
+  "Bagaimana Semut Menemukan Jalan Pulang Tanpa Pernah Tersesat",
+  "Kenapa Keyboard Tidak Disusun Sesuai Urutan Abjad",
+  "Mengapa Garam Dulu Lebih Berharga daripada Emas",
+  "Kenapa Kita Tidak Bisa Mengingat Masa Bayi Sendiri",
+  "Bagaimana Lebah Membuat Sarang Segi Enam yang Nyaris Sempurna",
+  "Kenapa Air Laut Asin tapi Air Sungai Tidak",
+  "Mengapa Pesawat Sebesar Itu Bisa Terbang Padahal Sangat Berat",
+  "Kenapa Bawang Membuat Mata Kita Menangis Saat Dipotong",
+  "Bagaimana Otak Tetap Bekerja Saat Kita Sedang Tidur"
 ];
+
+// Frasa kabur yang dilarang menggantikan subjek konkret di judul.
+const VAGUE_TITLE_PATTERNS = /\b(hal ini|hal kecil|hal biasa|hal sepele|fenomena ini|peristiwa ini|sesuatu yang|sesuatu|misteri ini|rahasia ini|benda ini|teknologi ini|suara ini|pola ini|mereka ini)\b/i;
 
 /**
  * Bangun teks ringkasan dari plan untuk dijadikan bahan judul.
@@ -68,12 +67,15 @@ function pickBestTitle(titles, currentTitle) {
     .map((t) => cleanText(stripEmoji(t), 80))
     .filter((t) => t.length >= 10 && t.length <= 80 && /[a-zA-Z\u00C0-\u024F]/.test(t));
   if (!valid.length) return "";
+  // Buang judul yang masih memakai frasa kabur (tanpa subjek konkret).
+  const concrete = valid.filter((t) => !VAGUE_TITLE_PATTERNS.test(t));
+  const pool = concrete.length ? concrete : valid;
   // Pilih yang paling singkat namun tetap informatif, maksimal 60 karakter.
-  const preferred = valid.find((t) => t.length <= 60) || valid[0];
+  const preferred = pool.find((t) => t.length <= 60) || pool[0];
   return preferred;
 }
 
-function buildTitlePrompt(digest, currentTitle, category) {
+function buildTitlePrompt(digest, currentTitle, category, subject) {
   return [
     "Kamu spesialis judul YouTube edukasi berbahasa Indonesia.",
     "Tugas: buat 5 judul video yang membuat orang PENASARAN dan mau membuka video.",
@@ -81,23 +83,28 @@ function buildTitlePrompt(digest, currentTitle, category) {
     "---",
     digest,
     "---",
+    `Subjek konkret video (WAJIB disebut eksplisit di judul): ${subject || currentTitle || "(tentukan dari ringkasan)"}`,
     `Judul saat ini: ${currentTitle || "(belum ada)"}`,
     `Kategori: ${category || "umum"}`,
     "",
     "ATURAN JUDUL:",
     "- Maksimal 60 karakter.",
     "- Bahasa Indonesia natural, singkat, padat.",
-    "- Tidak pakai emoji.",
-    "- Tidak pakai tanda seru berlebihan.",
+    "- Tidak pakai emoji dan tidak pakai tanda seru berlebihan.",
     "- WAJIB diawali kata penasaran: 'Bagaimana', 'Kenapa', atau 'Mengapa'.",
-    "- Gaya pertanyaan yang bikin penonton berhenti scroll karena ingin tahu jawabannya.",
-    "- Contoh BAGUS: 'Bagaimana Kompas Menemukan Utara di Lautan', 'Kenapa Madu Tidak Pernah Basi'.",
+    "- WAJIB menyebut SUBJEK KONKRET yang dibahas (benda/makhluk/tempat/peristiwa nyata),",
+    "  sehingga penonton LANGSUNG paham videonya tentang apa hanya dari judul.",
+    "- DILARANG KERAS memakai kata ganti kabur sebagai pengganti subjek:",
+    "  'Hal Ini', 'Hal Kecil', 'Fenomena Ini', 'Sesuatu', 'Benda Ini', 'Teknologi Ini', 'Misteri Ini'.",
+    "  Tulis nama subjeknya secara langsung (mis. 'Madu', 'Kucing', 'Kompas', 'Es', 'Keyboard').",
+    "- Boleh menahan JAWABAN (curiosity gap), tetapi SUBJEK + PERTANYAANNYA harus jelas.",
+    "  Contoh benar: 'Kenapa Madu Tidak Pernah Basi' (subjek=madu jelas, jawaban ditahan).",
+    "  Contoh SALAH: 'Kenapa Hal Ini Tidak Pernah Basi' (subjek kabur — DILARANG).",
     "- DILARANG pakai kata: 'skill', 'insentif', 'trik', 'hack', 'rahasia di balik'.",
     "- DILARANG gaya listicle ('5 Fakta...', '3 Hal...') atau gaya tips/tutorial.",
-    "- Harus punya 'curiosity gap' — penonton ingin tahu tapi jawaban tidak ada di judul.",
     "- Judul harus akurat sesuai konten; jangan clickbait yang menipu.",
     "",
-    "Contoh pola yang HARUS diikuti (variasikan diksinya):",
+    "Contoh pola yang HARUS diikuti (perhatikan: subjek selalu disebut jelas, variasikan diksinya):",
     ...DEFAULT_TITLE_PATTERNS.map((p) => `- ${p}`),
     "",
     "Kembalikan JSON valid saja dengan format:",
@@ -114,11 +121,12 @@ function buildTitlePrompt(digest, currentTitle, category) {
 export async function generateViralTitle(plan, input = {}) {
   if (!config.openai.apiKey) return "";
   const currentTitle = cleanText(plan?.title || input?.topic || "", 100);
+  const subject = cleanText(input?.topic || plan?.title || "", 120);
   const digest = buildContentDigest(plan);
   if (!digest.trim()) return currentTitle;
 
   try {
-    const promptText = buildTitlePrompt(digest, currentTitle, input?.category);
+    const promptText = buildTitlePrompt(digest, currentTitle, input?.category, subject);
     const result = await requestKnowledgeJson(promptText);
     const best = pickBestTitle(result?.titles, currentTitle);
     if (best) {
