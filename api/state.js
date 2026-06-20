@@ -15,7 +15,8 @@ export default async function handler(req, res) {
       activeRun = buildActiveRun(latestRun, liveJobs);
     }
 
-    const items = state.items || [];
+    const items = (state.items || []).slice().sort((a, b) =>
+      String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")));
     sendJson(res, 200, {
       config: configSummary(),
       activeRun,

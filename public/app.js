@@ -437,6 +437,9 @@ if (providerSelect) {
 async function refresh() {
   try {
     STATE = await api("/api/state");
+    if (Array.isArray(STATE.items)) {
+      STATE.items.sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")));
+    }
     render();
   } catch (e) {
     if (!String(e.message).includes("Auth")) toast(e.message, "err");
