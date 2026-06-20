@@ -381,7 +381,7 @@ $("#btnGenerate").addEventListener("click", async () => {
     switchView("overview");
     setTimeout(refresh, 4000);
   } catch (e) { toast(e.message, "err"); }
-  finally { btn.disabled = false; btn.textContent = "🚀 Generate Sekarang"; }
+  finally { btn.disabled = false; btn.textContent = "Generate Sekarang"; }
 });
 
 $("#btnQueue").addEventListener("click", async () => {
