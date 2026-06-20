@@ -10,9 +10,9 @@ export const VIRAL_ANGLES = [
     label: "penyebab tersembunyi",
     premise: "Bingkai topik sebagai akibat besar yang ternyata digerakkan oleh penyebab kecil atau jarang dibahas.",
     titlePatterns: [
-      "Penyebab Tersembunyi di Balik {topic}",
-      "Hal Kecil yang Mengubah {topic}",
-      "Yang Diam-diam Membentuk {topic}"
+      "Kenapa Penyebab Asli {topic} Tersembunyi Begitu Lama",
+      "Bagaimana Hal Kecil Ini Mengubah {topic}",
+      "Mengapa yang Diam-diam Membentuk {topic} Jarang Diketahui"
     ],
     hookMoves: [
       "Buka dengan akibat besar yang sudah dikenal, lalu ungkap bahwa pemicunya bukan hal yang biasanya disebut.",
@@ -24,9 +24,9 @@ export const VIRAL_ANGLES = [
     label: "kesalahan mahal",
     premise: "Bingkai topik sebagai keputusan, asumsi, atau kelalaian yang memicu kerugian besar.",
     titlePatterns: [
-      "Kesalahan Kecil yang Menghancurkan {topic}",
-      "Keputusan yang Membuat {topic} Berubah Selamanya",
-      "Harga Mahal dari Satu Pilihan Salah"
+      "Kenapa Kesalahan Kecil Ini Menghancurkan {topic}",
+      "Bagaimana Satu Keputusan Mengubah {topic} Selamanya",
+      "Mengapa Satu Pilihan Salah Bisa Semahal Ini"
     ],
     hookMoves: [
       "Buka dengan momen keputusan, lalu tunjukkan akibatnya lebih besar dari yang terlihat.",
@@ -38,8 +38,8 @@ export const VIRAL_ANGLES = [
     label: "efek domino",
     premise: "Bingkai topik sebagai rangkaian sebab-akibat: satu peristiwa kecil menyalakan perubahan panjang.",
     titlePatterns: [
-      "Satu Peristiwa Kecil yang Mengubah Dunia",
-      "Efek Domino yang Dimulai dari {topic}",
+      "Bagaimana Satu Peristiwa Kecil Mengubah Dunia",
+      "Kenapa Efek Domino dari {topic} Begitu Dahsyat",
       "Bagaimana {topic} Memicu Perubahan Besar"
     ],
     hookMoves: [
@@ -52,9 +52,9 @@ export const VIRAL_ANGLES = [
     label: "miskonsepsi besar",
     premise: "Bingkai topik sebagai sesuatu yang sering dipahami keliru, tetapi hindari template berulang.",
     titlePatterns: [
-      "Hal yang Keliru Dipahami Tentang {topic}",
-      "Fakta yang Membalik Cara Kita Melihat {topic}",
-      "Ternyata {topic} Tidak Sesederhana Itu"
+      "Kenapa Banyak Orang Keliru Memahami {topic}",
+      "Bagaimana Fakta Ini Membalik Cara Kita Melihat {topic}",
+      "Mengapa {topic} Tidak Sesederhana yang Kita Kira"
     ],
     hookMoves: [
       "Buka dengan keyakinan umum yang familiar, lalu patahkan dengan bukti spesifik.",
@@ -66,9 +66,9 @@ export const VIRAL_ANGLES = [
     label: "catatan yang hilang",
     premise: "Bingkai topik sebagai kisah dokumen, bukti, atau detail penting yang lama hilang/diabaikan.",
     titlePatterns: [
-      "Catatan Hilang yang Mengubah Cerita {topic}",
-      "Petunjuk yang Lama Diabaikan Sejarah",
-      "Bukti Kecil yang Membuka Rahasia Lama"
+      "Kenapa Catatan Penting Ini Hilang Begitu Lama",
+      "Bagaimana Petunjuk Ini Diabaikan Sejarah Selama Bertahun-tahun",
+      "Mengapa Bukti Kecil Ini Bisa Membuka Misteri Lama"
     ],
     hookMoves: [
       "Buka dengan pertanyaan: kenapa bukti penting ini lama tidak dibahas?",
@@ -80,9 +80,9 @@ export const VIRAL_ANGLES = [
     label: "rahasia industri",
     premise: "Bingkai topik sebagai mekanisme tersembunyi di balik produk, pasar, teknologi, atau kebiasaan massal.",
     titlePatterns: [
-      "Rahasia Industri di Balik {topic}",
-      "Cara {topic} Diam-diam Mengubah Kebiasaan Kita",
-      "Mesin Tersembunyi di Balik {topic}"
+      "Kenapa Industri Menyembunyikan Hal Ini dari Kita",
+      "Bagaimana {topic} Diam-diam Mengubah Kebiasaan Kita",
+      "Mengapa Mekanisme di Balik {topic} Jarang Diungkap"
     ],
     hookMoves: [
       "Buka dari kebiasaan sehari-hari penonton, lalu tarik ke sistem besar di baliknya.",
@@ -94,9 +94,9 @@ export const VIRAL_ANGLES = [
     label: "yang diremehkan",
     premise: "Bingkai topik sebagai tokoh, benda, tempat, atau ide kecil yang punya pengaruh jauh lebih besar dari reputasinya.",
     titlePatterns: [
-      "Benda Kecil yang Mengubah Sejarah",
-      "Tokoh yang Diremehkan Tapi Mengubah Arah {topic}",
-      "Kekuatan Diam-diam di Balik {topic}"
+      "Kenapa Benda Kecil Ini Bisa Mengubah Sejarah",
+      "Bagaimana Tokoh yang Diremehkan Mengubah Arah {topic}",
+      "Mengapa Kekuatan Terbesar {topic} Justru Tidak Terlihat"
     ],
     hookMoves: [
       "Buka dengan sesuatu yang tampak tidak penting, lalu ungkap kontribusinya yang menentukan.",
@@ -108,9 +108,9 @@ export const VIRAL_ANGLES = [
     label: "sebelum dan sesudah",
     premise: "Bingkai topik sebagai batas waktu: sebelum kejadian ini dunia berjalan berbeda, setelahnya aturan berubah.",
     titlePatterns: [
-      "Sebelum {topic}, Dunia Berjalan Berbeda",
-      "Momen yang Membelah Sejarah {topic}",
-      "Setelah Ini, Tidak Ada yang Sama Lagi"
+      "Bagaimana Dunia Berbeda Sebelum {topic} Muncul",
+      "Kenapa Momen Ini Membelah Sejarah {topic}",
+      "Mengapa Setelah Peristiwa Ini Tidak Ada yang Sama Lagi"
     ],
     hookMoves: [
       "Buka dengan perbandingan tajam antara keadaan sebelum dan sesudah.",
@@ -122,9 +122,9 @@ export const VIRAL_ANGLES = [
     label: "celah yang sulit dijelaskan",
     premise: "Bingkai topik sebagai pertanyaan faktual yang belum punya jawaban sederhana atau masih diperdebatkan.",
     titlePatterns: [
-      "Celah Aneh yang Sulit Dijelaskan",
-      "Pertanyaan Besar yang Masih Mengganggu Ilmuwan",
-      "Bagian dari {topic} yang Masih Membingungkan"
+      "Kenapa Celah Aneh Ini Sulit Dijelaskan Sampai Sekarang",
+      "Bagaimana Pertanyaan Ini Masih Mengganggu Ilmuwan",
+      "Mengapa Bagian dari {topic} Masih Membingungkan"
     ],
     hookMoves: [
       "Buka dengan fakta yang seharusnya mudah dijelaskan, tetapi ternyata tidak.",
@@ -133,15 +133,15 @@ export const VIRAL_ANGLES = [
   },
   {
     id: "dangerous-incentive",
-    label: "insentif berbahaya",
+    label: "aturan yang salah arah",
     premise: "Bingkai topik sebagai sistem yang mendorong orang/perusahaan/negara membuat pilihan berisiko.",
     titlePatterns: [
-      "Insentif Berbahaya di Balik {topic}",
-      "Kenapa Sistem Ini Mendorong Keputusan Buruk",
-      "Saat Aturan Membuat Masalah Makin Besar"
+      "Kenapa Sistem Ini Mendorong Keputusan yang Salah",
+      "Bagaimana Aturan Ini Justru Membuat Masalah Makin Besar",
+      "Mengapa Orang Terus Membuat Pilihan Buruk di {topic}"
     ],
     hookMoves: [
-      "Buka dengan aktor yang tampak salah, lalu jelaskan insentif sistem yang mendorongnya.",
+      "Buka dengan aktor yang tampak salah, lalu jelaskan aturan sistem yang mendorongnya.",
       "Tunjukkan bahwa masalahnya bukan sekadar orang jahat, tapi aturan main yang keliru."
     ]
   }

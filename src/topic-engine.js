@@ -1,5 +1,5 @@
 /**
- * Topic Engine - "skill" pemilih topik mandiri untuk video longform.
+ * Topic Engine - pemilih topik mandiri untuk video longform.
  *
  * Tujuan: setiap kali topik dikosongkan, sistem memikirkan sendiri topik
  * BARU yang belum pernah dibuat (anti-duplikat), dengan variasi kategori,

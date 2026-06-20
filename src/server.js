@@ -102,8 +102,108 @@ app.use((error, _req, res, _next) => {
   res.status(error.status || 500).json({ error: error.message || "Server error" });
 });
 
+// ---------- SSE: trigger run:once with realtime progress ----------
+import { spawn } from "node:child_process";
+import path from "node:path";
+
+let activeRun = null;
+
+app.get("/api/run-status", (_req, res) => {
+  res.json({ running: !!activeRun, pid: activeRun?.pid || null });
+});
+
+app.post("/api/run-local", (req, res) => {
+  if (activeRun) {
+    res.status(409).json({ error: "Sudah ada proses berjalan." });
+    return;
+  }
+  const body = req.body || {};
+  const args = [
+    "src/run-once.js",
+    "--topic", body.topic || "",
+    "--category", body.category || "random",
+    "--duration", String(body.durationSec || config.automation.durationSec),
+    "--scenes", String(body.sceneCount || config.automation.sceneCount),
+    "--tts-provider", body.ttsProvider || "openai",
+    "--tts-voice", body.ttsVoice || config.openai.ttsVoice,
+    "--image-quality", body.imageQuality || config.openai.imageQuality,
+    "--force", "true"
+  ];
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no"
+  });
+
+  const send = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const proc = spawn("node", args, {
+    cwd: paths.rootDir,
+    env: { ...process.env },
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true
+  });
+
+  activeRun = { pid: proc.pid };
+  send("status", { running: true, pid: proc.pid });
+
+  let buffer = "";
+  const processLine = (line) => {
+    if (line.includes("@@PROGRESS")) {
+      try {
+        const start = line.indexOf("@@PROGRESS") + "@@PROGRESS".length;
+        const end = line.lastIndexOf("@@");
+        const data = JSON.parse(line.substring(start, end).trim());
+        send("progress", data);
+      } catch { /* ignore parse errors */ }
+    } else if (line.includes("@@LOCAL_OUTPUT")) {
+      try {
+        const start = line.indexOf("@@LOCAL_OUTPUT") + "@@LOCAL_OUTPUT".length;
+        const end = line.lastIndexOf("@@");
+        const data = JSON.parse(line.substring(start, end).trim());
+        send("output", data);
+      } catch { /* ignore */ }
+    } else if (line.trim()) {
+      send("log", { text: line });
+    }
+  };
+
+  const onData = (chunk) => {
+    buffer += chunk.toString();
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
+    for (const line of lines) processLine(line);
+  };
+
+  proc.stdout.on("data", onData);
+  proc.stderr.on("data", onData);
+
+  proc.on("close", (code) => {
+    if (buffer.trim()) processLine(buffer);
+    activeRun = null;
+    send("done", { code, success: code === 0 });
+    res.end();
+  });
+
+  req.on("close", () => {
+    // Client disconnected — kill the process
+    if (proc.exitCode === null) {
+      proc.kill("SIGTERM");
+      activeRun = null;
+    }
+  });
+});
+
+// Serve app directory
+app.use("/app", express.static(path.join(paths.rootDir, "app", "web")));
+
 app.listen(config.port, () => {
   console.log(`YT Longform Studio running at http://localhost:${config.port}`);
+  console.log(`Local Dashboard: http://localhost:${config.port}/app`);
 });
 
 async function requireItem(id) {

@@ -17,7 +17,7 @@ function titleCase(value) {
 /** Hapus awalan deskriptif yang membosankan agar judul langsung menggigit. */
 function cleanCuriosity(value) {
   return value
-    .replace(/^(Mengapa|Bagaimana|Apa Itu|Penjelasan Tentang|Pembahasan|Analisis)\s+/i, "")
+    .replace(/^(Apa Itu|Penjelasan Tentang|Pembahasan|Analisis)\s+/i, "")
     .replace(/\s*[—–-]\s*(Sebuah|Suatu)?\s*(Analisis|Pembahasan|Penjelasan|Studi).*$/i, "")
     .trim();
 }

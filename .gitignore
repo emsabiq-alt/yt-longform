@@ -19,3 +19,6 @@ Thumbs.db
 __pycache__/
 *.pyc
 app/.venv/
+
+# Local app config — berisi PAT GitHub, jangan pernah di-commit (pakai config.example.json sbg template)
+app/config.json

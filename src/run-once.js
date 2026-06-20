@@ -7,6 +7,7 @@ import { absolutizeGeneratedUrls, publicBaseUrl, remoteEnabled, uploadGeneratedS
 import { listContextItems, mergeMemoryItems, saveItem } from "./storage.js";
 import { publishToYoutube, getYoutubeAccessToken } from "./youtube-publisher.js";
 import { addToPlaylistByCategory } from "./youtube-playlist.js";
+import { reportProgress } from "./progress.js";
 
 function argValue(name, fallback = "") {
   const index = process.argv.indexOf(name);
@@ -42,15 +43,29 @@ const dailyGenerateLimit = config.automation.dailyGenerateLimit;
 console.log("YT Longform run started.");
 console.log(`Category=${input.category}, duration=${input.durationSec}, scenes=${input.sceneCount}, ttsVoice=${input.ttsVoice}`);
 
-if (remoteEnabled()) {
+const noRemote = boolValue(argValue("--no-remote", "false"));
+const noUpload = boolValue(argValue("--no-upload", "false"));
+const localOnly = boolValue(argValue("--local", process.env.YT_LOCAL_ONLY || "false"));
+
+const shouldUploadRemote = remoteEnabled() && !localOnly && !noRemote;
+const shouldUploadYoutube = config.youtube.enabled && !localOnly && !noUpload;
+
+if (shouldUploadRemote) {
   await importRemoteState();
 }
 
 const isAutomated = process.env.GITHUB_ACTIONS === "true" && process.env.GITHUB_EVENT_NAME === "schedule";
 const force = boolValue(argValue("--force", process.env.YT_FORCE_GENERATE || "false")) || !isAutomated;
-const localOnly = boolValue(argValue("--local", process.env.YT_LOCAL_ONLY || "false"));
+
 if (localOnly) {
   console.log("Mode LOKAL: render saja, tanpa SFTP & tanpa upload YouTube.");
+} else {
+  if (noRemote) {
+    console.log("Upload SFTP dilewati sesuai parameter --no-remote.");
+  }
+  if (noUpload) {
+    console.log("Upload YouTube dilewati sesuai parameter --no-upload.");
+  }
 }
 
 if (!force && await dailyGenerationLimitReached()) {
@@ -91,24 +106,32 @@ if (localOnly) {
 }
 
 let remoteUploadError = null;
-if (remoteEnabled()) {
+if (shouldUploadRemote) {
+  reportProgress("upload", "Mengunggah aset ke SFTP/Hosting", 10, "menghubungkan...");
   result.item = absolutizeGeneratedUrls(result.item);
   await mergeMemoryItems([result.item]);
   await saveItem(result.item);
   try {
     await uploadGeneratedStateAndAssets({ item: result.item });
     console.log("Remote upload complete.");
+    reportProgress("upload", "Upload SFTP selesai", 100, "sukses");
   } catch (error) {
     const message = `Remote upload gagal: ${error.message}`;
     result.warnings.push(message);
     console.warn(message);
     remoteUploadError = error;
+    reportProgress("upload", "Upload SFTP gagal", 100, "gagal");
   }
+} else {
+  reportProgress("upload", "Upload SFTP dilewati", 100, "dilewati");
 }
 
-if (config.youtube.enabled) {
+if (shouldUploadYoutube) {
   console.log("[Publish] Memulai upload YouTube dari file lokal runner.");
+  reportProgress("publish", "Mengunggah video ke YouTube", 10, "persiapan...");
   await publishYoutubeIfEnabled(result);
+} else {
+  reportProgress("publish", "Publish YouTube dilewati", 100, "dilewati");
 }
 
 if (remoteUploadError && config.automation.strictRemote) throw remoteUploadError;
@@ -123,15 +146,17 @@ console.log(JSON.stringify({
 }, null, 2));
 
 async function publishYoutubeIfEnabled(result) {
-  if (!config.youtube.enabled) return;
+  if (!shouldUploadYoutube) return;
   const item = result.item;
   try {
     if (!force && await youtubeDailyLimitReached()) {
       const message = `Batas upload YouTube harian tercapai (${config.youtube.dailyUploadLimit}/hari).`;
       result.warnings.push(message);
       console.warn(message);
+      reportProgress("publish", "Batas upload harian tercapai", 100, "limit tercapai");
       return;
     }
+    reportProgress("publish", "Mengunggah video ke YouTube", 30, "mengirim berkas...");
     const published = await publishToYoutube({
       videoPath: item.assets?.video?.path || "",
       title: buildTitle(item),
@@ -140,6 +165,7 @@ async function publishYoutubeIfEnabled(result) {
       thumbnailPath: item.assets?.thumbnail?.path || ""
     });
 
+    reportProgress("publish", "Menambahkan ke playlist YouTube", 80, "playlist...");
     // Auto-playlist: masukkan video ke playlist berdasarkan kategori
     let playlistResult = { ok: false, skipped: true, error: "" };
     if (published.videoId) {
@@ -167,14 +193,17 @@ async function publishYoutubeIfEnabled(result) {
     };
     await saveItem(item);
     await mergeMemoryItems([item]);
-    if (remoteEnabled()) {
+    if (shouldUploadRemote) {
+      reportProgress("upload", "Sinkronisasi state ke SFTP", 90, "sftp...");
       try {
         await uploadGeneratedStateAndAssets({ item });
       } catch (error) {
         console.warn(`Remote state setelah publish gagal: ${error.message}`);
       }
+      reportProgress("upload", "Sinkronisasi state selesai", 100, "sukses");
     }
     console.log(`YouTube publish complete: ${published.url}`);
+    reportProgress("publish", "Publish YouTube selesai", 100, "sukses");
   } catch (error) {
     const message = `YouTube publish gagal: ${error.message}`;
     result.warnings.push(message);

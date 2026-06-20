@@ -18,6 +18,9 @@ import queue
 import subprocess
 import threading
 import webbrowser
+import shutil
+import zipfile
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -238,11 +241,254 @@ class YTStudioApp(ctk.CTk):
 
         ctk.set_appearance_mode("dark")
 
+        # Check system dependencies
+        missing = self.check_dependencies()
+        if missing:
+            self._build_setup_wizard(missing)
+        else:
+            self._start_app()
+
+    def _start_app(self):
+        self.setup_local_paths()
         self._build_layout()
         self.show_view("dashboard")
         self.after(300, self.refresh_state)
         self.after(120, self._drain_log)
         self._tick_clock()
+
+    def check_dependencies(self):
+        missing = []
+        
+        # 1. Check Node
+        node_global = shutil.which("node")
+        node_local = (PROJECT_DIR / "bin" / "node" / "node.exe").exists()
+        if not node_global and not node_local:
+            missing.append("node")
+            
+        # 2. Check FFmpeg
+        ffmpeg_global = shutil.which("ffmpeg")
+        ffmpeg_local = False
+        ffmpeg_dir = PROJECT_DIR / "bin" / "ffmpeg"
+        if ffmpeg_dir.exists():
+            for p in ffmpeg_dir.glob("**/ffmpeg.exe"):
+                ffmpeg_local = True
+                break
+        if not ffmpeg_global and not ffmpeg_local:
+            missing.append("ffmpeg")
+            
+        # 3. Check node_modules
+        if not (PROJECT_DIR / "node_modules").exists():
+            missing.append("node_modules")
+            
+        return missing
+
+    def setup_local_paths(self):
+        bin_dir = PROJECT_DIR / "bin"
+        if not bin_dir.exists():
+            return
+            
+        # Add local Node to PATH
+        node_bin = bin_dir / "node"
+        if node_bin.exists():
+            os.environ["PATH"] = str(node_bin) + os.pathsep + os.environ["PATH"]
+            
+        # Add local FFmpeg to PATH
+        ffmpeg_bin = None
+        ffmpeg_dir = bin_dir / "ffmpeg"
+        if ffmpeg_dir.exists():
+            for p in ffmpeg_dir.glob("**/ffmpeg.exe"):
+                ffmpeg_bin = p.parent
+                break
+        if ffmpeg_bin:
+            os.environ["PATH"] = str(ffmpeg_bin) + os.pathsep + os.environ["PATH"]
+
+    def _build_setup_wizard(self, missing):
+        self.setup_frame = ctk.CTkFrame(self, fg_color=COLORS["bg"])
+        self.setup_frame.pack(fill="both", expand=True)
+        
+        card = Card(self.setup_frame)
+        card.place(relx=0.5, rely=0.5, anchor="center", width=540, height=440)
+        
+        # Title
+        ctk.CTkLabel(card, text="Setup Dependensi Portabel", font=(FONT, 20, "bold"), text_color=COLORS["accent"]).pack(pady=(30, 10))
+        
+        desc = ("Aplikasi ini berjalan secara lokal dan memerlukan beberapa program pendukung "
+                "berikut di komputer Anda agar dapat me-render dan meng-upload video.")
+        ctk.CTkLabel(card, text=desc, font=(FONT, 12), text_color=COLORS["text"], wraplength=480, justify="center").pack(pady=(0, 20))
+        
+        # Status list
+        status_box = ctk.CTkFrame(card, fg_color=COLORS["bg2"], corner_radius=10, border_width=1, border_color=COLORS["border"])
+        status_box.pack(fill="x", padx=40, pady=10)
+        
+        # Check node
+        node_status = "❌ Tidak ditemukan" if "node" in missing else "✔ Terpasang"
+        node_color = COLORS["err"] if "node" in missing else COLORS["ok"]
+        f1 = ctk.CTkFrame(status_box, fg_color="transparent")
+        f1.pack(fill="x", padx=16, pady=8)
+        ctk.CTkLabel(f1, text="Node.js Engine (Runtime)", font=(FONT, 12, "bold"), text_color=COLORS["text"]).pack(side="left")
+        ctk.CTkLabel(f1, text=node_status, font=(FONT, 12), text_color=node_color).pack(side="right")
+        
+        # Check ffmpeg
+        ffmpeg_status = "❌ Tidak ditemukan" if "ffmpeg" in missing else "✔ Terpasang"
+        ffmpeg_color = COLORS["err"] if "ffmpeg" in missing else COLORS["ok"]
+        f2 = ctk.CTkFrame(status_box, fg_color="transparent")
+        f2.pack(fill="x", padx=16, pady=8)
+        ctk.CTkLabel(f2, text="FFmpeg Multimedia (Renderer)", font=(FONT, 12, "bold"), text_color=COLORS["text"]).pack(side="left")
+        ctk.CTkLabel(f2, text=ffmpeg_status, font=(FONT, 12), text_color=ffmpeg_color).pack(side="right")
+        
+        # Check node_modules
+        modules_status = "❌ Tidak lengkap" if "node_modules" in missing else "✔ Terpasang"
+        modules_color = COLORS["err"] if "node_modules" in missing else COLORS["ok"]
+        f3 = ctk.CTkFrame(status_box, fg_color="transparent")
+        f3.pack(fill="x", padx=16, pady=8)
+        ctk.CTkLabel(f3, text="Node Modules (Library)", font=(FONT, 12, "bold"), text_color=COLORS["text"]).pack(side="left")
+        ctk.CTkLabel(f3, text=modules_status, font=(FONT, 12), text_color=modules_color).pack(side="right")
+        
+        # Installer progress UI
+        self.setup_status = ctk.CTkLabel(card, text="Klik tombol di bawah untuk memasang otomatis.", font=(FONT, 12), text_color=COLORS["muted"])
+        self.setup_status.pack(pady=(20, 4))
+        
+        self.setup_bar = ctk.CTkProgressBar(card, height=10, corner_radius=5, progress_color=COLORS["accent"], fg_color=COLORS["bg2"], width=460)
+        self.setup_bar.set(0)
+        self.setup_bar.pack(pady=(0, 20))
+        
+        # Action button
+        self.btn_install = ctk.CTkButton(card, text="⚡ Pasang Otomatis Dependensi Portabel", height=40, corner_radius=10,
+                                         fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"], text_color="#1a1407",
+                                         font=(FONT, 13, "bold"), command=self.start_dependency_installation)
+        self.btn_install.pack(pady=(0, 20))
+
+    def start_dependency_installation(self):
+        self.btn_install.configure(state="disabled", text="Memasang...")
+        self.setup_status.configure(text="Menyiapkan folder...", text_color=COLORS["accent"])
+        self.setup_bar.set(0)
+        threading.Thread(target=self._run_installation, daemon=True).start()
+
+    def _run_installation(self):
+        try:
+            bin_dir = PROJECT_DIR / "bin"
+            bin_dir.mkdir(exist_ok=True)
+            
+            missing = self.check_dependencies()
+            
+            # 1. Download & Extract Node.js if missing
+            if "node" in missing:
+                node_zip = bin_dir / "node.zip"
+                url = "https://nodejs.org/dist/v20.11.1/node-v20.11.1-win-x64.zip"
+                self._download_file(url, node_zip, "Mengunduh Node.js Portabel")
+                
+                self._update_setup_status("Mengekstrak Node.js...", 0.9)
+                self._extract_zip(node_zip, bin_dir)
+                
+                # Rename the extracted folder to "node"
+                extracted_folder = bin_dir / "node-v20.11.1-win-x64"
+                target_folder = bin_dir / "node"
+                if target_folder.exists():
+                    shutil.rmtree(target_folder)
+                if extracted_folder.exists():
+                    extracted_folder.rename(target_folder)
+                    
+                # Clean up zip
+                if node_zip.exists():
+                    node_zip.unlink()
+                    
+            # 2. Download & Extract FFmpeg if missing
+            if "ffmpeg" in missing:
+                ffmpeg_zip = bin_dir / "ffmpeg.zip"
+                url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+                self._download_file(url, ffmpeg_zip, "Mengunduh FFmpeg")
+                
+                self._update_setup_status("Mengekstrak FFmpeg...", 0.9)
+                self._extract_zip(ffmpeg_zip, bin_dir)
+                
+                # Find the extracted folder (it starts with ffmpeg-)
+                extracted_folder = None
+                for p in bin_dir.iterdir():
+                    if p.is_dir() and p.name.startswith("ffmpeg-") and p.name != "node" and p.name != "ffmpeg":
+                        extracted_folder = p
+                        break
+                
+                if extracted_folder:
+                    target_folder = bin_dir / "ffmpeg"
+                    if target_folder.exists():
+                        shutil.rmtree(target_folder)
+                    extracted_folder.rename(target_folder)
+                    
+                # Clean up zip
+                if ffmpeg_zip.exists():
+                    ffmpeg_zip.unlink()
+            
+            # Setup PATH variables so npm can be run
+            self.setup_local_paths()
+            
+            # 3. Install node_modules if missing (we check it again)
+            if not (PROJECT_DIR / "node_modules").exists() or "node_modules" in missing:
+                self._update_setup_status("Memasang dependensi proyek (npm install)...", 0.95)
+                npm_cmd = "npm"
+                node_bin = bin_dir / "node"
+                if node_bin.exists():
+                    npm_cmd = str(node_bin / "npm.cmd")
+                
+                proc = subprocess.Popen([npm_cmd, "install"], cwd=str(PROJECT_DIR),
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                        text=True, shell=True)
+                for line in proc.stdout:
+                    clean_line = line.strip()
+                    if clean_line:
+                        self._update_setup_status(f"NPM: {clean_line[:60]}...", 0.95)
+                proc.wait()
+                
+            self._update_setup_status("Semua dependensi terpasang! Membuka studio...", 1.0)
+            self.after(1000, self._complete_setup)
+            
+        except Exception as exc:
+            self.after(0, lambda e=str(exc): self._setup_failed(e))
+
+    def _download_file(self, url, dest_path, label):
+        self._update_setup_status(f"{label}: Menghubungkan...", 0)
+        
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        req = urllib.request.Request(url, headers=headers)
+        
+        with urllib.request.urlopen(req) as response, open(dest_path, "wb") as out_file:
+            total_size = int(response.info().get("Content-Length", 0))
+            downloaded = 0
+            block_size = 1024 * 64
+            
+            while True:
+                buffer = response.read(block_size)
+                if not buffer:
+                    break
+                downloaded += len(buffer)
+                out_file.write(buffer)
+                
+                if total_size > 0:
+                    pct = downloaded / total_size
+                    mb_downloaded = downloaded / (1024 * 1024)
+                    mb_total = total_size / (1024 * 1024)
+                    self._update_setup_status(
+                        f"{label}: {mb_downloaded:.1f}MB / {mb_total:.1f}MB ({int(pct * 100)}%)",
+                        pct * 0.9
+                    )
+                else:
+                    self._update_setup_status(f"{label}: {downloaded / (1024*1024):.1f}MB", 0.5)
+
+    def _extract_zip(self, zip_path, dest_dir):
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(dest_dir)
+
+    def _update_setup_status(self, text, pct):
+        self.after(0, lambda: self.setup_status.configure(text=text))
+        self.after(0, lambda: self.setup_bar.set(pct))
+
+    def _setup_failed(self, err_msg):
+        self.btn_install.configure(state="normal", text="⚡ Coba Lagi")
+        self.setup_status.configure(text=f"ERROR: {err_msg}", text_color=COLORS["err"])
+        messagebox.showerror("Gagal Setup", f"Proses pemasangan otomatis gagal:\n{err_msg}")
+
+    def _complete_setup(self):
+        self.setup_frame.destroy()
+        self._start_app()
 
     # ---------- Layout ----------
     def _build_layout(self):
@@ -401,16 +647,32 @@ class YTStudioApp(ctk.CTk):
                                               ["300", "360", "480", "600", "720"], default="360")
         self.f_scenes = self._labeled_combo(body, "Jumlah scene", 1, 2,
                                             ["10", "12", "14", "16", "18"], default="14")
-        self.f_tts = self._labeled_combo(body, "TTS provider", 2, 0, ["openai", "elevenlabs"])
-        self.f_voice = self._labeled_combo(body, "TTS voice", 2, 1,
-                                          ["cedar", "ash", "ballad", "shimmer", "verse"])
+        # Get defaults based on .env
+        env_vars = parse_env()
+        default_tts = env_vars.get("YT_TTS_PROVIDER", "elevenlabs")
+        default_voice = env_vars.get("ELEVENLABS_VOICE_ID", "wUrGnU2Kx934kbDdOWDo") if default_tts == "elevenlabs" else env_vars.get("OPENAI_TTS_VOICE", "cedar")
+
+        self.f_tts = self._labeled_combo(body, "TTS provider", 2, 0, ["elevenlabs", "openai"], default=default_tts, command=self.on_tts_change)
+        
+        voice_choices = [default_voice] if default_tts == "elevenlabs" else ["cedar", "ash", "ballad", "shimmer", "verse"]
+        self.f_voice = self._labeled_combo(body, "TTS voice", 2, 1, voice_choices, default=default_voice)
         self.f_quality = self._labeled_combo(body, "Kualitas gambar", 2, 2,
                                             ["low", "medium", "high"])
 
         self.f_force = ctk.CTkCheckBox(body, text="Paksa (abaikan batas harian)",
                                        fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"])
         self.f_force.select()
-        self.f_force.grid(row=3, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        self.f_force.grid(row=3, column=0, sticky="w", pady=(12, 0))
+
+        self.f_upload = ctk.CTkCheckBox(body, text="Upload ke YouTube",
+                                        fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"])
+        self.f_upload.select()
+        self.f_upload.grid(row=3, column=1, sticky="w", pady=(12, 0))
+
+        self.f_remote = ctk.CTkCheckBox(body, text="Upload SFTP/Hosting",
+                                        fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"])
+        self.f_remote.deselect()
+        self.f_remote.grid(row=3, column=2, sticky="w", pady=(12, 0))
 
         actions = ctk.CTkFrame(view, fg_color="transparent")
         actions.pack(fill="x", pady=(0, 16))
@@ -503,13 +765,14 @@ class YTStudioApp(ctk.CTk):
         entry.pack(fill="x", pady=(4, 0))
         return entry
 
-    def _labeled_combo(self, master, label, r, c, values, default=None):
+    def _labeled_combo(self, master, label, r, c, values, default=None, command=None):
         wrap = ctk.CTkFrame(master, fg_color="transparent")
         wrap.grid(row=r, column=c, sticky="ew", padx=(0, 12), pady=6)
         ctk.CTkLabel(wrap, text=label, font=(FONT, 12), text_color=COLORS["muted"]).pack(anchor="w")
         combo = ctk.CTkComboBox(wrap, values=values, height=38, corner_radius=9,
                                 fg_color=COLORS["bg2"], border_color=COLORS["border"],
-                                button_color=COLORS["panel2"], button_hover_color=COLORS["border"])
+                                button_color=COLORS["panel2"], button_hover_color=COLORS["border"],
+                                command=command)
         combo.set(default or values[0])
         combo.pack(fill="x", pady=(4, 0))
         return combo
@@ -768,14 +1031,39 @@ class YTStudioApp(ctk.CTk):
         if playlist_id:
             ctk.CTkLabel(card, text=f"📂 Playlist: {playlist_id[:20]}...", font=(FONT, 10),
                          text_color=COLORS["blue"]).pack(anchor="w", padx=14, pady=(2, 0))
-        btn = ctk.CTkButton(card, text="▶ Buka YouTube" if yt else "Belum diupload",
-                            height=32, corner_radius=8,
-                            fg_color=COLORS["accent"] if yt else COLORS["panel"],
-                            hover_color=COLORS["accent_hover"] if yt else COLORS["panel"],
-                            text_color="#1a1407" if yt else COLORS["muted"],
-                            state="normal" if yt else "disabled",
-                            command=lambda u=yt: webbrowser.open(u) if u else None)
-        btn.pack(fill="x", padx=14, pady=12)
+        local_path = (it.get("assets") or {}).get("video", {}).get("path")
+        if yt:
+            btn = ctk.CTkButton(card, text="▶ Buka YouTube",
+                                height=32, corner_radius=8,
+                                fg_color=COLORS["accent"],
+                                hover_color=COLORS["accent_hover"],
+                                text_color="#1a1407",
+                                command=lambda u=yt: webbrowser.open(u))
+            btn.pack(fill="x", padx=14, pady=12)
+        else:
+            if local_path:
+                btn_grid = ctk.CTkFrame(card, fg_color="transparent")
+                btn_grid.pack(fill="x", padx=14, pady=12)
+                
+                btn_play = ctk.CTkButton(btn_grid, text="▶ Putar", height=32, width=90, corner_radius=8,
+                                         fg_color=COLORS["panel2"], hover_color=COLORS["border"],
+                                         text_color=COLORS["text"],
+                                         command=lambda p=local_path: self._play_local_file(p))
+                btn_play.pack(side="left", expand=True, fill="x", padx=(0, 4))
+                
+                btn_up = ctk.CTkButton(btn_grid, text="☁ Upload", height=32, width=110, corner_radius=8,
+                                       fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                                       text_color="#1a1407",
+                                       command=lambda i=it.get("id"): self.upload_to_youtube(i))
+                btn_up.pack(side="right", expand=True, fill="x", padx=(4, 0))
+            else:
+                btn = ctk.CTkButton(card, text="Belum diupload",
+                                    height=32, corner_radius=8,
+                                    fg_color=COLORS["panel"],
+                                    hover_color=COLORS["panel"],
+                                    text_color=COLORS["muted"],
+                                    state="disabled")
+                btn.pack(fill="x", padx=14, pady=12)
 
     # ---------- Actions ----------
     def _params(self):
@@ -788,6 +1076,8 @@ class YTStudioApp(ctk.CTk):
             "ttsVoice": self.f_voice.get(),
             "imageQuality": self.f_quality.get(),
             "force": "true" if self.f_force.get() else "false",
+            "upload": self.f_upload.get() == 1,
+            "remote": self.f_remote.get() == 1,
         }
 
     def _log(self, msg):
@@ -811,16 +1101,59 @@ class YTStudioApp(ctk.CTk):
                "--topic", p["topic"], "--category", p["category"],
                "--duration", p["durationSec"], "--scenes", p["sceneCount"],
                "--tts-provider", p["ttsProvider"], "--tts-voice", p["ttsVoice"],
-               "--image-quality", p["imageQuality"], "--force", p["force"],
-               "--local", "true"]
+               "--image-quality", p["imageQuality"], "--force", p["force"]]
+        
+        if not p["upload"]:
+            cmd.append("--no-upload")
+        if not p["remote"]:
+            cmd.append("--no-remote")
+
         self.show_view("create")
-        self._reset_progress("Render lokal (tanpa upload)")
+        self._reset_progress("Render lokal" + (" + Upload" if p["upload"] else " (tanpa upload)"))
         self._log(f"$ {' '.join(cmd)}")
         self.btn_local.configure(state="disabled", text="Sedang berjalan...")
         self._start_spinner()
-        threading.Thread(target=self._run_subprocess, args=(cmd, project_dir, True), daemon=True).start()
+        threading.Thread(target=self._run_subprocess, args=(cmd, project_dir), daemon=True).start()
 
-    def _run_subprocess(self, cmd, cwd, local=False):
+    def on_tts_change(self, val):
+        if val == "elevenlabs":
+            env_voice = parse_env().get("ELEVENLABS_VOICE_ID", "wUrGnU2Kx934kbDdOWDo")
+            self.f_voice.configure(values=[env_voice])
+            self.f_voice.set(env_voice)
+        else:
+            self.f_voice.configure(values=["cedar", "ash", "ballad", "shimmer", "verse"])
+            self.f_voice.set("cedar")
+
+    def upload_to_youtube(self, item_id):
+        project_dir = self.cfg["local"].get("projectDir") or str(PROJECT_DIR)
+        node_cmd = self.cfg["local"].get("nodeCommand", "npm")
+        cmd = [node_cmd, "run", "upload:once", "--", "--id", item_id]
+        
+        self.show_view("create")
+        self._reset_progress("Upload ke YouTube")
+        # Mark script, images, audio, thumbnail, render as complete since we are only uploading
+        for stage in ["script", "images", "audio", "thumbnail", "render"]:
+            if stage in self.stage_rows:
+                row = self.stage_rows[stage]
+                row["bar"].set(1)
+                row["dot"].configure(text="✔", text_color=COLORS["ok"])
+                row["pct"].configure(text="100% (lewati)")
+        
+        self._log(f"$ {' '.join(cmd)}")
+        self.btn_local.configure(state="disabled", text="Sedang berjalan...")
+        self._start_spinner()
+        threading.Thread(target=self._run_subprocess, args=(cmd, project_dir), daemon=True).start()
+
+    def _play_local_file(self, path):
+        if path and Path(path).exists():
+            try:
+                os.startfile(path)
+            except AttributeError:
+                webbrowser.open(f"file://{path}")
+        else:
+            messagebox.showwarning("File tidak ada", f"File video tidak ditemukan di: {path}")
+
+    def _run_subprocess(self, cmd, cwd):
         success = False
         try:
             proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE,
@@ -833,6 +1166,9 @@ class YTStudioApp(ctk.CTk):
                     continue
                 if "@@LOCAL_OUTPUT" in line:
                     self._parse_local_output(line)
+                    continue
+                if "@@UPLOAD_SUCCESS" in line:
+                    self._parse_upload_success(line)
                     continue
                 self._log(line)
             proc.wait()
@@ -847,10 +1183,34 @@ class YTStudioApp(ctk.CTk):
             self.after(0, self._stop_spinner)
             self.after(0, lambda: self.btn_local.configure(
                 state="normal", text="▶  Jalankan Lokal (Node)"))
-            if success and not local:
-                self.after(1500, self.refresh_state)
             if success:
+                self.after(1500, self.refresh_state)
                 self.after(0, lambda: self._set_status_text("Selesai", COLORS["ok"]))
+
+    def _parse_upload_success(self, line):
+        try:
+            start = line.index("@@UPLOAD_SUCCESS") + len("@@UPLOAD_SUCCESS")
+            end = line.rindex("@@")
+            data = json.loads(line[start:end].strip())
+        except Exception:  # noqa: BLE001
+            return
+        url = data.get("url", "")
+        self.after(0, lambda u=url: self._show_upload_success(u))
+
+    def _show_upload_success(self, url):
+        self._log(f"✓ Sukses upload ke YouTube: {url}")
+        if "upload" in self.stage_rows:
+            row = self.stage_rows["upload"]
+            row["bar"].set(1)
+            row["dot"].configure(text="✔", text_color=COLORS["ok"])
+            row["pct"].configure(text="100%")
+        if "publish" in self.stage_rows:
+            row = self.stage_rows["publish"]
+            row["bar"].set(1)
+            row["dot"].configure(text="✔", text_color=COLORS["ok"])
+            row["pct"].configure(text="Selesai")
+        self.overall_bar.set(1)
+        self.overall_lbl.configure(text="100% - Selesai Upload")
 
     # ---------- Progress & output helpers ----------
     STAGE_KEYS = ["script", "images", "audio", "thumbnail", "render", "upload", "publish"]
