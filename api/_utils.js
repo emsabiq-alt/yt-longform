@@ -126,6 +126,7 @@ export async function uploadStateFile(file, data) {
       try {
         await client.connect({
           host: cfg.host, port: cfg.port, username: cfg.user,
+          privateKey: cfg.privateKey || undefined,
           password: cfg.password || undefined,
           readyTimeout: Math.max(cfg.stateTimeoutMs, 30000),
           keepaliveInterval: 10000, keepaliveCountMax: 12
@@ -292,6 +293,7 @@ export function remoteConfig() {
     port: numberEnvFrom(driver === "sftp" ? ["SFTP_PORT"] : names("PORT"), defaultPort),
     user: clean(firstEnv(names("USER"))),
     password: firstEnv(names("PASSWORD")),
+    privateKey: firstEnv(names("PRIVATE_KEY")),
     remoteDir: clean(firstEnv(names("REMOTE_DIR"), "/public_html/yt")),
     stateTimeoutMs: numberEnvFrom(names("STATE_TIMEOUT_SECONDS"), 180) * 1000,
     retries: Math.max(1, numberEnvFrom(names("UPLOAD_RETRIES"), 4))
@@ -302,7 +304,7 @@ export function remoteMissingEnv(cfg) {
   const missing = [];
   if (!cfg.host) missing.push(`${cfg.prefix}_HOST`);
   if (!cfg.user) missing.push(`${cfg.prefix}_USER`);
-  if (!cfg.password) missing.push(`${cfg.prefix}_PASSWORD`);
+  if (!cfg.password && !cfg.privateKey) missing.push(`${cfg.prefix}_PASSWORD`);
   if (!cfg.remoteDir) missing.push(`${cfg.prefix}_REMOTE_DIR`);
   return missing;
 }

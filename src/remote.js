@@ -27,6 +27,7 @@ export function remoteConfig() {
     port: Number(first("PORT", driver === "ftp" ? "21" : "22")),
     user: first("USER"),
     password: first("PASSWORD"),
+    privateKey: first("PRIVATE_KEY"),
     remoteDir: first("REMOTE_DIR"),
     timeoutMs: Number(first("UPLOAD_TIMEOUT_SECONDS", "180")) * 1000,
     connectTimeoutMs: Number(first("CONNECT_TIMEOUT_SECONDS", "30")) * 1000,
@@ -39,7 +40,7 @@ export function assertRemoteConfig() {
   const missing = [];
   if (!cfg.host) missing.push(`${cfg.prefix}_HOST`);
   if (!cfg.user) missing.push(`${cfg.prefix}_USER`);
-  if (!cfg.password) missing.push(`${cfg.prefix}_PASSWORD`);
+  if (!cfg.password && !cfg.privateKey) missing.push(`${cfg.prefix}_PASSWORD/${cfg.prefix}_PRIVATE_KEY`);
   if (!cfg.remoteDir) missing.push(`${cfg.prefix}_REMOTE_DIR`);
   if (missing.length) throw new Error(`Remote upload config belum lengkap: ${missing.join(", ")}`);
   return cfg;
@@ -107,7 +108,9 @@ export async function withRemoteClient(cfg, callback) {
       host: cfg.host,
       port: cfg.port,
       username: cfg.user,
-      password: cfg.password,
+      // Pakai SSH key bila tersedia; password tetap jadi fallback (ssh2 coba publickey dulu).
+      ...(cfg.privateKey ? { privateKey: cfg.privateKey } : {}),
+      ...(cfg.password ? { password: cfg.password } : {}),
       readyTimeout: cfg.connectTimeoutMs || cfg.timeoutMs
     });
     await client.mkdir(cfg.remoteDir, true);

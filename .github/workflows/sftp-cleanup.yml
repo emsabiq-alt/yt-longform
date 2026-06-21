@@ -33,9 +33,10 @@ jobs:
     env:
       UPLOAD_DRIVER: ${{ secrets.UPLOAD_DRIVER || 'sftp' }}
       SFTP_HOST: ${{ secrets.SFTP_HOST }}
-      SFTP_PORT: ${{ secrets.SFTP_PORT || '22' }}
+      SFTP_PORT: ${{ secrets.SFTP_PORT || '65002' }}
       SFTP_USER: ${{ secrets.SFTP_USER }}
       SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+      SFTP_PRIVATE_KEY: ${{ secrets.SFTP_PRIVATE_KEY }}
       SFTP_REMOTE_DIR: ${{ secrets.SFTP_REMOTE_DIR }}
       FTP_HOST: ${{ secrets.FTP_HOST }}
       FTP_PORT: ${{ secrets.FTP_PORT || '21' }}
