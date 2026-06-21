@@ -54,8 +54,11 @@ if (shouldUploadRemote) {
   await importRemoteState();
 }
 
-const isAutomated = process.env.GITHUB_ACTIONS === "true" && process.env.GITHUB_EVENT_NAME === "schedule";
-const force = boolValue(argValue("--force", process.env.YT_FORCE_GENERATE || "false")) || !isAutomated;
+// Di luar GitHub Actions (run lokal) selalu paksa supaya mudah dites.
+// Di dalam Actions — baik schedule maupun manual dispatch dari dashboard — hormati nilai --force,
+// sehingga kotak ceklis "Paksa (abaikan batas harian)" benar-benar mengontrol bypass limit.
+const runningInActions = process.env.GITHUB_ACTIONS === "true";
+const force = boolValue(argValue("--force", process.env.YT_FORCE_GENERATE || "false")) || !runningInActions;
 
 if (localOnly) {
   console.log("Mode LOKAL: render saja, tanpa SFTP & tanpa upload YouTube.");
