@@ -167,6 +167,9 @@ jobs:
       - name: Validate source
         run: npm run check
 
+      - name: Run unit tests
+        run: npm test
+
       - name: Preflight
         run: npm run preflight
 

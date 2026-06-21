@@ -12,6 +12,7 @@
     "upload:once": "node src/upload-only.js",
     "cleanup": "node src/sftp-cleanup.js",
     "rerender": "node src/rerender.js",
+    "test": "node --test test/",
     "test:continuity": "node scripts/test-continuity.js",
     "test:overlay": "node scripts/test-pexels-overlay.js",
     "patch:pureimage": "node scripts/patch-pureimage.js",
