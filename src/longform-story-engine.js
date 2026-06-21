@@ -246,20 +246,7 @@ function buildPrompt(input) {
     "Kembalikan JSON valid saja dengan format:",
     "{ title, hook, summary, importantPoints:[string], factCheckNote, scenes:[{ index, sceneType:'image'|'reaction'|'summary', durationSec, narration, screenText, visualKeywords, imagePrompt, chapter, beatPurpose, reactionCue }] }",
     "",
-    "INSTRUKSI JUDUL (WAJIB):",
-    "Judul HARUS singkat (5-10 kata), spesifik, padat, dan punya rasa penasaran tinggi tanpa terasa template.",
-    "Pilih SATU pola yang paling cocok dengan topik, lalu variasikan diksi agar tidak mengulang pola video sebelumnya:",
-    "  - Misteri tertunda: 'Rahasia yang Baru Terbuka Setelah Puluhan Tahun'",
-    "  - Pertanyaan tajam: 'Kenapa Fenomena Ini Sulit Dijelaskan Ilmuwan?'",
-    "  - Paradoks: 'Hal Kecil yang Mengubah Sejarah Besar'",
-    "  - Fakta melawan intuisi: 'Ternyata Penyebabnya Bukan yang Kita Kira'",
-    "  - Konsekuensi tersembunyi: 'Keputusan Kecil yang Efeknya Mendunia'",
-    "  - Jejak yang hilang: 'Petunjuk yang Lama Diabaikan Sejarah'",
-    "  - Angka mencurigakan: '7 Fakta Aneh di Balik Peristiwa Ini'",
-    "  - Rahasia terungkap: 'Yang Jarang Diceritakan di Buku Sekolah'",
-    "JANGAN gunakan pola 'Semua Orang Salah Soal...' kecuali topik benar-benar membongkar miskonsepsi besar.",
-    "JANGAN buat judul deskriptif panjang seperti 'Mengapa X Menyebabkan Y pada Z'. Buat SINGKAT, SPESIFIK, dan MISTERIUS.",
-    "Judul maksimal 60 karakter. Jangan pakai tanda seru berlebihan. Jangan membuat judul generik seperti 'Ini Penyebab Sebenarnya' tanpa subjek yang jelas.",
+    "JUDUL (cadangan): Buat judul singkat (maksimal 60 karakter), spesifik dengan subjek konkret yang jelas, dan memancing rasa penasaran tanpa terasa template. Judul final akan disempurnakan terpisah, jadi cukup sediakan satu judul layak pakai.",
     "",
     "HOOK WAJIB (30 DETIK PERTAMA):",
     "Scene 1 HARUS membuat penonton TIDAK BISA meninggalkan video. Gunakan salah satu teknik hook yang kuat dan relevan:",
@@ -315,8 +302,8 @@ function normalizePlan(plan, input) {
       durationSec: duration,
       narration,
       screenText,
-      visualKeywords: sceneType === "reaction" ? "" : cleanText(scene?.visualKeywords || "abstract background digital node technology", 150),
-      imagePrompt: sceneType === "reaction" ? "" : cleanText(scene?.imagePrompt || `horizontal educational cinematic scene showing ${input.topic}`, 500),
+      visualKeywords: sceneType === "reaction" ? "" : cleanText(scene?.visualKeywords || fallbackKeywords(index), 150),
+      imagePrompt: sceneType === "reaction" ? "" : cleanText(scene?.imagePrompt || fallbackImagePrompt(input.topic, index), 500),
       chapter: cleanText(scene?.chapter || chapterName(index, input.sceneCount), 80),
       beatPurpose: cleanText(scene?.beatPurpose || beatPurpose(index, input.sceneCount), 180),
       reactionCue: cleanText(scene?.reactionCue || reactionCue(index), 120)
@@ -335,8 +322,8 @@ function normalizePlan(plan, input) {
         ? fallbackReactionNarration(index)
         : `Ini adalah bagian penjelasan tambahan untuk babak ke-${index + 1}.`,
       screenText: sceneType === "summary" ? "Ringkasan Inti" : fallbackScreenText(index, input.sceneCount),
-      visualKeywords: sceneType === "reaction" ? "" : "abstract background digital node technology",
-      imagePrompt: sceneType === "reaction" ? "" : `horizontal educational cinematic scene showing ${input.topic}`,
+      visualKeywords: sceneType === "reaction" ? "" : fallbackKeywords(index),
+      imagePrompt: sceneType === "reaction" ? "" : fallbackImagePrompt(input.topic, index),
       chapter: chapterName(index, input.sceneCount),
       beatPurpose: beatPurpose(index, input.sceneCount),
       reactionCue: reactionCue(index)
@@ -356,7 +343,7 @@ function normalizePlan(plan, input) {
     hook: cleanText(plan?.hook || `Tahukah kamu tentang ${input.topic}?`, 200),
     summary,
     importantPoints: Array.isArray(plan?.importantPoints) ? plan.importantPoints.map(p => cleanText(p, 220)).slice(0, 8) : ["Poin analisis pertama."],
-    factCheckNote: cleanText(plan?.factCheckNote || "Fakta diverifikasi berdasarkan data sejarah publik.", 300),
+    factCheckNote: cleanText(plan?.factCheckNote || "Konten disusun dengan bantuan AI dan belum diverifikasi manual. Periksa ulang fakta penting sebelum dipublikasikan.", 300),
     scenes
   };
   normalized.longformStoryboard = buildLongformStoryboard(normalized);
@@ -393,13 +380,13 @@ function fallbackPlan(input, errorMsg = "") {
     });
   }
   return {
-    title: `Kasus ${input.topic}`,
+    title: cleanText(input.topic, 100),
     hook: `Mengapa ${input.topic} menjadi pelajaran penting hari ini?`,
-    summary: `Analisis mendalam kegagalan inovasi dan taktik penyesuaian pasar.`,
+    summary: `Pembahasan ini menelusuri ${input.topic} mulai dari latar belakang, sebab, hingga dampaknya, lalu menutup dengan intisari yang mudah diingat.`,
     importantPoints: [
-      "Inovasi lambat meruntuhkan raksasa industri.",
-      "Zona nyaman seringkali menipu manajemen.",
-      "Kompetitor agresif merebut pangsa pasar digital."
+      `Latar belakang dan konteks penting seputar ${input.topic}.`,
+      `Sebab atau mekanisme utama di balik ${input.topic}.`,
+      `Dampak serta pelajaran yang bisa diambil dari ${input.topic}.`
     ],
     scenes
   };
