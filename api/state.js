@@ -1,4 +1,4 @@
-import { configSummary, getRecentRuns, getRunJobs, methodAllowed, readState, requireAuth, sendJson } from "./_utils.js";
+import { configSummary, getRecentRuns, getRunJobs, methodAllowed, readState, requireAuth, sendError, sendJson } from "./_utils.js";
 
 export default async function handler(req, res) {
   if (!methodAllowed(req, res, ["GET"])) return;
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
       stats: buildStats(items, configSummary().timezone)
     });
   } catch (error) {
-    sendJson(res, 500, { error: error.message });
+    sendError(res, error, 500);
   }
 }
 

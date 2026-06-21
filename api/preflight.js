@@ -8,6 +8,7 @@ import {
   remoteConfig,
   remoteMissingEnv,
   requireAuth,
+  sendError,
   sendJson
 } from "./_utils.js";
 
@@ -22,8 +23,11 @@ export default async function handler(req, res) {
     const missingRemote = remoteMissingEnv(remote);
     const cfg = configSummary();
 
+    const pin = clean(process.env.AUTO_DASHBOARD_PIN);
     const checks = [
-      check("Dashboard PIN", Boolean(clean(process.env.AUTO_DASHBOARD_PIN)), "PIN aktif"),
+      check("Dashboard PIN", Boolean(pin), "PIN aktif"),
+      check("PIN kuat", pin.length >= 12, pin.length >= 12 ? "panjang memadai" : "Disarankan PIN ≥ 12 karakter acak (anti brute-force).", false),
+      check("Session secret", Boolean(clean(process.env.DASHBOARD_SESSION_SECRET)), clean(process.env.DASHBOARD_SESSION_SECRET) ? "diset" : "opsional: set DASHBOARD_SESSION_SECRET untuk token sesi mandiri.", false),
       check("PUBLIC_BASE_URL", Boolean(cfg.publicBaseUrl), cfg.publicBaseUrl || "belum diset"),
       check(`${remote.label} credential`, missingRemote.length === 0, missingRemote.length ? `missing: ${missingRemote.join(", ")}` : "untuk update queue & state"),
       check("Workflow token", Boolean(clean(process.env.GH_REPO_SECRET_TOKEN || process.env.GITHUB_TOKEN)), "untuk tombol Generate"),
@@ -35,6 +39,6 @@ export default async function handler(req, res) {
 
     sendJson(res, 200, { checks, config: cfg });
   } catch (error) {
-    sendJson(res, 500, { error: error.message });
+    sendError(res, error, 500);
   }
 }

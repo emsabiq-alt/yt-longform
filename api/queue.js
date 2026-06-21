@@ -1,11 +1,13 @@
 import {
   buildQueueItem,
+  clientError,
   dispatchWorkflow,
   methodAllowed,
   readBody,
   readStateFile,
   removeById,
   requireAuth,
+  sendError,
   sendJson,
   uploadStateFile,
   upsertById
@@ -24,7 +26,7 @@ export default async function handler(req, res) {
     if (req.method === "DELETE") {
       const body = await readBody(req);
       const id = String(body.id || "");
-      if (!id) throw new Error("id wajib diisi untuk menghapus.");
+      if (!id) throw clientError("id wajib diisi untuk menghapus.", 400);
       const queue = removeById(await readStateFile("queue.json"), id);
       await uploadStateFile("queue.json", queue);
       sendJson(res, 200, { ok: true, queue });
@@ -55,6 +57,6 @@ export default async function handler(req, res) {
 
     sendJson(res, 200, item);
   } catch (error) {
-    sendJson(res, 400, { error: error.message });
+    sendError(res, error, 400);
   }
 }

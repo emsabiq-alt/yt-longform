@@ -1,4 +1,4 @@
-import { clean, clearPinCookie, methodAllowed, readBody, sendJson, setPinCookie } from "./_utils.js";
+import { checkLoginRate, clean, clearPinCookie, methodAllowed, readBody, recordLogin, safeEqual, sendError, sendJson, setSessionCookie } from "./_utils.js";
 
 export default async function handler(req, res) {
   if (!methodAllowed(req, res, ["POST", "DELETE"])) return;
@@ -14,14 +14,20 @@ export default async function handler(req, res) {
     sendJson(res, 403, { error: "AUTO_DASHBOARD_PIN belum diset di Vercel Environment." });
     return;
   }
+  if (!checkLoginRate(req, res)) return;
 
-  const body = await readBody(req);
-  const pin = clean(body.pin);
-  if (pin !== expected) {
-    sendJson(res, 401, { error: "PIN dashboard salah." });
-    return;
+  try {
+    const body = await readBody(req);
+    const pin = clean(body.pin);
+    if (!safeEqual(pin, expected)) {
+      recordLogin(req, false);
+      sendJson(res, 401, { error: "PIN dashboard salah." });
+      return;
+    }
+    recordLogin(req, true);
+    setSessionCookie(res);
+    sendJson(res, 200, { ok: true });
+  } catch (error) {
+    sendError(res, error, 400);
   }
-
-  setPinCookie(res, pin);
-  sendJson(res, 200, { ok: true });
 }

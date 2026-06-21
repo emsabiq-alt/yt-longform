@@ -171,17 +171,29 @@ jobs:
         run: npm run preflight
 
       - name: Generate longform video
+        env:
+          # Input user dilewatkan sebagai ENV (data), bukan diinterpolasi ke shell source.
+          # Mencegah script injection: nilai "$VAR" ber-quote tidak pernah dieksekusi sebagai perintah.
+          INPUT_TOPIC: ${{ github.event.inputs.topic }}
+          INPUT_CATEGORY: ${{ github.event.inputs.category }}
+          INPUT_DURATION: ${{ github.event.inputs.duration }}
+          INPUT_SCENES: ${{ github.event.inputs.scenes }}
+          INPUT_TTS_PROVIDER: ${{ github.event.inputs.tts_provider }}
+          INPUT_TTS_VOICE: ${{ github.event.inputs.tts_voice }}
+          INPUT_IMAGE_QUALITY: ${{ github.event.inputs.image_quality }}
+          INPUT_FORMAT_TYPE: ${{ github.event.inputs.format_type }}
+          INPUT_FORCE: ${{ github.event.inputs.force }}
         run: |
           npm run run:once -- \
-            --topic "${{ github.event.inputs.topic }}" \
-            --category "${{ github.event.inputs.category }}" \
-            --duration "${{ github.event.inputs.duration }}" \
-            --scenes "${{ github.event.inputs.scenes }}" \
-            --tts-provider "${{ github.event.inputs.tts_provider }}" \
-            --tts-voice "${{ github.event.inputs.tts_voice }}" \
-            --image-quality "${{ github.event.inputs.image_quality }}" \
-            --format-type "${{ github.event.inputs.format_type }}" \
-            --force "${{ github.event.inputs.force }}"
+            --topic "$INPUT_TOPIC" \
+            --category "$INPUT_CATEGORY" \
+            --duration "$INPUT_DURATION" \
+            --scenes "$INPUT_SCENES" \
+            --tts-provider "$INPUT_TTS_PROVIDER" \
+            --tts-voice "$INPUT_TTS_VOICE" \
+            --image-quality "$INPUT_IMAGE_QUALITY" \
+            --format-type "$INPUT_FORMAT_TYPE" \
+            --force "$INPUT_FORCE"
 
       - name: Save topic history
         if: always()

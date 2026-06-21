@@ -7,10 +7,34 @@ import SftpClient from "ssh2-sftp-client";
 
 const STATE_FILES = ["items.json", "queue.json"];
 
+const MAX_BODY_BYTES = 1_000_000; // 1 MB — batas ukuran request body.
+
 export function sendJson(res, status, payload) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(payload));
+}
+
+/**
+ * Error yang aman ditampilkan ke klien (pesan validasi/operasional).
+ * Error tanpa flag ini dianggap internal → pesan disembunyikan oleh sendError.
+ */
+export function clientError(message, status = 400) {
+  const error = new Error(message);
+  error.expose = true;
+  error.status = status;
+  return error;
+}
+
+/**
+ * Kirim error: detail lengkap ke log server, pesan generik ke klien
+ * kecuali error sengaja ditandai aman (expose).
+ */
+export function sendError(res, error, fallbackStatus = 500) {
+  console.error("[api]", error?.stack || error?.message || error);
+  const status = Number(error?.status) || fallbackStatus;
+  const message = error?.expose ? error.message : "Terjadi kesalahan internal. Cek log server.";
+  sendJson(res, status, { error: message });
 }
 
 export function methodAllowed(req, res, methods) {
@@ -19,21 +43,43 @@ export function methodAllowed(req, res, methods) {
   return false;
 }
 
+function parseJsonBody(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw clientError("Body JSON tidak valid.", 400);
+  }
+}
+
 export async function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
-  if (typeof req.body === "string") {
-    const rawBody = req.body.trim();
-    return rawBody ? JSON.parse(rawBody) : {};
-  }
+  if (typeof req.body === "string") return parseJsonBody(req.body);
   const chunks = [];
-  for await (const chunk of req) chunks.push(Buffer.from(chunk));
-  const raw = Buffer.concat(chunks).toString("utf8").trim();
-  if (!raw) return {};
-  return JSON.parse(raw);
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > MAX_BODY_BYTES) throw clientError("Request body terlalu besar.", 413);
+    chunks.push(Buffer.from(chunk));
+  }
+  return parseJsonBody(Buffer.concat(chunks).toString("utf8"));
 }
 
 export function clean(value) {
   return String(value || "").trim();
+}
+
+/** Trim + potong string ke panjang maksimum (cegah input liar membengkak). */
+export function clampStr(value, max = 200) {
+  return String(value ?? "").trim().slice(0, max);
+}
+
+/** Number terbatas: NaN/di luar rentang dikembalikan ke nilai aman. */
+export function clampNum(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
 }
 
 export function boolEnv(name, fallback = false) {
@@ -54,29 +100,126 @@ function numberEnv(name, fallback) {
 }
 
 // ---------------- Auth ----------------
+const SESSION_COOKIE = "yt_dashboard_session";
+const LEGACY_PIN_COOKIE = "yt_dashboard_pin";
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 hari
+
+/**
+ * Perbandingan string konstan-waktu (anti timing attack).
+ * HMAC kedua sisi dengan kunci acak sehingga digest selalu sama panjang —
+ * aman untuk PIN dengan panjang berapa pun tanpa membocorkan panjang lewat timing.
+ */
+export function safeEqual(a, b) {
+  const key = crypto.randomBytes(32);
+  const da = crypto.createHmac("sha256", key).update(String(a ?? "")).digest();
+  const db = crypto.createHmac("sha256", key).update(String(b ?? "")).digest();
+  return crypto.timingSafeEqual(da, db);
+}
+
+// ---- Rate limit brute-force (best-effort, in-memory per instance) ----
+// Catatan: di serverless counter ini per-instance & hilang saat cold start —
+// jadi ini "speed bump", bukan proteksi mutlak. Pertahanan utama = PIN panjang-acak.
+// Untuk proteksi kuat lintas-instance, pindahkan ke store eksternal (Vercel KV/Upstash).
+const RL_WINDOW_MS = 60_000;
+const RL_MAX_FAILS = 10;
+const authFails = new Map(); // ip -> { count, resetAt }
+
+function clientIp(req) {
+  const xff = String(req.headers?.["x-forwarded-for"] || "").split(",")[0].trim();
+  return xff || req.socket?.remoteAddress || "unknown";
+}
+
+function isRateLimited(req) {
+  const entry = authFails.get(clientIp(req));
+  return Boolean(entry && entry.resetAt > Date.now() && entry.count >= RL_MAX_FAILS);
+}
+
+function noteAuthFailure(req) {
+  const ip = clientIp(req);
+  const now = Date.now();
+  const entry = authFails.get(ip);
+  if (!entry || entry.resetAt <= now) authFails.set(ip, { count: 1, resetAt: now + RL_WINDOW_MS });
+  else entry.count += 1;
+}
+
+function noteAuthSuccess(req) {
+  authFails.delete(clientIp(req));
+}
+
+// ---- Token sesi (cookie tidak lagi menyimpan PIN mentah) ----
+function sessionSecret() {
+  const explicit = clean(process.env.DASHBOARD_SESSION_SECRET);
+  if (explicit) return explicit;
+  // Fallback: turunkan dari PIN agar tetap berfungsi tanpa env baru.
+  // Token otomatis invalid bila PIN diganti.
+  return `pin:${clean(process.env.AUTO_DASHBOARD_PIN)}`;
+}
+
+export function issueSessionToken() {
+  const payload = `v1.${Date.now() + SESSION_TTL_MS}`;
+  const sig = crypto.createHmac("sha256", sessionSecret()).update(payload).digest("base64url");
+  return `${payload}.${sig}`;
+}
+
+function verifySessionToken(token) {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 3 || parts[0] !== "v1") return false;
+  const exp = Number(parts[1]);
+  if (!Number.isFinite(exp) || exp <= Date.now()) return false;
+  const expected = crypto.createHmac("sha256", sessionSecret()).update(`v1.${parts[1]}`).digest("base64url");
+  const a = Buffer.from(parts[2]);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 export function requireAuth(req, res) {
   const expected = clean(process.env.AUTO_DASHBOARD_PIN);
   if (!expected) {
     sendJson(res, 403, { error: "AUTO_DASHBOARD_PIN belum diset di Vercel Environment." });
     return false;
   }
-  const provided = clean(
-    req.headers["x-dashboard-pin"]
-      || queryValue(req, "pin")
-      || cookieValue(req.headers.cookie || "", "yt_dashboard_pin")
-  );
-  if (provided === expected) return true;
+  if (isRateLimited(req)) {
+    sendJson(res, 429, { error: "Terlalu banyak percobaan. Coba lagi dalam semenit." });
+    return false;
+  }
+  const headerPin = clean(req.headers["x-dashboard-pin"]);
+  const sessionOk = verifySessionToken(cookieValue(req.headers.cookie || "", SESSION_COOKIE));
+  if ((headerPin && safeEqual(headerPin, expected)) || sessionOk) {
+    noteAuthSuccess(req);
+    return true;
+  }
+  noteAuthFailure(req);
   sendJson(res, 401, { error: "PIN dashboard tidak valid atau belum diisi." });
   return false;
 }
 
-export function setPinCookie(res, pin) {
+/** Cek rate-limit khusus endpoint login. Mengembalikan false (+ kirim 429) bila terblokir. */
+export function checkLoginRate(req, res) {
+  if (isRateLimited(req)) {
+    sendJson(res, 429, { error: "Terlalu banyak percobaan. Coba lagi dalam semenit." });
+    return false;
+  }
+  return true;
+}
+
+/** Catat hasil percobaan login untuk rate-limit. */
+export function recordLogin(req, ok) {
+  if (ok) noteAuthSuccess(req);
+  else noteAuthFailure(req);
+}
+
+export function setSessionCookie(res) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  res.setHeader("Set-Cookie", `yt_dashboard_pin=${encodeURIComponent(pin)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secure}`);
+  const maxAge = Math.floor(SESSION_TTL_MS / 1000);
+  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=${issueSessionToken()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`);
 }
 
 export function clearPinCookie(res) {
-  res.setHeader("Set-Cookie", "yt_dashboard_pin=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
+  // Hapus cookie sesi baru sekaligus cookie PIN lama (legacy).
+  res.setHeader("Set-Cookie", [
+    `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
+    `${LEGACY_PIN_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+  ]);
 }
 
 // ---------------- State (read from hosting, write via SFTP) ----------------
@@ -117,7 +260,7 @@ export async function uploadStateFile(file, data) {
   const cfg = remoteConfig();
   if (!["ftp", "sftp"].includes(cfg.driver)) return { skipped: true };
   const missing = remoteMissingEnv(cfg);
-  if (missing.length) throw new Error(`${cfg.label} env belum lengkap untuk update state: ${missing.join(", ")}`);
+  if (missing.length) throw clientError(`${cfg.label} env belum lengkap untuk update state: ${missing.join(", ")}`, 500);
 
   const raw = `${JSON.stringify(data, null, 2)}\n`;
   await withRemoteRetry(async () => {
@@ -215,7 +358,7 @@ export async function getRunJobs(runId) {
 
 export async function dispatchWorkflow(inputs) {
   const token = githubToken();
-  if (!token) throw new Error("GH_REPO_SECRET_TOKEN belum diset di Vercel Environment.");
+  if (!token) throw clientError("GH_REPO_SECRET_TOKEN belum diset di Vercel Environment.", 500);
   const repo = githubRepo();
   const workflow = clean(process.env.DASHBOARD_WORKFLOW_FILE || process.env.YT_WORKFLOW_FILE || "yt-longform-generate.yml");
   const ref = clean(process.env.DASHBOARD_GITHUB_REF || "main");
@@ -226,7 +369,9 @@ export async function dispatchWorkflow(inputs) {
   if (response.status === 204) return { ok: true, repo, workflow, ref };
   let detail = "";
   try { detail = JSON.stringify(await response.json()); } catch { detail = await response.text(); }
-  throw new Error(`Gagal trigger workflow (${response.status}): ${detail.slice(0, 500)}`);
+  // Detail lengkap GitHub API ke log saja; klien cukup tahu status (hindari bocor struktur repo).
+  console.error("[dispatchWorkflow]", response.status, detail.slice(0, 500));
+  throw clientError(`Gagal trigger workflow (HTTP ${response.status}).`, 502);
 }
 
 // ---------------- Queue helpers ----------------
@@ -239,19 +384,19 @@ export function buildQueueItem(input) {
     ? process.env.ELEVENLABS_VOICE_ID || "wUrGnU2Kx934kbDdOWDo"
     : process.env.OPENAI_TTS_VOICE || "cedar";
   return {
-    id: input.id || makeId("q"),
-    topic: clean(input.topic),
-    category: clean(input.category || "random"),
-    formatType: clean(input.formatType || input.format_type || ""),
-    durationSec: Number(input.durationSec || process.env.YT_DURATION_SEC || 360),
-    sceneCount: Number(input.sceneCount || process.env.YT_SCENE_COUNT || 14),
+    id: clampStr(input.id, 80) || makeId("q"),
+    topic: clampStr(input.topic, 300),
+    category: clampStr(input.category || "random", 80),
+    formatType: clampStr(input.formatType || input.format_type || "", 40),
+    durationSec: clampNum(input.durationSec || process.env.YT_DURATION_SEC || 360, 300, 900, 360),
+    sceneCount: clampNum(input.sceneCount || process.env.YT_SCENE_COUNT || 14, 1, 60, 14),
     ttsProvider,
-    ttsVoice: clean(input.ttsVoice || defaultTtsVoice),
-    imageQuality: clean(input.imageQuality || "low"),
-    priority: Number(input.priority || 1),
-    status: clean(input.status || "pending"),
-    notes: clean(input.notes || ""),
-    createdAt: input.createdAt || now,
+    ttsVoice: clampStr(input.ttsVoice || defaultTtsVoice, 80),
+    imageQuality: clampStr(input.imageQuality || "low", 20),
+    priority: clampNum(input.priority || 1, 1, 99, 1),
+    status: clampStr(input.status || "pending", 40),
+    notes: clampStr(input.notes || "", 500),
+    createdAt: clampStr(input.createdAt, 40) || now,
     updatedAt: now
   };
 }
@@ -362,14 +507,6 @@ function numberEnvFrom(names, fallback) {
 
 function cleanBaseUrl(value) {
   return clean(value).replace(/\/+$/, "");
-}
-
-function queryValue(req, name) {
-  try {
-    return new URL(req.url, "https://dashboard.local").searchParams.get(name) || "";
-  } catch {
-    return "";
-  }
 }
 
 function cookieValue(raw, name) {
