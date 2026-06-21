@@ -376,8 +376,9 @@ $("#btnGenerate").addEventListener("click", async () => {
   const btn = $("#btnGenerate");
   btn.disabled = true; btn.textContent = "Mengirim…";
   try {
-    await api("/api/run", { method: "POST", body: JSON.stringify(formData()) });
-    toast("Workflow ter-trigger. Pantau di tab Proses.", "ok");
+    const payload = formData();
+    await api("/api/run", { method: "POST", body: JSON.stringify(payload) });
+    toast(`Workflow ter-trigger (Paksa: ${payload.force ? "ON ✅" : "OFF"}). Pantau di tab Proses.`, "ok");
     switchView("overview");
     setTimeout(refresh, 4000);
   } catch (e) { toast(e.message, "err"); }

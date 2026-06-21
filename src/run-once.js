@@ -58,7 +58,11 @@ if (shouldUploadRemote) {
 // Di dalam Actions — baik schedule maupun manual dispatch dari dashboard — hormati nilai --force,
 // sehingga kotak ceklis "Paksa (abaikan batas harian)" benar-benar mengontrol bypass limit.
 const runningInActions = process.env.GITHUB_ACTIONS === "true";
-const force = boolValue(argValue("--force", process.env.YT_FORCE_GENERATE || "false")) || !runningInActions;
+const forceArg = argValue("--force", process.env.YT_FORCE_GENERATE || "false");
+const force = boolValue(forceArg) || !runningInActions;
+// Log eksplisit supaya status "Paksa" terlihat jelas di log workflow — memudahkan
+// memastikan apakah ceklis benar-benar terkirim (true) atau tidak (false/kosong).
+console.log(`Mode Paksa (abaikan batas harian): ${force ? "AKTIF — limit harian diabaikan" : "NON-AKTIF — limit harian dihormati"} (nilai --force="${forceArg}", di GitHub Actions=${runningInActions}).`);
 
 if (localOnly) {
   console.log("Mode LOKAL: render saja, tanpa SFTP & tanpa upload YouTube.");
@@ -74,9 +78,10 @@ if (localOnly) {
 if (!force && await dailyGenerationLimitReached()) {
   console.log(JSON.stringify({
     status: "skipped",
-    reason: `Batas generate harian tercapai (${dailyGenerateLimit}/hari).`,
+    reason: `Batas generate harian tercapai (${dailyGenerateLimit}/hari). Centang "Paksa (abaikan batas harian)" di dashboard sebelum Generate untuk tetap menjalankan.`,
     dateKey: localDayKey(new Date()),
-    dailyGenerateLimit
+    dailyGenerateLimit,
+    force
   }, null, 2));
   process.exit(0);
 }
