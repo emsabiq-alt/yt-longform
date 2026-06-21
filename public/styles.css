@@ -171,7 +171,16 @@ h1, h2, h3, h4 { font-weight: 700; letter-spacing: -0.01em; color: var(--text); 
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .field.check { flex-direction: row; align-items: center; gap: 11px; cursor: pointer; }
-.field.check input { width: 20px; height: 20px; accent-color: var(--accent); flex: none; }
+/* Kembalikan tampilan checkbox native — aturan .field input di atas memberi
+   appearance:none + padding/border ala input teks, yang membuat checkbox tampak
+   kosong & seolah "tak bisa dicentang". Reset di sini agar centang terlihat. */
+.field.check input[type="checkbox"] {
+  width: 20px; height: 20px; flex: none;
+  accent-color: var(--accent);
+  -webkit-appearance: auto; appearance: auto;
+  padding: 0; border: 0; border-radius: 0; background: none;
+  cursor: pointer;
+}
 
 /* ---------- Auth ---------- */
 .auth {
