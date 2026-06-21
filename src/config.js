@@ -145,6 +145,16 @@ export const config = {
   },
   thumbnail: {
     enabled: boolDefault(process.env.THUMBNAIL_GENERATION_ENABLED, true)
+  },
+  wikipedia: {
+    // Grounding fakta dari Wikipedia (GRATIS, tanpa API key). Lihat src/wikipedia.js.
+    enabled: boolDefault(process.env.WIKIPEDIA_GROUNDING_ENABLED, true),
+    lang: clean(process.env.WIKIPEDIA_LANG || "id"),
+    userAgent: clean(process.env.WIKIPEDIA_USER_AGENT
+      || "yt-longform-studio/1.0 (+https://yt.emsa.pro; kontak: admin@emsa.pro)"),
+    maxArticles: Math.max(1, Math.min(4, numberEnv("WIKIPEDIA_MAX_ARTICLES", 2))),
+    maxChars: Math.max(400, Math.min(4000, numberEnv("WIKIPEDIA_MAX_CHARS", 1800))),
+    timeoutMs: Math.max(2000, numberEnv("WIKIPEDIA_TIMEOUT_MS", 8000))
   }
 };
 

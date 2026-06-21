@@ -253,11 +253,36 @@ function renderConsole() {
     : "Belum ada output.";
 }
 
+// ID video YouTube dari item (field langsung atau diekstrak dari URL).
+function ytVideoId(it) {
+  const direct = it?.publish?.youtube?.videoId;
+  if (direct) return String(direct);
+  const url = it?.publish?.youtube?.url || "";
+  const m = String(url).match(/(?:[?&]v=|youtu\.be\/|\/embed\/)([\w-]{6,})/);
+  return m ? m[1] : "";
+}
+
+// Thumbnail preview: utamakan thumbnail LIVE dari YouTube bila video sudah upload,
+// jika belum pakai thumbnail lokal hasil render.
+function previewThumb(it) {
+  const id = ytVideoId(it);
+  if (id) return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+  return it?.assets?.thumbnail?.url || "";
+}
+
+// Daftar sumber fakta (mis. Wikipedia) yang valid.
+function itemSources(it) {
+  return (Array.isArray(it?.plan?.sources) ? it.plan.sources : [])
+    .filter((s) => s && s.url);
+}
+
 function cardHtml(it) {
-  const thumb = it?.assets?.thumbnail?.url || "";
+  const thumb = previewThumb(it);
+  const fromYt = Boolean(ytVideoId(it));
   const dur = it?.assets?.video?.durationSec;
+  const hasWiki = itemSources(it).length > 0;
   return `<article class="card" data-id="${esc(it.id)}">
-    <div class="thumb">${thumb ? `<img loading="lazy" src="${esc(thumb)}" alt="">` : '<div class="noimg">no thumbnail</div>'}${dur ? `<span class="dur">${Math.round(dur)}s</span>` : ""}</div>
+    <div class="thumb">${thumb ? `<img loading="lazy" src="${esc(thumb)}" alt="">` : '<div class="noimg">no thumbnail</div>'}${hasWiki ? '<span class="src-badge wiki">📖 Wikipedia</span>' : ""}${fromYt ? '<span class="src-badge yt">YouTube</span>' : ""}${dur ? `<span class="dur">${Math.round(dur)}s</span>` : ""}</div>
     <div class="body"><div class="top">${statusBadge(it)}</div>
     <h4>${esc(it.title || "(tanpa judul)")}</h4>
     <p class="muted" style="font-size:12px">${esc(it.input?.category || "")} · ${esc(fmtDate(it.createdAt))}</p></div>
@@ -330,11 +355,17 @@ function openDrawer(id) {
   if (!it) return;
   const yt = it?.publish?.youtube?.url;
   const video = it?.assets?.video?.url;
+  const thumb = previewThumb(it);
   const points = (it.plan?.importantPoints || []).map((p) => `<li>${esc(p)}</li>`).join("");
+  const sources = itemSources(it);
+  const sourcesHtml = sources.length ? `
+    <h4>Sumber Fakta · Wikipedia</h4>
+    <ul class="sources">${sources.map((s) => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title || s.url)}</a></li>`).join("")}</ul>
+    <p class="muted" style="font-size:12px">Sebagian fakta dirangkum dari Wikipedia · lisensi CC BY-SA.</p>` : "";
   $("#drawerBody").innerHTML = `
     <h2>${esc(it.title || "")}</h2>
     <p class="muted">${esc(it.id)} · ${esc(fmtDate(it.createdAt))}</p>
-    ${it.assets?.thumbnail?.url ? `<img class="detail-thumb" src="${esc(it.assets.thumbnail.url)}" alt="">` : ""}
+    ${thumb ? `<img class="detail-thumb" src="${esc(thumb)}" alt="">` : ""}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
       ${statusBadge(it)}
       ${yt ? `<a class="btn primary tiny" href="${esc(yt)}" target="_blank" rel="noopener">▶ YouTube</a>` : ""}
@@ -344,6 +375,7 @@ function openDrawer(id) {
     ${it.plan?.hook ? `<h4>Hook</h4><p>${esc(it.plan.hook)}</p>` : ""}
     ${it.plan?.summary ? `<h4>Ringkasan</h4><p>${esc(it.plan.summary)}</p>` : ""}
     ${points ? `<h4>Poin Penting</h4><ul>${points}</ul>` : ""}
+    ${sourcesHtml}
     <h4>Detail</h4>
     <ul class="kv">
       <li><span>Durasi</span><b>${fmtDur(it.assets?.video?.durationSec)}</b></li>

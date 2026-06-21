@@ -3,6 +3,7 @@ import path from "node:path";
 import { config, paths } from "./config.js";
 import { estimateTotalCost } from "./cost.js";
 import { requestKnowledgeJson } from "./openai.js";
+import { fetchWikipediaFacts } from "./wikipedia.js";
 import { clamp, cleanText, createId, nowIso } from "./util.js";
 import { pickFreshTopic } from "./topic-engine.js";
 import { generateViralTitle } from "./title-engine.js";
@@ -108,7 +109,22 @@ export async function createLongformDraft(rawInput) {
     }
   }
   const input = normalizeInput(seed);
-  const promptText = buildPrompt(input);
+
+  // Grounding fakta dari Wikipedia (gratis, tanpa API key). Hanya saat OpenAI aktif
+  // karena fallback offline memakai naskah template yang tidak memanfaatkan fakta.
+  let wiki = null;
+  if (config.openai.apiKey) {
+    try {
+      wiki = await fetchWikipediaFacts(input.topic);
+      if (wiki?.sources?.length) {
+        console.log(`[Wikipedia] Grounding fakta aktif: ${wiki.sources.map((s) => s.title).join(", ")}`);
+      }
+    } catch (error) {
+      console.warn(`[Wikipedia] Lewati grounding: ${error.message}`);
+    }
+  }
+
+  const promptText = buildPrompt(input, wiki);
   let plan;
   let source = "offline";
 
@@ -156,6 +172,14 @@ export async function createLongformDraft(rawInput) {
       console.warn(`[Story Longform] Revisi panjang naskah gagal: ${error.message}`);
     }
   }
+
+  // Catat sumber Wikipedia HANYA bila naskah benar-benar dari OpenAI yang di-grounding,
+  // agar atribusi di deskripsi tidak menyesatkan saat fallback offline dipakai.
+  if (source === "openai" && wiki?.sources?.length) {
+    normalized.sources = wiki.sources;
+    normalized.factSource = "wikipedia";
+  }
+
   const narrationText = normalized.scenes
     .filter((scene) => scene.sceneType !== "reaction")
     .map((scene) => scene.narration)
@@ -216,7 +240,7 @@ function normalizeInput(input) {
   };
 }
 
-function buildPrompt(input) {
+function buildPrompt(input, wiki = null) {
   const categoryNote = storyNoteFor(input.category);
   const variation = pick(STORY_VARIATIONS);
   const formatDesc = formatTypeDescription(input.formatType);
@@ -224,6 +248,18 @@ function buildPrompt(input) {
   const scenePattern = buildScenePattern(input.sceneCount, input.formatType).join(", ");
   const viralAngle = getViralAngleById(input.viralAngleId);
   const viralBlock = viralAngleSummary(viralAngle) || `${input.viralAngleLabel || "angle viral"}: Gunakan kemasan yang membuat topik terasa punya konflik, misteri, taruhan, atau konsekuensi.`;
+  const wikiBlock = wiki?.facts
+    ? [
+        "",
+        "FAKTA REFERENSI DARI WIKIPEDIA (jadikan dasar fakta, jangan dibantah):",
+        wiki.facts,
+        "Aturan pemakaian fakta di atas:",
+        "- Untuk nama, tanggal, angka, dan tempat, IKUTI referensi ini; jangan menyebut data yang bertentangan.",
+        "- Boleh menyusun ulang menjadi narasi yang menarik serta menambah analogi, transisi, dan konteks umum yang aman.",
+        "- Jika sebuah detail tidak ada di referensi, hindari mengarang angka atau nama spesifik yang belum tentu benar.",
+        "- Isi factCheckNote bahwa fakta inti dirujuk dari Wikipedia dan tetap perlu verifikasi akhir sebelum publikasi."
+      ].join("\n")
+    : "";
   return [
     `FORMAT VIDEO: ${input.formatType}. ${formatDesc}`,
     `PANDUAN NARASI FORMAT: ${formatCue}`,
@@ -267,6 +303,7 @@ function buildPrompt(input) {
     `Durasi Total: ${input.durationSec} detik`,
     `Jumlah Scene: ${input.sceneCount}`,
     `Target Jumlah Kata: sekitar ${Math.round(input.durationSec * 2.1)} kata bahasa Indonesia secara keseluruhan.`,
+    wikiBlock,
     "",
     "PENTING: visualKeywords akan digunakan untuk MENCARI VIDEO STOCK di Pexels, bukan untuk generate gambar AI.",
     "KATA KUNCI VISUAL (visualKeywords) untuk scene image/summary wajib:",
@@ -488,6 +525,7 @@ async function writeLongformStoryboard(item) {
     sceneCount: item.plan.scenes.length,
     formatType: item.input.formatType,
     angle: item.input.angle,
+    sources: Array.isArray(item.plan.sources) ? item.plan.sources : [],
     storyboard: item.plan.longformStoryboard || buildLongformStoryboard(item.plan)
   }, null, 2)}\n`, "utf8");
   return {

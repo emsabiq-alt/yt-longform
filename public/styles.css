@@ -403,6 +403,13 @@ h1, h2, h3, h4 { font-weight: 700; letter-spacing: -0.01em; color: var(--text); 
   padding: 2px 7px; border-radius: 6px;
   font-family: var(--font-mono); font-size: 11px; font-weight: 600;
 }
+.card .thumb .src-badge {
+  position: absolute; top: 6px;
+  padding: 2px 7px; border-radius: 6px; color: #fff;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: .02em;
+}
+.card .thumb .src-badge.wiki { left: 6px; background: rgba(17,17,17,.82); border: 1px solid rgba(255,255,255,.28); }
+.card .thumb .src-badge.yt { right: 6px; background: #c4302b; }
 .card .body { padding: 11px; }
 .card .body .top { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 .card .body h4 {
@@ -484,6 +491,12 @@ h1, h2, h3, h4 { font-weight: 700; letter-spacing: -0.01em; color: var(--text); 
   letter-spacing: .05em; color: var(--muted); font-weight: 700;
 }
 .detail-thumb { width: 100%; border-radius: var(--r-md); margin: 14px 0; border: 1px solid var(--border); }
+.sources { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.sources li a {
+  display: inline-block; font-size: 13px; color: var(--accent);
+  text-decoration: none; word-break: break-word;
+}
+.sources li a:hover { text-decoration: underline; }
 .kv { list-style: none; padding: 0; margin: 16px 0; }
 .kv li { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
 .kv span { color: var(--muted); font-weight: 500; }

@@ -70,6 +70,7 @@ export function buildDescription(item) {
     .join("\n");
 
   const chapters = buildChapters(item);
+  const sources = buildSourcesBlock(item);
   const tags = buildTags(item);
   const hashtags = tags.slice(0, 6).map((t) => `#${t.replace(/\s+/g, "")}`).join(" ");
 
@@ -80,10 +81,31 @@ export function buildDescription(item) {
     chapters ? `Bab:\n${chapters}` : "",
     "Tonton sampai habis supaya gambaran lengkapnya nyambung.",
     "Kalau bermanfaat, like dan subscribe untuk video pengetahuan lainnya.",
+    sources,
     hashtags
   ].filter(Boolean);
 
   return blocks.join("\n\n").slice(0, 4900);
+}
+
+/**
+ * Blok atribusi sumber fakta. Wikipedia berlisensi CC BY-SA sehingga wajib
+ * dicantumkan saat naskah memakai faktanya. Kosong bila tidak ada sumber.
+ */
+export function buildSourcesBlock(item) {
+  const rawSources = Array.isArray(item.plan?.sources) ? item.plan.sources : [];
+  const seen = new Set();
+  const valid = [];
+  for (const source of rawSources) {
+    const url = oneLine(source?.url, 300);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    valid.push({ title: oneLine(source?.title, 160), url });
+    if (valid.length >= 5) break;
+  }
+  if (!valid.length) return "";
+  const lines = valid.map((s) => `• ${s.title ? `${s.title}: ` : ""}${s.url}`).join("\n");
+  return `Sumber & referensi fakta:\n${lines}\nSebagian fakta dirangkum dari Wikipedia (lisensi CC BY-SA).`;
 }
 
 /** Timestamp bab perkiraan dari durasi scene (kalau ada). */
