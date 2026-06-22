@@ -14,12 +14,12 @@ import { reportProgress } from "./progress.js";
 const LANDSCAPE_SIZE = "1536x1024";
 
 const SCENE_TTS_INSTRUCTIONS = [
-  "Bacakan dalam Bahasa Indonesia dengan suara yang natural, hangat, dan percaya diri.",
-  "Gaya dokumenter santai, bukan suara iklan dan bukan membaca teks secara kaku.",
-  "Gunakan tempo sedang-cepat dan aliran bicara yang KONTINU tanpa jeda panjang.",
-  "PENTING: JANGAN berhenti atau memberi jeda diam di tengah kalimat.",
-  "Transisi antar kalimat harus mulus, langsung sambung tanpa berhenti lama.",
-  "Tekankan kata penting secara halus. Hindari nada monoton."
+  "Bacakan sepenuhnya dalam Bahasa Indonesia.",
+  "Gaya suara: Sangat energik (high-energy), bersemangat (upbeat), dan penuh dorongan (encouraging), memproyeksikan antusiasme dan motivasi tinggi.",
+  "Tanda baca & Jeda: Kalimat pendek dan bertenaga (punchy) dengan jeda strategis untuk menjaga keseruan dan kejelasan.",
+  "Penyampaian: Cepat dan dinamis (fast-paced & dynamic), dengan intonasi naik untuk membangun momentum dan menjaga keterlibatan tetap tinggi.",
+  "Gaya bahasa: Berorientasi tindakan dan langsung (action-oriented & direct), gunakan isyarat motivasi untuk mendorong pendengar.",
+  "Nada suara: Positif, penuh tenaga (energetic), dan memberdayakan (empowering), menciptakan suasana penuh semangat dan pencapaian."
 ].join(" ");
 
 export async function generateFullItem(input = {}, options = {}) {

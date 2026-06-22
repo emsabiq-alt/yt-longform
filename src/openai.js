@@ -144,9 +144,7 @@ export async function generateOpenAiSpeech({ itemId, text, voice, instructions, 
     input: text,
     response_format: "mp3"
   };
-  if (!/dinoiki/i.test(config.openai.baseUrl)) {
-    payload.instructions = instructions || "Bacakan sepenuhnya dalam Bahasa Indonesia natural. Gaya suara hangat, penasaran, jelas, seperti kreator pengetahuan sedang menjelaskan fakta menarik kepada teman. Tempo sedang-cepat dan tetap santai. Aliran bicara KONTINU, jangan berhenti di tengah kalimat, jangan beri jeda diam berlebihan, langsung sambung antar kalimat dengan mulus. Tekankan pertanyaan transisi dengan rasa ingin tahu.";
-  }
+    payload.instructions = instructions || "Bacakan sepenuhnya dalam Bahasa Indonesia. Gaya suara: Sangat energik (high-energy), bersemangat (upbeat), dan penuh dorongan (encouraging), memproyeksikan antusiasme dan motivasi tinggi. Tanda baca & Jeda: Kalimat pendek dan bertenaga (punchy) dengan jeda strategis untuk menjaga keseruan. Penyampaian: Cepat dan dinamis (fast-paced & dynamic), dengan intonasi naik untuk membangun momentum. Gaya bahasa: Berorientasi tindakan (action-oriented). Nada suara: Positif dan memberdayakan (empowering).";
   const response = await fetch(`${config.openai.baseUrl}/audio/speech`, {
     method: "POST",
     headers: headersJson(),
