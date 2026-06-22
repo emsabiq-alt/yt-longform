@@ -3,7 +3,7 @@ import { config, paths } from "./config.js";
 import { estimateTtsUsd } from "./cost.js";
 import { generateElevenLabsSpeech } from "./elevenlabs.js";
 import { generateOpenAiSpeech, generateSceneImage, transcribeSpeechSegments } from "./openai.js";
-import { fetchPexelsClipForScene } from "./pexels.js";
+import { fetchPexelsClipForScene, scoreSceneVisualConcreteness } from "./pexels.js";
 import { renderLongformVideo } from "./longform-render.js";
 import { generateThumbnail } from "./thumbnail.js";
 import { saveItem, listContextItems } from "./storage.js";
@@ -45,6 +45,13 @@ export async function generateFullItem(input = {}, options = {}) {
     warnings,
     strict: true
   });
+  if (config.automation.coldOpenEnabled) {
+    await ensureHookAudio(item, {
+      provider: item.input.ttsProvider,
+      voice: options.voice || input.ttsVoice,
+      warnings
+    });
+  }
   if (config.thumbnail?.enabled) {
     reportProgress("thumbnail", "Membuat thumbnail", 20, "");
     await ensureThumbnail(item, { warnings });
@@ -60,10 +67,15 @@ export async function generateFullItem(input = {}, options = {}) {
 }
 
 /**
- * Cari dan download klip video dari Pexels — pola ALTERNATING.
- * Scene non-reaction genap (ke-0, 2, 4...) → Pexels video.
- * Scene non-reaction ganjil (ke-1, 3, 5...) → dilewati, nanti pakai gambar DALL-E.
- * Hasilnya: video final campuran gambar statis + video bergerak, lebih hidup.
+ * Cari dan download klip video dari Pexels untuk sebagian scene non-reaction.
+ * Hasil akhir: video campuran gambar statis (DALL-E) + video bergerak (Pexels)
+ * supaya lebih hidup. Jumlah scene video ≈ separuh agar tetap berimbang.
+ *
+ * Pemilihan scene penerima video:
+ *   - semantic (default): scene paling KONKRET visualnya yang dapat B-roll, sebab
+ *     keyword konkret jauh lebih gampang menemukan footage Pexels yang relevan;
+ *     scene abstrak diserahkan ke DALL-E yang bisa melukiskan konsep.
+ *   - fallback: pola ALTERNATING klasik (indeks genap dapat video).
  */
 export async function ensurePexelsClips(item, options = {}) {
   if (!config.pexels.apiKey || !config.pexels.preferVideo) {
@@ -74,11 +86,26 @@ export async function ensurePexelsClips(item, options = {}) {
   const clips = [...(item.assets.clips || [])];
   const nonReactionScenes = item.plan.scenes.filter((s) => s.sceneType !== "reaction");
 
-  // Tentukan scene mana yang dapat Pexels (genap: 0, 2, 4...)
-  const pexelsScenes = nonReactionScenes.filter((_, idx) => idx % 2 === 0);
-  const imageOnlyScenes = nonReactionScenes.filter((_, idx) => idx % 2 !== 0);
+  // Jaga jumlah scene video setara pola alternating (≈separuh) agar mix tetap seimbang.
+  const videoQuota = Math.ceil(nonReactionScenes.length / 2);
 
-  console.log(`[Pexels] Pola alternating: ${pexelsScenes.length} scene video Pexels, ${imageOnlyScenes.length} scene gambar DALL-E`);
+  let pexelsScenes;
+  let imageOnlyScenes;
+  if (config.pexels.semanticSelection) {
+    // Rangking scene berdasarkan kekonkretan keyword, ambil yang teratas sebanyak kuota.
+    const ranked = [...nonReactionScenes].sort(
+      (a, b) => scoreSceneVisualConcreteness(b) - scoreSceneVisualConcreteness(a)
+    );
+    const chosen = new Set(ranked.slice(0, videoQuota).map((s) => s.index));
+    pexelsScenes = nonReactionScenes.filter((s) => chosen.has(s.index));   // pertahankan urutan asli
+    imageOnlyScenes = nonReactionScenes.filter((s) => !chosen.has(s.index));
+    console.log(`[Pexels] Seleksi semantik: ${pexelsScenes.length} scene video (paling konkret), ${imageOnlyScenes.length} scene gambar DALL-E`);
+  } else {
+    // Pola alternating klasik: scene non-reaction genap (0, 2, 4...) dapat video.
+    pexelsScenes = nonReactionScenes.filter((_, idx) => idx % 2 === 0);
+    imageOnlyScenes = nonReactionScenes.filter((_, idx) => idx % 2 !== 0);
+    console.log(`[Pexels] Pola alternating: ${pexelsScenes.length} scene video Pexels, ${imageOnlyScenes.length} scene gambar DALL-E`);
+  }
 
   let clipDone = 0;
   reportProgress("images", "Mencari video B-roll Pexels", 0, `0/${pexelsScenes.length}`);
@@ -119,7 +146,8 @@ export async function ensurePexelsClips(item, options = {}) {
   await saveItem(item);
 
   const totalClips = clips.filter((c) => c.path).length;
-  console.log(`[Pexels] Total klip video: ${totalClips}/${pexelsScenes.length} scene (alternating pattern)`);
+  const mode = config.pexels.semanticSelection ? "seleksi semantik" : "pola alternating";
+  console.log(`[Pexels] Total klip video: ${totalClips}/${pexelsScenes.length} scene (${mode})`);
 }
 
 export async function ensureImages(item, options = {}) {
@@ -265,6 +293,69 @@ export async function ensureLongformSceneAudio(item, options = {}) {
   item.updatedAt = nowIso();
   await saveItem(item);
   return item;
+}
+
+/**
+ * TTS khusus untuk "cold open" (hook teaser di 15 detik pertama).
+ * Membacakan item.plan.hook sebagai kalimat pembuka yang punchy, terpisah dari
+ * scene audio. Visualnya nanti memakai media scene-1 (Pexels/gambar) di render.
+ * Gagal/terlewat = aman: render otomatis kembali ke struktur tanpa cold open.
+ */
+export async function ensureHookAudio(item, options = {}) {
+  const warnings = options.warnings || [];
+  const hookText = normalizeTtsText(item.plan?.hook || "");
+  if (!hookText) return;
+
+  const provider = String(options.provider || item.input.ttsProvider || "elevenlabs").toLowerCase() === "elevenlabs"
+    ? "elevenlabs"
+    : "openai";
+  reportProgress("audio", "Membuat suara hook (cold open)", 0, "");
+
+  let audio;
+  let currentProvider = provider;
+  try {
+    if (provider === "elevenlabs") {
+      try {
+        audio = await generateElevenLabsSpeech({ itemId: item.id, text: hookText, voiceId: options.voice, filenameSuffix: "cold-open-elevenlabs" });
+      } catch (elError) {
+        console.warn(`[TTS] ElevenLabs cold-open gagal, fallback ke OpenAI: ${elError.message}`);
+        warnings.push(`ElevenLabs cold-open gagal: ${elError.message}. Menggunakan fallback OpenAI.`);
+        currentProvider = "openai";
+        audio = await generateOpenAiSpeech({
+          itemId: item.id,
+          text: hookText,
+          voice: config.openai.ttsVoice,
+          instructions: SCENE_TTS_INSTRUCTIONS,
+          filenameSuffix: "cold-open-openai-fallback"
+        });
+      }
+    } else {
+      audio = await generateOpenAiSpeech({
+        itemId: item.id,
+        text: hookText,
+        voice: options.voice,
+        instructions: SCENE_TTS_INSTRUCTIONS,
+        filenameSuffix: "cold-open-openai"
+      });
+    }
+  } catch (error) {
+    warnings.push(`Cold-open TTS gagal: ${error.message}`);
+    reportProgress("audio", "Hook cold open dilewati", 100, "tanpa suara");
+    return;
+  }
+
+  item.assets.hookAudio = {
+    provider: currentProvider,
+    path: audio.path,
+    url: audio.url,
+    text: hookText,
+    characters: hookText.length
+  };
+  item.cost.ttsUsd = Number((Number(item.cost.ttsUsd || 0) + estimateTtsUsd(hookText.length, currentProvider, config.pricing)).toFixed(5));
+  updateTotalCost(item);
+  item.updatedAt = nowIso();
+  await saveItem(item);
+  reportProgress("audio", "Suara hook siap", 100, "");
 }
 
 function sceneNarrationText(scene) {

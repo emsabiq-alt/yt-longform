@@ -130,13 +130,18 @@ export const config = {
     sceneCount: Math.max(8, numberEnv("YT_SCENE_COUNT", 14)),
     workflowFile: clean(process.env.YT_WORKFLOW_FILE || "yt-longform-generate.yml"),
     strictRemote: bool(process.env.YT_STRICT_REMOTE),
-    viralTitleEnabled: boolDefault(process.env.YT_VIRAL_TITLE_ENABLED, true)
+    viralTitleEnabled: boolDefault(process.env.YT_VIRAL_TITLE_ENABLED, true),
+    coldOpenEnabled: boolDefault(process.env.YT_COLD_OPEN_ENABLED, true)
   },
   pexels: {
     apiKey: process.env.PEXELS_API_KEY || "",
     preferVideo: boolDefault(process.env.PEXELS_PREFER_VIDEO, true),
     minDurationSec: Math.max(3, numberEnv("PEXELS_MIN_DURATION_SEC", 8)),
     maxResultsPerScene: Math.max(1, Math.min(15, numberEnv("PEXELS_MAX_RESULTS", 5))),
+    // Pilih scene penerima video berdasarkan kekonkretan keyword (semantik), bukan paritas indeks.
+    semanticSelection: boolDefault(process.env.PEXELS_SEMANTIC_SELECTION, true),
+    // Minimal overlap keyword↔judul klip agar klip diterima. 0 = hanya merangking, tak menolak.
+    minRelevance: Math.max(0, numberEnv("PEXELS_MIN_RELEVANCE", 0)),
     overlayEnabled: boolDefault(process.env.PEXELS_OVERLAY_ENABLED, true),
     overlayPath: clean(process.env.PEXELS_OVERLAY_PATH || path.join(rootDir, "assets", "overlays", "fire-sparks-black.mp4")),
     overlayOpacity: Math.min(1, Math.max(0.05, numberEnv("PEXELS_OVERLAY_OPACITY", 0.55))),

@@ -448,28 +448,77 @@ export async function renderLongformVideo(item) {
   console.log("Transcoding Bumper Outro...");
   await prepareBumper(bumperOutroRaw, finalBumperOutroPath);
 
-  // Concatenate all 5 parts
-  const coreParts = [
-    finalBumperIntroPath,
-    introPartPath,
-    finalContentPath,
-    finalOutroPath,
-    finalBumperOutroPath
-  ];
+  // Cold open (hook teaser) opsional — diputar lebih dulu agar penonton langsung
+  // ketemu inti yang bikin penasaran di detik-detik awal, bukan bumper/intro.
+  // Visual diambil dari media scene-1 (klip Pexels, atau gambar AI bila tak ada).
+  let coldOpenPath = null;
+  let coldOpenDuration = 0;
+  const hookAudioPath = item.assets?.hookAudio?.path || null;
+  const hookText = item.plan?.hook || item.assets?.hookAudio?.text || "";
+  if (config.automation.coldOpenEnabled && hookText) {
+    try {
+      const hookAudioDur = hookAudioPath ? await probeDuration(hookAudioPath) : 0;
+      coldOpenDuration = Number(clamp((hookAudioDur || 6) + 0.5, 4, 18).toFixed(3));
+      const coldScene = renderScenes.find((scene) => scene.sceneType !== "reaction") || renderScenes[0];
+      const coldMedia = resolveSceneMedia(item, coldScene);
+      reportProgress("render", "Merender cold open (hook)", 92, "");console.log(`Rendering Cold Open hook (${coldOpenDuration}s, ${coldMedia.type})...`);
+
+      const coldVisualPath = path.join(workDir, "cold-open-visual.mp4");
+      await makeColdOpenVisual({ media: coldMedia, outputPath: coldVisualPath, duration: coldOpenDuration, zoomDirection: "in" });
+
+      const coldAssPath = path.join(workDir, "cold-open.ass");
+      await writeColdOpenCaptionAss({ outputPath: coldAssPath, hookText, duration: coldOpenDuration });
+      const coldSubtitledPath = path.join(workDir, "cold-open-subtitled.mp4");
+      await burnSubtitles({ inputPath: coldVisualPath, assPath: coldAssPath, outputPath: coldSubtitledPath });
+
+      const coldAudioPath = path.join(workDir, "cold-open-audio.m4a");
+      await makeColdOpenAudio({ hookAudioPath, musicPath: customMusic, outputPath: coldAudioPath, duration: coldOpenDuration });
+
+      coldOpenPath = path.join(workDir, "part-cold-open.mp4");
+      await muxVideoAudio({ videoPath: coldSubtitledPath, audioPath: coldAudioPath, outputPath: coldOpenPath });
+    } catch (error) {
+      console.warn(`[Cold Open] Gagal, lanjut tanpa cold open: ${error.message}`);
+      coldOpenPath = null;
+      coldOpenDuration = 0;
+    }
+  }
+
+  // Susun urutan pembuka secara BERAGAM. Saat cold open ada, mayoritas pola
+  // menaruh hook paling depan (bukan bumper/intro), demi retensi 15 detik pertama.
+  const openings = coldOpenPath
+    ? [
+        [coldOpenPath, finalBumperIntroPath, introPartPath], // hook → bumper → intro
+        [coldOpenPath, introPartPath],                       // hook → intro (bumper depan dilewati)
+        [finalBumperIntroPath, coldOpenPath, introPartPath]  // kilat brand → hook → intro
+      ]
+    : [[finalBumperIntroPath, introPartPath]];
+  const opening = openings[Math.floor(Math.random() * openings.length)];
+
+  const coreParts = [...opening, finalContentPath, finalOutroPath, finalBumperOutroPath];
+
+  // Hitung total durasi sesuai segmen yang benar-benar dipakai (pola bisa beda).
+  const durationByPath = new Map([
+    [coldOpenPath, coldOpenDuration],
+    [finalBumperIntroPath, bumperIntroDuration],
+    [introPartPath, introDuration]
+  ]);
+  const frontDuration = opening.reduce((sum, part) => sum + (durationByPath.get(part) || 0), 0);
+  const totalDuration = Number((frontDuration + timing.contentDuration + outroDuration + bumperOutroDuration).toFixed(2));
 
   const provider = item.assets?.audio?.provider || "local";
   const filename = `${item.id}-${provider}-${safeFilename(item.title)}.mp4`;
   const outputPath = path.join(paths.videoDir, filename);
 
-  reportProgress("render", "Menggabungkan video final", 95, "");console.log("Concatenating all 5 parts into final video...");
+  reportProgress("render", "Menggabungkan video final", 95, "");console.log(`Concatenating ${coreParts.length} parts into final video${coldOpenPath ? " (with cold open)" : ""}...`);
   await concatSegments(coreParts, outputPath);
 
   return {
     path: outputPath,
     url: `/generated/videos/${filename}`,
     provider,
-    durationSec: timing.totalDuration,
-    scenes: renderScenes.length
+    durationSec: totalDuration,
+    scenes: renderScenes.length,
+    coldOpen: Boolean(coldOpenPath)
   };
 }
 
@@ -721,6 +770,118 @@ async function makeImageSegment({ imagePath, outputPath, duration, zoomDirection
     "-preset", "veryfast",
     "-crf", "22",
     "-pix_fmt", "yuv420p",
+    outputPath
+  ]);
+}
+
+/**
+ * Visual cold open: pakai media scene (klip Pexels atau gambar AI), diberi sedikit
+ * gelap supaya teks hook terbaca jelas. Gambar diam tetap di-Ken Burns agar hidup.
+ */
+async function makeColdOpenVisual({ media, outputPath, duration, zoomDirection }) {
+  if (media.type === "video") {
+    await runFfmpeg([
+      "-y",
+      "-stream_loop", "-1",
+      "-i", media.path,
+      "-t", String(duration),
+      "-vf", [
+        "scale=1280:720:force_original_aspect_ratio=increase",
+        "crop=1280:720",
+        "eq=contrast=1.05:saturation=1.06:brightness=0.01",
+        "vignette",
+        "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.30:t=fill",
+        "format=yuv420p"
+      ].join(","),
+      "-r", String(fps),
+      "-an",
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-crf", "22",
+      "-pix_fmt", "yuv420p",
+      outputPath
+    ]);
+    return;
+  }
+
+  const frames = Math.max(1, Math.round(duration * fps));
+  const zoomExpr = zoomDirection === "out"
+    ? `if(eq(on,0),1.08,max(1.0,zoom-0.0005))`
+    : `min(1.0+on*0.0005,1.08)`;
+  await runFfmpeg([
+    "-y",
+    "-loop", "1",
+    "-i", media.path,
+    "-vf", [
+      "scale=1280:720:force_original_aspect_ratio=increase",
+      "crop=1280:720",
+      `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=1280x720:fps=${fps}`,
+      "eq=contrast=1.05:saturation=1.06:brightness=0.01",
+      "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.30:t=fill"
+    ].join(","),
+    "-frames:v", String(frames),
+    "-r", String(fps),
+    "-c:v", "libx264",
+    "-preset", "veryfast",
+    "-crf", "22",
+    "-pix_fmt", "yuv420p",
+    outputPath
+  ]);
+}
+
+/**
+ * Caption hook untuk cold open — teks besar di tengah memakai style "Hook".
+ */
+async function writeColdOpenCaptionAss({ outputPath, hookText, duration }) {
+  const text = splitLines(normalizeSubtitleText(hookText), 26, 4).join("\\N");
+  const end = Math.max(0.4, duration - 0.15);
+  const events = [
+    dialogue(0.15, end, "Hook", `{\\fad(240,200)}${assEscape(text)}`)
+  ];
+  const ass = [
+    "[Script Info]",
+    "ScriptType: v4.00+",
+    "PlayResX: 1280",
+    "PlayResY: 720",
+    "ScaledBorderAndShadow: yes",
+    "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    `Style: Hook,${config.render.fontTitle},48,&H00FFFFFF,&H000000FF,&H98232A32,&HBB11171C,-1,0,0,0,100,100,0,0,1,3,1,5,90,90,90,1`,
+    "",
+    "[Events]",
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ...events
+  ].join("\n");
+  await fs.writeFile(outputPath, ass, "utf8");
+}
+
+/**
+ * Audio cold open: suara hook (bila ada) dicampur musik latar yang sedikit lebih
+ * keras dari biasanya agar pembuka terasa "punya energi". Tanpa suara → musik saja.
+ */
+async function makeColdOpenAudio({ hookAudioPath, musicPath, outputPath, duration }) {
+  if (!hookAudioPath) {
+    await makeContentAudioOnlyMusic({ musicPath, outputPath, duration });
+    return;
+  }
+  await runFfmpeg([
+    "-y",
+    "-i", hookAudioPath,
+    "-stream_loop", "-1",
+    "-i", musicPath,
+    "-filter_complex",
+    [
+      `[0:a]aformat=sample_rates=44100:channel_layouts=stereo,loudnorm=I=-16:TP=-1.5:LRA=9,volume=1.1[speech]`,
+      `[1:a]volume=${(backgroundMusicVolume * 1.4).toFixed(3)}[music]`,
+      `[speech][music]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]`
+    ].join(";"),
+    "-map", "[a]",
+    "-t", String(duration),
+    "-c:a", "aac",
+    "-b:a", "192k",
+    "-ar", "44100",
+    "-ac", "2",
     outputPath
   ]);
 }

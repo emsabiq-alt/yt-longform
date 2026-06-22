@@ -96,6 +96,98 @@ function videoFileScore(file) {
   return score;
 }
 
+// --- Seleksi semantik & relevansi -----------------------------------------
+// Heuristik murni (gratis, tanpa panggilan API) untuk dua hal:
+//   1. Memilih scene mana yang layak dapat B-roll video (kekonkretan keyword).
+//   2. Merangking/menyaring klip Pexels berdasarkan overlap keyword↔judul klip.
+
+const STOPWORDS = new Set([
+  "the", "a", "an", "of", "and", "or", "to", "in", "on", "for", "with", "by",
+  "at", "from", "as", "is", "are", "be", "this", "that", "these", "those",
+  "its", "their", "our", "your"
+]);
+
+// Kata bermuatan abstrak/intangible: sulit difilmkan apa adanya, lebih cocok
+// dilukiskan gambar DALL-E ketimbang dicari sebagai B-roll nyata di Pexels.
+const ABSTRACT_WORDS = new Set([
+  "history", "historical", "future", "past", "era", "age", "concept", "idea",
+  "theory", "policy", "strategy", "system", "crisis", "growth", "decline",
+  "rise", "fall", "power", "strength", "weakness", "dominance", "dominion",
+  "influence", "trust", "confidence", "stability", "instability", "uncertainty",
+  "freedom", "democracy", "economy", "economic", "finance", "financial",
+  "inflation", "recession", "diversification", "globalization", "geopolitics",
+  "geopolitical", "relations", "diplomacy", "sentiment", "fear", "hope",
+  "change", "transformation", "evolution", "impact", "effect", "importance",
+  "significance", "value", "wealth", "debt", "aftermath", "reserve", "reserves"
+]);
+
+/**
+ * Pecah teks jadi kata bermakna (lowercase, buang stopword & kata <3 huruf).
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function tokenizeWords(text) {
+  return String(text || "")
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+}
+
+/**
+ * Skor "kekonkretan" visual sebuah scene berdasarkan visualKeywords.
+ * Makin tinggi → makin mudah dapat B-roll nyata di Pexels; makin rendah →
+ * lebih baik diserahkan ke gambar DALL-E (yang bisa melukiskan konsep abstrak).
+ * @param {object} scene - butuh field visualKeywords (string dipisah koma).
+ * @returns {number}
+ */
+export function scoreSceneVisualConcreteness(scene) {
+  const phrases = String(scene?.visualKeywords || "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (!phrases.length) return -5; // tanpa keyword: query Pexels lemah → utamakan gambar
+  let score = 0;
+  for (const phrase of phrases) {
+    const tokens = tokenizeWords(phrase);
+    if (!tokens.length) continue;
+    const abstract = tokens.filter((t) => ABSTRACT_WORDS.has(t)).length;
+    const concrete = tokens.length - abstract;
+    score += concrete - abstract;                       // konkret menambah, abstrak mengurangi
+    if (concrete > 0 && abstract === 0) score += 0.5;   // frasa murni konkret: bonus kecil
+  }
+  return score;
+}
+
+/**
+ * "Judul" klip Pexels — diturunkan dari slug URL (Pexels tak punya field title).
+ * Contoh: https://www.pexels.com/video/aerial-view-of-a-city-3209828/ → "aerial view of a city".
+ * @param {object} video - Pexels video object
+ * @returns {string}
+ */
+export function clipTitleFromVideo(video) {
+  const url = String(video?.url || "");
+  const match = url.match(/\/video\/(.+?)-\d+\/?$/);
+  const slug = match ? match[1] : url.replace(/^https?:\/\/[^/]+\//, "").replace(/\/+$/, "");
+  return slug.replace(/-/g, " ");
+}
+
+/**
+ * Relevansi klip = jumlah kata keyword unik yang muncul di judul klip Pexels.
+ * @param {string[]} keywordTokens - hasil tokenizeWords(visualKeywords)
+ * @param {object} video - Pexels video object
+ * @returns {number}
+ */
+export function clipRelevanceScore(keywordTokens, video) {
+  if (!keywordTokens?.length) return 0;
+  const titleTokens = new Set(tokenizeWords(clipTitleFromVideo(video)));
+  if (!titleTokens.size) return 0;
+  let hits = 0;
+  for (const kw of new Set(keywordTokens)) {
+    if (titleTokens.has(kw)) hits += 1;
+  }
+  return hits;
+}
+
 /**
  * Download file video dari URL Pexels ke disk.
  * @param {string} videoUrl - URL file video
@@ -167,9 +259,31 @@ export async function fetchPexelsClipForScene({ itemId, scene, topicFallback = "
     return null;
   }
 
-  // Pilih video acak dari top results agar bervariasi
-  const topVideos = videos.slice(0, Math.min(3, videos.length));
-  const chosen = topVideos[Math.floor(Math.random() * topVideos.length)];
+  // Rangking kandidat berdasarkan relevansi keyword↔judul klip, lalu kualitas file.
+  // Tokens dari keyword scene (bukan query efektif) agar relevansi tetap mengukur
+  // niat asli scene meski search jatuh ke simpleQuery.
+  const keywordTokens = tokenizeWords(rawKeywords || topicFallback);
+  const scored = videos.map((video) => ({
+    video,
+    relevance: clipRelevanceScore(keywordTokens, video),
+    fileScore: videoFileScore(pickBestVideoFile(video) || {})
+  }));
+  scored.sort((a, b) => (b.relevance - a.relevance) || (b.fileScore - a.fileScore));
+
+  const topRelevance = scored[0].relevance;
+
+  // Gate minRelevance: hanya menolak bila ambang > 0 dan tak satu pun klip mencapainya.
+  // minRelevance = 0 berarti hanya merangking, tak pernah menolak (scene jatuh ke DALL-E
+  // hanya bila Pexels memang kosong).
+  if (config.pexels.minRelevance > 0 && topRelevance < config.pexels.minRelevance) {
+    console.warn(`[Pexels] Scene ${scene.index} ditolak: relevansi tertinggi ${topRelevance} < minRelevance ${config.pexels.minRelevance} (query="${query}")`);
+    return null;
+  }
+
+  // Acak di antara kandidat ber-relevansi tertinggi (maks 3) agar tetap bervariasi
+  // tanpa mengorbankan ketepatan.
+  const pool = scored.filter((s) => s.relevance === topRelevance).slice(0, 3);
+  const chosen = pool[Math.floor(Math.random() * pool.length)].video;
   const bestFile = pickBestVideoFile(chosen);
   if (!bestFile?.link) {
     console.warn(`[Pexels] Tidak ada file MP4 yang cocok untuk scene ${scene.index}`);
@@ -181,13 +295,14 @@ export async function fetchPexelsClipForScene({ itemId, scene, topicFallback = "
 
   try {
     await downloadPexelsVideo(bestFile.link, outputPath);
-    console.log(`[Pexels] Downloaded scene ${scene.index}: ${bestFile.width}x${bestFile.height} (${chosen.id}) query="${query}"`);
+    console.log(`[Pexels] Downloaded scene ${scene.index}: ${bestFile.width}x${bestFile.height} (${chosen.id}) relevance=${topRelevance} query="${query}"`);
     return {
       sceneIndex: scene.index,
       provider: "pexels",
       pexelsId: chosen.id,
       pexelsUrl: chosen.url,
       query,
+      relevance: topRelevance,
       width: bestFile.width,
       height: bestFile.height,
       path: outputPath,
