@@ -32,7 +32,8 @@ export async function generateFullItem(input = {}, options = {}) {
     durationSec: input.durationSec || config.automation.durationSec,
     sceneCount: input.sceneCount || config.automation.sceneCount,
     ttsProvider: input.ttsProvider || "openai",
-    imageQuality: input.imageQuality || config.openai.imageQuality
+    imageQuality: input.imageQuality || config.openai.imageQuality,
+    resolution: input.resolution || "720p"
   }, { existingItems });
   await saveItem(item);
   reportProgress("script", "Naskah siap", 100, item.title || "");

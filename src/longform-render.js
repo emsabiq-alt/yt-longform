@@ -112,11 +112,13 @@ async function selectReactionVideo(cue = "") {
 /**
  * Prepare bumper by scaling, setting fps to 30 and audio channels to stereo/44100Hz
  */
-async function prepareBumper(bumperPath, outputPath) {
+async function prepareBumper(bumperPath, outputPath, resolution = "720p") {
+  const width = resolution === "1080p" ? 1920 : 1280;
+  const height = resolution === "1080p" ? 1080 : 720;
   await runFfmpeg([
     "-y",
     "-i", bumperPath,
-    "-vf", "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,format=yuv420p",
+    "-vf", `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},format=yuv420p`,
     "-r", String(fps),
     "-c:v", "libx264",
     "-preset", "veryfast",
@@ -132,7 +134,9 @@ async function prepareBumper(bumperPath, outputPath) {
  * Make Category Intro Segment — full frame presenter video (no chroma keying).
  * User preference: intro/outro ditampilkan full frame, hanya reaction yang pakai keying.
  */
-async function makeIntroSegment({ bgPath, bgType, introPath, outputPath, duration, bgMusicPath }) {
+async function makeIntroSegment({ bgPath, bgType, introPath, outputPath, duration, bgMusicPath, resolution = "720p" }) {
+  const width = resolution === "1080p" ? 1920 : 1280;
+  const height = resolution === "1080p" ? 1080 : 720;
   await runFfmpeg([
     "-y",
     "-i", introPath,
@@ -140,7 +144,7 @@ async function makeIntroSegment({ bgPath, bgType, introPath, outputPath, duratio
     "-i", bgMusicPath,
     "-filter_complex",
     [
-      `[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,format=yuv420p[v]`,
+      `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},format=yuv420p[v]`,
       `[0:a]volume=1.0[speech]`,
       `[1:a]volume=${backgroundMusicVolume}[music]`,
       `[speech][music]amix=inputs=2:duration=first,alimiter=limit=0.95[a]`
@@ -162,8 +166,10 @@ async function makeIntroSegment({ bgPath, bgType, introPath, outputPath, duratio
 /**
  * Make Category Outro Segment. If BANYAKTAU_KEY_INTRO_OUTRO is true, key presenter and overlay on blurred bg.
  */
-async function makeOutroSegment({ bgPath, bgType, outroPath, outputPath, duration, bgMusicPath, musicOffset }) {
+async function makeOutroSegment({ bgPath, bgType, outroPath, outputPath, duration, bgMusicPath, musicOffset, resolution = "720p" }) {
   const fadeOutAt = Math.max(0.1, duration - 1.5).toFixed(2);
+  const width = resolution === "1080p" ? 1920 : 1280;
+  const height = resolution === "1080p" ? 1080 : 720;
 
   await runFfmpeg([
     "-y",
@@ -172,7 +178,7 @@ async function makeOutroSegment({ bgPath, bgType, outroPath, outputPath, duratio
     "-i", bgMusicPath,
     "-filter_complex",
     [
-      `[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,format=yuv420p[v]`,
+      `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},format=yuv420p[v]`,
       `[0:a]volume=1.0[speech]`,
       `[1:a]volume=${backgroundMusicVolume},afade=t=out:st=${fadeOutAt}:d=1.5[music]`,
       `[speech][music]amix=inputs=2:duration=first,alimiter=limit=0.95[a]`
@@ -274,6 +280,8 @@ export async function renderLongformVideo(item) {
   await fs.mkdir(workDir, { recursive: true });
   await fs.mkdir(paths.videoDir, { recursive: true });
 
+  const resolution = (item.input?.resolution || "720p").toLowerCase();
+
   const customMusic = await findBackgroundMusic();
   if (!customMusic) {
     throw new Error("Background music not found! Please place Marimba Curiosity Case MP3 under assets/music.");
@@ -331,7 +339,8 @@ export async function renderLongformVideo(item) {
       await makeReactionSegment({
         reactionPath,
         outputPath: segmentPath,
-        duration: scene.durationSec
+        duration: scene.durationSec,
+        resolution
       });
     } else {
       const media = resolveSceneMedia(item, scene);
@@ -341,14 +350,16 @@ export async function renderLongformVideo(item) {
       await makeVideoSegment({
         videoPath: media.path,
         outputPath: segmentPath,
-        duration: scene.durationSec
+        duration: scene.durationSec,
+        resolution
       });
       } else {
         await makeImageSegment({
           imagePath: media.path,
           outputPath: segmentPath,
           duration: scene.durationSec,
-          zoomDirection: index % 2 ? "out" : "in"
+          zoomDirection: index % 2 ? "out" : "in",
+          resolution
         });
       }
     }
@@ -374,7 +385,7 @@ export async function renderLongformVideo(item) {
 
   // Add watermark logo to content
   const contentBrandedPath = path.join(workDir, "content-branded.mp4");
-  await addLogoWatermark({ inputPath: contentSubtitledPath, outputPath: contentBrandedPath });
+  await addLogoWatermark({ inputPath: contentSubtitledPath, outputPath: contentBrandedPath, resolution });
 
   // Generate audio for content
   const contentAudioPath = path.join(workDir, "content-audio.m4a");
@@ -418,7 +429,8 @@ export async function renderLongformVideo(item) {
     introPath: introVideoPath,
     outputPath: introPartPath,
     duration: introDuration,
-    bgMusicPath: customMusic
+    bgMusicPath: customMusic,
+    resolution
   });
 
   // Render Part 3 (Category Outro)
@@ -432,7 +444,8 @@ export async function renderLongformVideo(item) {
     outputPath: outroRawPath,
     duration: outroDuration,
     bgMusicPath: customMusic,
-    musicOffset: introDuration + timing.contentDuration
+    musicOffset: introDuration + timing.contentDuration,
+    resolution
   });
 
   // Outro = full-frame presenter video (no ringkasan text overlay)
@@ -441,12 +454,12 @@ export async function renderLongformVideo(item) {
   // Transcode Bumper Intro
   const finalBumperIntroPath = path.join(workDir, "part-0-bumper-intro.mp4");
   reportProgress("render", "Menyiapkan bumper", 90, "");console.log("Transcoding Bumper Intro...");
-  await prepareBumper(bumperIntroRaw, finalBumperIntroPath);
+  await prepareBumper(bumperIntroRaw, finalBumperIntroPath, resolution);
 
   // Transcode Bumper Outro
   const finalBumperOutroPath = path.join(workDir, "part-4-bumper-outro.mp4");
   console.log("Transcoding Bumper Outro...");
-  await prepareBumper(bumperOutroRaw, finalBumperOutroPath);
+  await prepareBumper(bumperOutroRaw, finalBumperOutroPath, resolution);
 
   // Cold open (hook teaser) opsional — diputar lebih dulu agar penonton langsung
   // ketemu inti yang bikin penasaran di detik-detik awal, bukan bumper/intro.
@@ -464,7 +477,7 @@ export async function renderLongformVideo(item) {
       reportProgress("render", "Merender cold open (hook)", 92, "");console.log(`Rendering Cold Open hook (${coldOpenDuration}s, ${coldMedia.type})...`);
 
       const coldVisualPath = path.join(workDir, "cold-open-visual.mp4");
-      await makeColdOpenVisual({ media: coldMedia, outputPath: coldVisualPath, duration: coldOpenDuration, zoomDirection: "in" });
+      await makeColdOpenVisual({ media: coldMedia, outputPath: coldVisualPath, duration: coldOpenDuration, zoomDirection: "in", resolution });
 
       const coldAssPath = path.join(workDir, "cold-open.ass");
       await writeColdOpenCaptionAss({ outputPath: coldAssPath, hookText, duration: coldOpenDuration });
@@ -709,18 +722,20 @@ function resolveSceneMedia(item, scene) {
   return { type: "image", path: image.path };
 }
 
-export async function makeVideoSegment({ videoPath, outputPath, duration }) {
+export async function makeVideoSegment({ videoPath, outputPath, duration, resolution = "720p" }) {
+  const width = resolution === "1080p" ? 1920 : 1280;
+  const height = resolution === "1080p" ? 1080 : 720;
   const overlayPath = config.pexels.overlayEnabled ? config.pexels.overlayPath : "";
   const hasOverlay = overlayPath && await fileExists(overlayPath);
   const baseFilters = [
-    "[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=contrast=1.04:saturation=1.06:brightness=0.01,vignette[bg]",
-    "color=c=0xFF8833:s=1280x720:d=1,format=rgba,colorchannelmixer=aa=0.35,fade=t=out:st=0:d=0.7:alpha=1[leak]",
+    `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},eq=contrast=1.04:saturation=1.06:brightness=0.01,vignette[bg]`,
+    `color=c=0xFF8833:s=${width}x${height}:d=1,format=rgba,colorchannelmixer=aa=0.35,fade=t=out:st=0:d=0.7:alpha=1[leak]`,
     "[bg][leak]overlay=format=auto[styled]"
   ];
   const filterComplex = hasOverlay
     ? [
         ...baseFilters,
-        `[1:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,format=rgba,colorkey=0x000000:${config.pexels.blackKeySimilarity.toFixed(3)}:${config.pexels.blackKeyBlend.toFixed(3)},colorchannelmixer=aa=${config.pexels.overlayOpacity.toFixed(3)}[sparks]`,
+        `[1:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},format=rgba,colorkey=0x000000:${config.pexels.blackKeySimilarity.toFixed(3)}:${config.pexels.blackKeyBlend.toFixed(3)},colorchannelmixer=aa=${config.pexels.overlayOpacity.toFixed(3)}[sparks]`,
         "[styled][sparks]overlay=shortest=1:format=auto[outv]"
       ].join(";")
     : [...baseFilters, "[styled]null[outv]"].join(";");
@@ -747,16 +762,18 @@ export async function makeVideoSegment({ videoPath, outputPath, duration }) {
   ]);
 }
 
-async function makeImageSegment({ imagePath, outputPath, duration, zoomDirection }) {
+async function makeImageSegment({ imagePath, outputPath, duration, zoomDirection, resolution = "720p" }) {
   const frames = Math.max(1, Math.round(duration * fps));
+  const width = resolution === "1080p" ? 1920 : 1280;
+  const height = resolution === "1080p" ? 1080 : 720;
   const zoomExpr = zoomDirection === "out"
     ? `if(eq(on,0),1.055,max(1.0,zoom-0.00035))`
     : `min(1.0+on*0.00035,1.055)`;
   
   const bgFilter = [
-    "scale=1280:720:force_original_aspect_ratio=increase",
-    "crop=1280:720",
-    `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=1280x720:fps=${fps}`,
+    `scale=${width}:${height}:force_original_aspect_ratio=increase`,
+    `crop=${width}:${height}`,
+    `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${width}x${height}:fps=${fps}`,
     "eq=contrast=1.04:saturation=1.06:brightness=0.01"
   ].join(",");
 
@@ -779,7 +796,9 @@ async function makeImageSegment({ imagePath, outputPath, duration, zoomDirection
  * Visual cold open: pakai media scene (klip Pexels atau gambar AI), diberi sedikit
  * gelap supaya teks hook terbaca jelas. Gambar diam tetap di-Ken Burns agar hidup.
  */
-async function makeColdOpenVisual({ media, outputPath, duration, zoomDirection }) {
+async function makeColdOpenVisual({ media, outputPath, duration, zoomDirection, resolution = "720p" }) {
+  const width = resolution === "1080p" ? 1920 : 1280;
+  const height = resolution === "1080p" ? 1080 : 720;
   if (media.type === "video") {
     await runFfmpeg([
       "-y",
@@ -787,8 +806,8 @@ async function makeColdOpenVisual({ media, outputPath, duration, zoomDirection }
       "-i", media.path,
       "-t", String(duration),
       "-vf", [
-        "scale=1280:720:force_original_aspect_ratio=increase",
-        "crop=1280:720",
+        `scale=${width}:${height}:force_original_aspect_ratio=increase`,
+        `crop=${width}:${height}`,
         "eq=contrast=1.05:saturation=1.06:brightness=0.01",
         "vignette",
         "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.30:t=fill",
@@ -814,9 +833,9 @@ async function makeColdOpenVisual({ media, outputPath, duration, zoomDirection }
     "-loop", "1",
     "-i", media.path,
     "-vf", [
-      "scale=1280:720:force_original_aspect_ratio=increase",
-      "crop=1280:720",
-      `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=1280x720:fps=${fps}`,
+      `scale=${width}:${height}:force_original_aspect_ratio=increase`,
+      `crop=${width}:${height}`,
+      `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${width}x${height}:fps=${fps}`,
       "eq=contrast=1.05:saturation=1.06:brightness=0.01",
       "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.30:t=fill"
     ].join(","),
@@ -887,7 +906,9 @@ async function makeColdOpenAudio({ hookAudioPath, musicPath, outputPath, duratio
   ]);
 }
 
-async function makeReactionSegment({ reactionPath, outputPath, duration }) {
+async function makeReactionSegment({ reactionPath, outputPath, duration, resolution = "720p" }) {
+  const width = resolution === "1080p" ? 1920 : 1280;
+  const height = resolution === "1080p" ? 1080 : 720;
   const targetDuration = Math.max(0.5, Number(duration || 4));
   const sourceDuration = await probeDuration(reactionPath);
   // Loop sumber bila lebih pendek dari durasi target (audio reaction bisa lebih panjang dari klip).
@@ -901,8 +922,8 @@ async function makeReactionSegment({ reactionPath, outputPath, duration }) {
     "-i", reactionPath,
     "-t", targetDuration.toFixed(3),
     "-vf", [
-      "scale=1280:720:force_original_aspect_ratio=increase",
-      "crop=1280:720",
+      `scale=${width}:${height}:force_original_aspect_ratio=increase`,
+      `crop=${width}:${height}`,
       "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.16:t=fill",
       "format=yuv420p"
     ].join(","),
@@ -945,7 +966,7 @@ async function burnSubtitles({ inputPath, assPath, outputPath }) {
   ]);
 }
 
-async function addLogoWatermark({ inputPath, outputPath }) {
+async function addLogoWatermark({ inputPath, outputPath, resolution = "720p" }) {
   const logoPath = path.join(paths.publicDir, "assets", "banyaktau-logo-watermark.png");
   try {
     await fs.access(logoPath);
@@ -954,14 +975,17 @@ async function addLogoWatermark({ inputPath, outputPath }) {
     return;
   }
 
+  const logoWidth = resolution === "1080p" ? 270 : 180;
+  const logoMargin = resolution === "1080p" ? 45 : 30;
+
   await runFfmpeg([
     "-y",
     "-i", inputPath,
     "-i", logoPath,
     "-filter_complex",
     [
-      "[1:v]scale=180:-1,format=rgba,colorchannelmixer=aa=0.72[wm]",
-      "[0:v][wm]overlay=W-w-30:30:format=auto[v]"
+      `[1:v]scale=${logoWidth}:-1,format=rgba,colorchannelmixer=aa=0.72[wm]`,
+      `[0:v][wm]overlay=W-w-${logoMargin}:${logoMargin}:format=auto[v]`
     ].join(";"),
     "-map", "[v]",
     "-c:v", "libx264",

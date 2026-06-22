@@ -35,7 +35,8 @@ const input = {
   durationSec: Number(argValue("--duration", process.env.YT_DURATION_SEC || String(config.automation.durationSec))),
   sceneCount: Number(argValue("--scenes", process.env.YT_SCENE_COUNT || String(config.automation.sceneCount))),
   imageQuality: argValue("--image-quality", process.env.IMAGE_QUALITY || config.openai.imageQuality),
-  imageSize: argValue("--image-size", process.env.IMAGE_SIZE || "1536x1024")
+  imageSize: argValue("--image-size", process.env.IMAGE_SIZE || "1536x1024"),
+  resolution: argValue("--resolution", process.env.YT_RESOLUTION || "720p")
 };
 
 const dailyGenerateLimit = config.automation.dailyGenerateLimit;

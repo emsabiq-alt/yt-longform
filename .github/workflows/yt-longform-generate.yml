@@ -31,6 +31,10 @@ on:
         description: low, medium, high
         required: false
         default: low
+      resolution:
+        description: Video resolution (720p or 1080p)
+        required: false
+        default: "720p"
       format_type:
         description: Format video type (dokumenter_klasik, investigasi_misteri, timeline_evolutif, mitos_vs_fakta, kisah_manusia, countdown, debat_dua_sisi, fenomena_alam, perbandingan, eksperimen_berpikir)
         required: false
@@ -184,6 +188,7 @@ jobs:
           INPUT_TTS_PROVIDER: ${{ github.event.inputs.tts_provider }}
           INPUT_TTS_VOICE: ${{ github.event.inputs.tts_voice }}
           INPUT_IMAGE_QUALITY: ${{ github.event.inputs.image_quality }}
+          INPUT_RESOLUTION: ${{ github.event.inputs.resolution }}
           INPUT_FORMAT_TYPE: ${{ github.event.inputs.format_type }}
           INPUT_FORCE: ${{ github.event.inputs.force }}
         run: |
@@ -195,6 +200,7 @@ jobs:
             --tts-provider "$INPUT_TTS_PROVIDER" \
             --tts-voice "$INPUT_TTS_VOICE" \
             --image-quality "$INPUT_IMAGE_QUALITY" \
+            --resolution "$INPUT_RESOLUTION" \
             --format-type "$INPUT_FORMAT_TYPE" \
             --force "$INPUT_FORCE"
 

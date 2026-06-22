@@ -197,6 +197,7 @@ function initFormDefaults() {
 
   if (c.durationSec) f.durationSec.value = String(c.durationSec);
   if (c.sceneCount) f.sceneCount.value = String(c.sceneCount);
+  if (c.resolution) f.resolution.value = String(c.resolution);
 }
 
 function renderConfigLine() {
@@ -325,7 +326,7 @@ function renderQueue() {
   el.innerHTML = q.map((item) => `
     <div class="queue-row">
       <div class="meta"><b>${esc(item.topic || "(AI memilih topik)")}</b><br>
-      <small>${esc(item.category)} · ${item.durationSec}s · ${item.sceneCount} scene · ${esc(item.ttsVoice)} · <span class="badge ${item.status === "dispatched" ? "running" : "idle"}">${esc(item.status)}</span></small></div>
+      <small>${esc(item.category)} · ${item.durationSec}s · ${item.sceneCount} scene · ${esc(item.ttsVoice)} · ${esc(item.resolution || "720p")} · <span class="badge ${item.status === "dispatched" ? "running" : "idle"}">${esc(item.status)}</span></small></div>
       <div class="acts">
         <button class="btn primary tiny" data-q-run="${esc(item.id)}">Generate</button>
         <button class="btn ghost tiny" data-q-del="${esc(item.id)}">Hapus</button>
@@ -365,7 +366,11 @@ function openDrawer(id) {
   $("#drawerBody").innerHTML = `
     <h2>${esc(it.title || "")}</h2>
     <p class="muted">${esc(it.id)} · ${esc(fmtDate(it.createdAt))}</p>
-    ${thumb ? `<img class="detail-thumb" src="${esc(thumb)}" alt="">` : ""}
+    ${video ? `
+      <div class="video-preview" style="margin:12px 0;border-radius:8px;overflow:hidden;background:#000;aspect-ratio:16/9;max-width:100%;">
+        <video controls src="${esc(video)}" style="width:100%;height:100%;display:block;"></video>
+      </div>
+    ` : (thumb ? `<img class="detail-thumb" src="${esc(thumb)}" alt="">` : "")}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
       ${statusBadge(it)}
       ${yt ? `<a class="btn primary tiny" href="${esc(yt)}" target="_blank" rel="noopener">▶ YouTube</a>` : ""}
@@ -382,6 +387,7 @@ function openDrawer(id) {
       <li><span>Scene</span><b>${it.plan?.scenes?.length || "-"}</b></li>
       <li><span>TTS</span><b>${esc(it.assets?.audio?.provider || it.input?.ttsProvider || "-")}</b></li>
       <li><span>Kategori</span><b>${esc(it.input?.category || "-")}</b></li>
+      <li><span>Resolusi</span><b>${esc(it.input?.resolution || "720p")}</b></li>
       <li><span>Biaya</span><b>$${Number(it.cost?.totalUsd || 0).toFixed(4)}</b></li>
     </ul>`;
   $("#drawer").classList.remove("hidden");
@@ -400,6 +406,7 @@ function formData() {
     ttsProvider: f.ttsProvider.value,
     ttsVoice: f.ttsVoice.value,
     imageQuality: f.imageQuality.value,
+    resolution: f.resolution.value,
     force: f.force.checked
   };
 }

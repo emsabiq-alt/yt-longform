@@ -21,6 +21,7 @@ export default async function handler(req, res) {
       tts_provider: ttsProvider,
       tts_voice: clampStr(body.ttsVoice || defaultTtsVoice, 80),
       image_quality: clampStr(body.imageQuality || "low", 20),
+      resolution: clampStr(body.resolution || "720p", 10),
       force: body.force === true || body.force === "true" ? "true" : "false"
     };
 
