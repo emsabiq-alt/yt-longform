@@ -597,8 +597,9 @@ async function buildSceneAudioTiming(item, { introDuration, outroDuration, bumpe
   const sceneAudio = Array.isArray(item.assets?.sceneAudio) ? item.assets.sceneAudio : [];
   const audioByIndex = new Map(sceneAudio.map((entry) => [Number(entry.sceneIndex), entry]));
 
-  // Jeda kecil di akhir tiap scene agar narasi tidak terdengar dempet/terpotong.
-  const tailPadByType = { reaction: 0.12, summary: 0.25, image: 0.18 };
+  // Jeda minimal di akhir tiap scene: cukup agar audio tidak terpotong,
+  // tapi tidak cukup lama untuk terdengar sebagai "jeda diam" yang mengganggu.
+  const tailPadByType = { reaction: 0.05, summary: 0.10, image: 0.08 };
   const minDurationByType = { reaction: 2.4, summary: 3.0, image: 1.5 };
 
   let cursor = 0;

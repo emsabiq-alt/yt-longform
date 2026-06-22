@@ -135,14 +135,22 @@ function numberToIndonesianWords(n) {
  */
 export function normalizeTtsText(value) {
   let text = String(value || "")
+    // Dash → sambung natural tanpa jeda (spasi biasa).
     .replace(/[—–]/g, " ")
-    .replace(/[()\[\]"""']/g, " ")
-    .replace(/;/g, ". ")
-    .replace(/…/g, ". ")
-    .replace(/\.\.\./g, ". ")
+    // Hapus tanda kurung/kutip tanpa menambah spasi berlebih.
+    .replace(/[()\[\]"\"\"']/g, "")
+    // Titik koma, ellipsis → koma (jeda pendek), bukan titik (jeda panjang).
+    .replace(/;/g, ",")
+    .replace(/…/g, ",")
+    .replace(/\.\.\./g, ",")
+    // Titik dua → koma agar TTS tidak full-stop.
     .replace(/:\s*/g, ", ")
-    .replace(/\s+,\s*/g, ", ")
-    .replace(/,\s*,/g, ",")
+    // Bersihkan koma/titik berlebihan agar tidak menumpuk jeda.
+    .replace(/,\s*,+/g, ",")
+    .replace(/\.\s*\.+/g, ".")
+    .replace(/\.\s*,/g, ",")
+    .replace(/,\s*\./g, ".")
+    .replace(/\s+,/g, ",")
     .trim();
 
   const replacements = [
@@ -175,5 +183,6 @@ export function normalizeTtsText(value) {
   });
   text = text.replace(/\d+/g, (m) => numberToIndonesianWords(Number(m)));
 
+  // Final cleanup: collapse residual multiple spaces.
   return text.replace(/\s+/g, " ").trim();
 }

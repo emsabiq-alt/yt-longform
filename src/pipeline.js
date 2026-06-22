@@ -16,8 +16,10 @@ const LANDSCAPE_SIZE = "1536x1024";
 const SCENE_TTS_INSTRUCTIONS = [
   "Bacakan dalam Bahasa Indonesia dengan suara yang natural, hangat, dan percaya diri.",
   "Gaya dokumenter santai, bukan suara iklan dan bukan membaca teks secara kaku.",
-  "Gunakan tempo sedang, variasikan intonasi, dan hindari jeda berlebihan, terutama di tengah kalimat.",
-  "Tekankan kata penting secara halus. Hindari nada monoton dan jangan berbicara terlalu cepat."
+  "Gunakan tempo sedang-cepat dan aliran bicara yang KONTINU tanpa jeda panjang.",
+  "PENTING: JANGAN berhenti atau memberi jeda diam di tengah kalimat.",
+  "Transisi antar kalimat harus mulus, langsung sambung tanpa berhenti lama.",
+  "Tekankan kata penting secara halus. Hindari nada monoton."
 ].join(" ");
 
 export async function generateFullItem(input = {}, options = {}) {

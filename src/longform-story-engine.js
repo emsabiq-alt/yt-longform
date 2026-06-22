@@ -84,6 +84,36 @@ function pick(list) {
 }
 
 /**
+ * Ekstrak SATU kalimat pertanyaan punchy dari hook GPT untuk cold open.
+ * Kalau GPT tetap mengembalikan paragraf panjang, ambil kalimat tanya pertama.
+ * Fallback: kalimat pertama, atau buat pertanyaan generik dari topik.
+ */
+function extractHookQuestion(rawHook, topic) {
+  const full = cleanText(rawHook || "", 500);
+  if (!full) return `Tahukah kamu tentang ${cleanText(topic, 60)}?`;
+
+  // Pisahkan kalimat-kalimat berdasarkan tanda akhir kalimat.
+  const sentences = full.match(/[^.!?]+[.!?]+/g) || [full];
+
+  // Prioritas 1: cari kalimat yang berakhir dengan tanda tanya.
+  const question = sentences.find((s) => s.trim().endsWith("?"));
+  if (question) {
+    const trimmed = question.trim();
+    // Kalau pertanyaan cukup pendek (≤120 char), pakai langsung.
+    if (trimmed.length <= 120) return trimmed;
+    // Kalau terlalu panjang, potong di batas kata terakhir lalu tambah "?"
+    const short = trimmed.slice(0, 115).replace(/\s+\S*$/, "").trim();
+    return short.replace(/[,.;:!?]+$/, "") + "?";
+  }
+
+  // Prioritas 2: kalimat pertama saja (bukan paragraf penuh).
+  const first = sentences[0].trim();
+  if (first.length <= 120) return first;
+  const short = first.slice(0, 115).replace(/\s+\S*$/, "").trim();
+  return short.replace(/[,.;:!?]+$/, "") + "?";
+}
+
+/**
  * Membuat draft naskah video panjang (landscape 16:9) memakai OpenAI GPT.
  * @param {object} rawInput - Parameter masukan dari user
  * @returns {Promise<object>} - Objek item naskah terstruktur
@@ -269,6 +299,7 @@ function buildPrompt(input, wiki = null) {
     "Hindari gaya bahasa lebay atau pembuka Shorts yang berisik. Penonton video panjang mencari detail faktual ('isinya daging semua').",
     "Struktur cerita harus memiliki babak pembuka (Hook & Paradoks), isi pembahasan logis (Babak 1, 2, dst.), klimaks/analisis masalah, dan kesimpulan inspiratif di akhir.",
     "Setiap scene harus berisi narasi yang dibacakan oleh TTS dan teks layar (screenText) yang sinkron. Tulis narasi agar mudah dibaca TTS: angka dan satuan ditulis dengan kata-kata (misal 'tiga puluh derajat Celcius', 'seribu kilometer per jam'), hindari singkatan dan simbol seperti %, Rp, AI, 3D, &, kecuali sangat umum.",
+    "PENTING UNTUK TTS: Tulis narasi sebagai kalimat-kalimat yang MENGALIR KONTINU. HINDARI titik koma (;), titik tiga (...), tanda kurung, dan tanda kutip karena memicu jeda panjang saat dibacakan. Gunakan koma atau kata sambung ('dan', 'lalu', 'sementara', 'karena') untuk menghubungkan klausa. Satu kalimat = satu napas bicara yang mulus.",
     "Scene reaction adalah jembatan singkat berupa pertanyaan atau pernyataan penasaran 8-16 kata. Jangan menjelaskan jawaban pada scene reaction; jawabannya dilanjutkan pada scene image berikutnya.",
     "Narasi scene reaction tidak akan dibacakan TTS. Teksnya hanya muncul di layar sebagai jeda hening singkat.",
     "Setiap scene image wajib memiliki 48-65 kata narasi. Scene summary wajib memiliki 55-75 kata narasi.",
@@ -284,7 +315,14 @@ function buildPrompt(input, wiki = null) {
     "",
     "JUDUL (cadangan): Buat judul singkat (maksimal 60 karakter), spesifik dengan subjek konkret yang jelas, dan memancing rasa penasaran tanpa terasa template. Judul final akan disempurnakan terpisah, jadi cukup sediakan satu judul layak pakai.",
     "",
-    "HOOK WAJIB (30 DETIK PERTAMA):",
+    "FIELD 'hook' DALAM JSON:",
+    "Field 'hook' adalah SATU kalimat pertanyaan punchy yang muncul sebagai teaser pembuka (cold open) sebelum intro.",
+    "WAJIB: maksimal 15-20 kata, HARUS berakhir tanda tanya (?), dan HARUS merupakan kalimat utuh yang berdiri sendiri.",
+    "Contoh bagus: 'Kenapa kopi yang kamu pesan selalu lebih lama dari yang dijanjikan?'",
+    "Contoh buruk: 'Bayangkan Anda datang ke warung kopi yang selalu penuh. Data antrian menunjukkan waktu tunggu...' (terlalu panjang, bukan pertanyaan utuh)",
+    "Field 'hook' BERBEDA dari narasi scene 1. Scene 1 boleh panjang; field 'hook' HARUS singkat.",
+    "",
+    "NARASI SCENE 1 (30 DETIK PERTAMA):",
     "Scene 1 HARUS membuat penonton TIDAK BISA meninggalkan video. Gunakan salah satu teknik hook yang kuat dan relevan:",
     "  - Fakta mengejutkan yang melawan intuisi, tetapi sebutkan subjeknya secara jelas",
     "  - Statistik kontroversial dengan sumber jelas",
@@ -377,7 +415,7 @@ function normalizePlan(plan, input) {
 
   const normalized = {
     title: cleanText(plan?.title || input.topic, 100),
-    hook: cleanText(plan?.hook || `Tahukah kamu tentang ${input.topic}?`, 200),
+    hook: extractHookQuestion(plan?.hook, input.topic),
     summary,
     importantPoints: Array.isArray(plan?.importantPoints) ? plan.importantPoints.map(p => cleanText(p, 220)).slice(0, 8) : ["Poin analisis pertama."],
     factCheckNote: cleanText(plan?.factCheckNote || "Konten disusun dengan bantuan AI dan belum diverifikasi manual. Periksa ulang fakta penting sebelum dipublikasikan.", 300),

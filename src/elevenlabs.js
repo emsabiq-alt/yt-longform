@@ -25,9 +25,9 @@ export async function generateElevenLabsSpeech({ itemId, text, voiceId, modelId,
       text,
       model_id: model,
       voice_settings: {
-        stability: 0.42,
+        stability: 0.60,
         similarity_boost: 0.78,
-        style: 0.12,
+        style: 0.05,
         use_speaker_boost: true,
         speed: config.elevenlabs.speed
       }
