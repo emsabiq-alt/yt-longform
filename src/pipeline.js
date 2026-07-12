@@ -129,7 +129,11 @@ export async function ensurePexelsClips(item, options = {}) {
   for (const { scene, segIdx, segment } of clipJobs) {
     try {
       reportProgress("images", "Mencari video B-roll Pexels", Math.round((clipDone / totalJobs) * 100), `scene ${scene.index} seg ${segIdx + 1}`);
-      const segScene = { ...scene, visualKeywords: segment.visualKeywords || scene.visualKeywords };
+      const segScene = { 
+        ...scene, 
+        visualKeywords: segment.visualKeywords || scene.visualKeywords,
+        segmentIndex: segIdx
+      };
       const clip = await fetchPexelsClipForScene({
         itemId: item.id,
         scene: segScene,
@@ -211,7 +215,11 @@ export async function ensureImages(item, options = {}) {
   for (const { scene, segIdx, segment } of segmentJobs) {
     try {
       reportProgress("images", "Membuat gambar (DALL-E multi-segment)", Math.round((imageDone / totalSegments) * 100), `scene ${scene.index} seg ${segIdx + 1}`);
-      const segScene = { ...scene, imagePrompt: segment.imagePrompt || scene.imagePrompt };
+      const segScene = { 
+        ...scene, 
+        imagePrompt: segment.imagePrompt || scene.imagePrompt,
+        segmentIndex: segIdx
+      };
       const image = await generateImageWithRetry({ item, scene: segScene, size, quality });
       image.segmentIndex = segIdx;
       imageDone += 1;

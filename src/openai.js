@@ -70,9 +70,10 @@ export async function generateSceneImage({ itemId, scene, size, quality }) {
   const item = data.data?.[0];
   if (!item) throw new Error("OpenAI tidak mengembalikan gambar.");
 
-  const rawFilename = `${itemId}-scene-${scene.index}-${safeFilename(scene.screenText)}-raw.png`;
+  const segSuffix = typeof scene.segmentIndex === "number" ? `-seg-${scene.segmentIndex}` : "";
+  const rawFilename = `${itemId}-scene-${scene.index}${segSuffix}-${safeFilename(scene.screenText)}-raw.png`;
   const rawPath = path.join(paths.workDir, rawFilename);
-  let filename = `${itemId}-scene-${scene.index}-${safeFilename(scene.screenText)}.jpg`;
+  let filename = `${itemId}-scene-${scene.index}${segSuffix}-${safeFilename(scene.screenText)}.jpg`;
   let outputPath = path.join(paths.imageDir, filename);
   await fs.mkdir(paths.workDir, { recursive: true });
 
@@ -90,13 +91,14 @@ export async function generateSceneImage({ itemId, scene, size, quality }) {
     await optimizeImage(rawPath, outputPath, size);
     await fs.rm(rawPath, { force: true });
   } catch {
-    filename = `${itemId}-scene-${scene.index}-${safeFilename(scene.screenText)}.png`;
+    filename = `${itemId}-scene-${scene.index}${segSuffix}-${safeFilename(scene.screenText)}.png`;
     outputPath = path.join(paths.imageDir, filename);
     await fs.rename(rawPath, outputPath);
   }
 
   return {
     sceneIndex: scene.index,
+    segmentIndex: scene.segmentIndex || 0,
     provider: providerName(),
     path: outputPath,
     url: `/generated/images/${filename}`,

@@ -290,14 +290,16 @@ export async function fetchPexelsClipForScene({ itemId, scene, topicFallback = "
     return null;
   }
 
-  const filename = `${itemId}-scene-${String(scene.index).padStart(2, "0")}-pexels-${chosen.id}.mp4`;
+  const segSuffix = typeof scene.segmentIndex === "number" ? `-seg-${scene.segmentIndex}` : "";
+  const filename = `${itemId}-scene-${String(scene.index).padStart(2, "0")}${segSuffix}-pexels-${chosen.id}.mp4`;
   const outputPath = path.join(clipsDir, filename);
 
   try {
     await downloadPexelsVideo(bestFile.link, outputPath);
-    console.log(`[Pexels] Downloaded scene ${scene.index}: ${bestFile.width}x${bestFile.height} (${chosen.id}) relevance=${topRelevance} query="${query}"`);
+    console.log(`[Pexels] Downloaded scene ${scene.index} seg ${scene.segmentIndex || 0}: ${bestFile.width}x${bestFile.height} (${chosen.id}) relevance=${topRelevance} query="${query}"`);
     return {
       sceneIndex: scene.index,
+      segmentIndex: scene.segmentIndex || 0,
       provider: "pexels",
       pexelsId: chosen.id,
       pexelsUrl: chosen.url,
