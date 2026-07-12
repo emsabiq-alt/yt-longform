@@ -306,12 +306,19 @@ function buildPrompt(input, wiki = null) {
     "Scene reaction tidak memerlukan visualKeywords atau imagePrompt. Isi reactionCue dengan ekspresi yang cocok: heran, kaget, skeptis, menemukan petunjuk, atau setuju.",
     "Scene terakhir wajib bertipe summary dengan screenText 'Ringkasan Inti' dan narasi kesimpulan yang tidak kosong.",
     "Buat storyboard longform yang komprehensif: banyak beat kecil, punya fungsi naratif jelas, dan tidak terasa seperti storyboard Shorts.",
+    "",
+    "ANTI-PENGULANGAN NARASI (WAJIB DIPATUHI):",
+    "- Setiap scene WAJIB menambahkan informasi, fakta, data, contoh, atau perspektif BARU yang BELUM PERNAH disebut di scene manapun sebelumnya.",
+    "- DILARANG mengulang poin yang sama dengan kata-kata berbeda. Jika scene 3 sudah menjelaskan 'kebijakan yang menghambat', scene 4 TIDAK BOLEH mengatakan 'regulasi yang tidak efektif' karena itu poin yang sama.",
+    "- Setiap scene harus membuat penonton berkata 'wah saya baru tahu ini'. Hindari informasi yang sudah umum diketahui.",
+    "- Gunakan DATA SPESIFIK: angka, tahun, nama orang/tempat/organisasi, perbandingan konkret. Jangan narasi generik yang bisa ditempelkan ke topik apapun.",
+    "- Progresi narasi: scene awal = konteks unik, scene tengah = mekanisme/bukti/data baru di setiap scene, scene akhir = implikasi yang belum dibahas.",
     `CATATAN KATEGORI (${input.category}): ${categoryNote}`,
     `VARIASI CERITA UNTUK NASKAH INI: ${variation}`,
     `KEMASAN VIRAL UTAMA:\n${viralBlock}`,
     "Gunakan kemasan viral ini sebagai tulang punggung judul, hook 30 detik pertama, dan transisi antar babak. Jangan hanya menempelkannya di judul.",
     "Kembalikan JSON valid saja dengan format:",
-    "{ title, hook, summary, importantPoints:[string], factCheckNote, scenes:[{ index, sceneType:'image'|'reaction'|'summary', durationSec, narration, screenText, visualKeywords, imagePrompt, chapter, beatPurpose, reactionCue }] }",
+    "{ title, hook, summary, importantPoints:[string], factCheckNote, scenes:[{ index, sceneType:'image'|'reaction'|'summary', durationSec, narration, screenText, visualKeywords, imagePrompt, visualSegments:[{ imagePrompt, visualKeywords, narrativeContext }], chapter, beatPurpose, reactionCue }] }",
     "",
     "JUDUL (cadangan): Buat judul singkat (maksimal 60 karakter), spesifik dengan subjek konkret yang jelas, dan memancing rasa penasaran tanpa terasa template. Judul final akan disempurnakan terpisah, jadi cukup sediakan satu judul layak pakai.",
     "",
@@ -351,8 +358,67 @@ function buildPrompt(input, wiki = null) {
     "  - Variasikan antar scene agar video B-roll tidak monoton (jangan semua 'technology digital').",
     "  - Contoh bagus: 'ancient ruins archaeological dig', 'microscope cells biology', 'factory assembly line robot', 'tropical forest canopy aerial'",
     "  - Contoh buruk: 'abstract digital network visualization' (terlalu abstrak untuk stock video)",
-    "FALLBACK IMAGE PROMPT (imagePrompt) untuk scene image/summary wajib menggambarkan pemandangan horizontal 16:9 yang artistik tanpa teks/tulisan di dalamnya."
+    "FALLBACK IMAGE PROMPT (imagePrompt) untuk scene image/summary wajib menggambarkan pemandangan horizontal 16:9 yang artistik tanpa teks/tulisan di dalamnya.",
+    "",
+    "VISUAL SEGMENTS (WAJIB untuk scene image/summary, TIDAK untuk reaction):",
+    "Setiap scene berdurasi 20-25 detik. JANGAN hanya pakai 1 gambar/video selama itu. Penonton akan bosan.",
+    "Setiap scene image/summary WAJIB punya array 'visualSegments' berisi 2-3 sub-visual.",
+    "Setiap sub-visual menggambarkan APA yang harus TERLIHAT di layar saat bagian narasi itu dibacakan.",
+    "Contoh scene tentang 'cermin lift untuk aksesibilitas':",
+    "  visualSegments: [",
+    "    { imagePrompt: 'wheelchair user approaching modern elevator, horizontal cinematic', visualKeywords: 'wheelchair elevator entrance', narrativeContext: 'cermin membantu pengguna kursi roda' },",
+    "    { imagePrompt: 'elevator mirror reflection showing buttons panel, close up', visualKeywords: 'elevator buttons panel mirror', narrativeContext: 'melihat tombol tanpa berbalik' },",
+    "    { imagePrompt: 'modern accessible elevator interior wide angle', visualKeywords: 'modern elevator interior design', narrativeContext: 'standar aksesibilitas internasional' }",
+    "  ]",
+    "Setiap sub-visual HARUS relevan dengan bagian narasi yang sedang dibacakan saat itu.",
+    "Field visualKeywords dan imagePrompt di level scene tetap wajib diisi sebagai fallback."
   ].join("\n");
+}
+
+/**
+ * Normalisasi visualSegments dari output AI.
+ * Jika AI mengembalikan array visualSegments yang valid, bersihkan dan validasi.
+ * Jika tidak, auto-split dari imagePrompt dan visualKeywords scene menjadi 2-3 segmen.
+ * @param {Array|null} rawSegments - visualSegments dari AI
+ * @param {string} sceneImagePrompt - imagePrompt fallback level scene
+ * @param {string} sceneVisualKeywords - visualKeywords fallback level scene
+ * @param {string} topic - topik utama
+ * @param {number} index - index scene (0-based)
+ * @returns {Array} - Array of { imagePrompt, visualKeywords, narrativeContext }
+ */
+function normalizeVisualSegments(rawSegments, sceneImagePrompt, sceneVisualKeywords, topic, index) {
+  // Jika AI mengembalikan array valid dengan ≥2 item, bersihkan dan pakai.
+  if (Array.isArray(rawSegments) && rawSegments.length >= 2) {
+    return rawSegments.slice(0, 3).map((seg) => ({
+      imagePrompt: cleanText(seg?.imagePrompt || sceneImagePrompt, 500),
+      visualKeywords: cleanText(seg?.visualKeywords || sceneVisualKeywords, 150),
+      narrativeContext: cleanText(seg?.narrativeContext || "", 200)
+    }));
+  }
+
+  // Auto-split: buat 2-3 segmen dari scene-level prompt.
+  // Variasikan angle visual agar setiap segmen tidak identik.
+  const angles = [
+    ["wide establishing shot", "overview aerial landscape"],
+    ["close up detail macro", "detail texture close up"],
+    ["medium shot people activity", "people working professional"]
+  ];
+  const segCount = 3;
+  const segments = [];
+  for (let i = 0; i < segCount; i++) {
+    const angleLabel = angles[i]?.[0] || "cinematic angle";
+    const angleKeywords = angles[i]?.[1] || "documentary footage";
+    segments.push({
+      imagePrompt: sceneImagePrompt
+        ? `${sceneImagePrompt}, ${angleLabel}, horizontal 16:9`
+        : fallbackImagePrompt(topic, index) + `, ${angleLabel}`,
+      visualKeywords: sceneVisualKeywords
+        ? `${sceneVisualKeywords} ${angleKeywords}`.trim().slice(0, 150)
+        : `${angleKeywords} documentary`,
+      narrativeContext: ""
+    });
+  }
+  return segments;
 }
 
 function normalizePlan(plan, input) {
@@ -371,14 +437,17 @@ function normalizePlan(plan, input) {
     const narration = sceneType === "reaction"
       ? reactionLine
       : cleanText(scene?.narration || `Ini adalah bagian penjelasan untuk babak ke-${index + 1}.`, 1600);
+    const sceneVisualKeywords = sceneType === "reaction" ? "" : cleanText(scene?.visualKeywords || fallbackKeywords(index), 150);
+    const sceneImagePrompt = sceneType === "reaction" ? "" : cleanText(scene?.imagePrompt || fallbackImagePrompt(input.topic, index), 500);
     return {
       index: index + 1,
       sceneType,
       durationSec: duration,
       narration,
       screenText,
-      visualKeywords: sceneType === "reaction" ? "" : cleanText(scene?.visualKeywords || fallbackKeywords(index), 150),
-      imagePrompt: sceneType === "reaction" ? "" : cleanText(scene?.imagePrompt || fallbackImagePrompt(input.topic, index), 500),
+      visualKeywords: sceneVisualKeywords,
+      imagePrompt: sceneImagePrompt,
+      visualSegments: sceneType === "reaction" ? [] : normalizeVisualSegments(scene?.visualSegments, sceneImagePrompt, sceneVisualKeywords, input.topic, index),
       chapter: cleanText(scene?.chapter || chapterName(index, input.sceneCount), 80),
       beatPurpose: cleanText(scene?.beatPurpose || beatPurpose(index, input.sceneCount), 180),
       reactionCue: cleanText(scene?.reactionCue || reactionCue(index), 120)
@@ -389,6 +458,8 @@ function normalizePlan(plan, input) {
   while (scenes.length < input.sceneCount) {
     const index = scenes.length;
     const sceneType = resolveSceneType("", index, input.sceneCount, input.formatType);
+    const fbKeywords = sceneType === "reaction" ? "" : fallbackKeywords(index);
+    const fbImagePrompt = sceneType === "reaction" ? "" : fallbackImagePrompt(input.topic, index);
     scenes.push({
       index: index + 1,
       sceneType,
@@ -397,8 +468,9 @@ function normalizePlan(plan, input) {
         ? fallbackReactionNarration(index)
         : `Ini adalah bagian penjelasan tambahan untuk babak ke-${index + 1}.`,
       screenText: sceneType === "summary" ? "Ringkasan Inti" : fallbackScreenText(index, input.sceneCount),
-      visualKeywords: sceneType === "reaction" ? "" : fallbackKeywords(index),
-      imagePrompt: sceneType === "reaction" ? "" : fallbackImagePrompt(input.topic, index),
+      visualKeywords: fbKeywords,
+      imagePrompt: fbImagePrompt,
+      visualSegments: sceneType === "reaction" ? [] : normalizeVisualSegments(null, fbImagePrompt, fbKeywords, input.topic, index),
       chapter: chapterName(index, input.sceneCount),
       beatPurpose: beatPurpose(index, input.sceneCount),
       reactionCue: reactionCue(index)
@@ -440,6 +512,8 @@ function fallbackPlan(input, errorMsg = "") {
   const scenes = [];
   for (let i = 0; i < count; i++) {
     const sceneType = resolveSceneType("", i, count, input.formatType);
+    const fbKw = sceneType === "reaction" ? "" : fallbackKeywords(i);
+    const fbIp = sceneType === "reaction" ? "" : fallbackImagePrompt(input.topic, i);
     scenes.push({
       index: i + 1,
       sceneType,
@@ -447,8 +521,9 @@ function fallbackPlan(input, errorMsg = "") {
         ? fallbackReactionNarration(i)
         : fallbackNarration(input.topic, i, count, errorMsg),
       screenText: sceneType === "summary" ? "Ringkasan Inti" : fallbackScreenText(i, count),
-      visualKeywords: sceneType === "reaction" ? "" : fallbackKeywords(i),
-      imagePrompt: sceneType === "reaction" ? "" : fallbackImagePrompt(input.topic, i),
+      visualKeywords: fbKw,
+      imagePrompt: fbIp,
+      visualSegments: sceneType === "reaction" ? [] : normalizeVisualSegments(null, fbIp, fbKw, input.topic, i),
       chapter: chapterName(i, count),
       beatPurpose: beatPurpose(i, count),
       reactionCue: reactionCue(i)
@@ -477,6 +552,7 @@ function buildLongformStoryboard(plan) {
     narrativePurpose: scene.beatPurpose || "",
     visualKeywords: scene.visualKeywords,
     visualPrompt: scene.imagePrompt,
+    visualSegments: scene.visualSegments || [],
     reactionCue: scene.reactionCue || "",
     narrationPreview: cleanText(scene.narration, 240)
   }));

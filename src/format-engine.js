@@ -34,10 +34,17 @@ export const FORMAT_TYPES = {
   },
   kisah_manusia: {
     label: "Kisah Manusia",
-    description: "Fokus pada individu, konflik pribadi, keputusan kritis, dan pelajaran hidup. Lebih naratif, lebih emosional.",
+    description: "Fokus pada individu, konflik pribadi, keputusan kritis, dan pelajaran hidup. Lebih naratif, lebih emosional. Cerita bergaya sketsa stick figure dengan detail mendalam, karakter dinamis, dan visual yang menarik untuk mencegah kebosanan penonton.",
     reactionFrequency: 5,
     minScenes: 10,
-    narrativeCue: "Ceritakan seperti biografi singkat. Reaction muncul hanya saat momen emosional atau keputusan kritis. Jangan terlalu banyak interupsi; biarkan narasi mengalir."
+    narrativeCue: "Ceritakan seperti biografi singkat. Reaction muncul hanya saat momen emosional atau keputusan kritis. Gunakan visual sketsa stick figure yang kaya detail dengan berbagai gaya ilustrasi untuk menjaga perhatian penonton."
+  },
+  stick_figure_rich: {
+    label: "Sketsa Stick Figure Kaya",
+    description: "Visual bergaya sketsa dengan berbagai gaya ilustrasi, karakter dinamis, kehidupan dalam, dan detail yang kaya. Bangun kedalaman naratif melalui detail visual yang teliti dan karakter yang hidup.",
+    reactionFrequency: 4,
+    minScenes: 12,
+    narrativeCue: "Buat sketsa informatif yang hidup dengan karakter dinamis, gaya ilustrasi yang bervariasi, dan detail visual yang kaya. Gunakan tekstur, kedalaman, dan gaya khusus untuk menceritakan cerita dengan kedalaman yang sama seperti video dokumenter panjang yt-longform."
   },
   countdown: {
     label: "Countdown",
@@ -203,6 +210,21 @@ function patternEksperimenBerpikir(count) {
   return types;
 }
 
+function patternStickFigureRich(count) {
+  const types = [];
+  const emotional = Math.floor(count * 0.45);
+  const climax = count > 12 ? Math.floor(count * 0.75) : -1;
+  const visualVarieties = Math.min(8, Math.floor(count / 2));
+  
+  for (let i = 0; i < count; i++) {
+    if (i === count - 1) types.push("summary");
+    else if (i === emotional || i === climax) types.push("reaction");
+    else if (i % 2 === 1 && i < count - 2 && i < visualVarieties) types.push("image");
+    else types.push("image");
+  }
+  return types;
+}
+
 /**
  * Bangun array scene types berdasarkan formatType dan jumlah scene.
  * Scene terakhir selalu 'summary'.
@@ -223,6 +245,7 @@ export function buildScenePattern(sceneCount, formatType = "dokumenter_klasik") 
     case "fenomena_alam": return patternFenomenaAlam(count);
     case "perbandingan": return patternPerbandingan(count);
     case "eksperimen_berpikir": return patternEksperimenBerpikir(count);
+    case "stick_figure_rich": return patternStickFigureRich(count);
     default: return patternDokumenterKlasik(count);
   }
 }

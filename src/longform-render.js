@@ -325,7 +325,7 @@ export async function renderLongformVideo(item) {
     renderScenes = buildRenderScenes(item, timing.adjustedNarrationDuration, timing.contentDuration);
   }
 
-  // Content segments visual rendering
+  // Content segments visual rendering (multi-visual per scene via visualSegments)
   const contentSegmentPaths = [];
   for (let index = 0; index < renderScenes.length; index += 1) {
     const scene = renderScenes[index];
@@ -343,24 +343,35 @@ export async function renderLongformVideo(item) {
         resolution
       });
     } else {
-      const media = resolveSceneMedia(item, scene);
-      reportProgress("render", "Merender segmen video", Math.round(5 + (index / renderScenes.length) * 70), `scene ${index + 1}/${renderScenes.length}`);
-      console.log(`Rendering ${scene.sceneType || "image"} scene ${index + 1}/${renderScenes.length} (${scene.durationSec}s)...`);
-      if (media.type === "video") {
-      await makeVideoSegment({
-        videoPath: media.path,
-        outputPath: segmentPath,
-        duration: scene.durationSec,
-        resolution
-      });
+      const mediaList = resolveSceneMediaList(item, scene);
+      reportProgress("render", "Merender segmen video", Math.round(5 + (index / renderScenes.length) * 70), `scene ${index + 1}/${renderScenes.length} (${mediaList.length} sub)`);
+      console.log(`Rendering ${scene.sceneType || "image"} scene ${index + 1}/${renderScenes.length} (${scene.durationSec}s, ${mediaList.length} sub-segments)...`);
+
+      if (mediaList.length <= 1) {
+        // Single media: render langsung seperti sebelumnya
+        const media = mediaList[0];
+        if (media.type === "video") {
+          await makeVideoSegment({ videoPath: media.path, outputPath: segmentPath, duration: scene.durationSec, resolution });
+        } else {
+          await makeImageSegment({ imagePath: media.path, outputPath: segmentPath, duration: scene.durationSec, zoomDirection: index % 2 ? "out" : "in", resolution });
+        }
       } else {
-        await makeImageSegment({
-          imagePath: media.path,
-          outputPath: segmentPath,
-          duration: scene.durationSec,
-          zoomDirection: index % 2 ? "out" : "in",
-          resolution
-        });
+        // Multi-media: render tiap sub-segment lalu concat
+        const subDuration = scene.durationSec / mediaList.length;
+        const subPaths = [];
+        for (let mi = 0; mi < mediaList.length; mi++) {
+          const subPath = path.join(workDir, `content-segment-${String(index).padStart(2, "0")}-sub-${mi}.mp4`);
+          const media = mediaList[mi];
+          if (media.type === "video") {
+            await makeVideoSegment({ videoPath: media.path, outputPath: subPath, duration: subDuration, resolution });
+          } else {
+            // Alternasi zoom direction per sub-segment
+            const zoomDir = (index + mi) % 2 ? "out" : "in";
+            await makeImageSegment({ imagePath: media.path, outputPath: subPath, duration: subDuration, zoomDirection: zoomDir, resolution });
+          }
+          subPaths.push(subPath);
+        }
+        await concatSegments(subPaths, segmentPath);
       }
     }
     contentSegmentPaths.push(segmentPath);
@@ -720,6 +731,50 @@ function resolveSceneMedia(item, scene) {
   const image = item.assets?.images?.find((entry) => Number(entry.sceneIndex) === Number(sourceIndex));
   if (!image?.path) throw new Error(`Media (klip video / gambar) untuk scene ${sourceIndex} belum tersedia.`);
   return { type: "image", path: image.path };
+}
+
+/**
+ * Resolve multi-media per scene berdasarkan visualSegments.
+ * Mengembalikan array [{type, path}, ...] — satu per segmen visual.
+ * Jika scene tidak punya visualSegments, fallback ke single media.
+ */
+function resolveSceneMediaList(item, scene) {
+  const sourceIndex = scene.imageSourceSceneIndex || scene.index;
+  const segCount = scene.visualSegments?.length || 1;
+  const clips = item.assets?.clips || [];
+  const images = item.assets?.images || [];
+  const mediaList = [];
+
+  for (let i = 0; i < segCount; i++) {
+    // Cari klip Pexels untuk segmen ini
+    const clip = clips.find((c) =>
+      Number(c.sceneIndex) === Number(sourceIndex) && Number(c.segmentIndex || 0) === i && c.path
+    );
+    if (clip?.path) {
+      mediaList.push({ type: "video", path: clip.path });
+      continue;
+    }
+    // Fallback ke gambar DALL-E untuk segmen ini
+    const image = images.find((img) =>
+      Number(img.sceneIndex) === Number(sourceIndex) && Number(img.segmentIndex || 0) === i && img.path
+    );
+    if (image?.path) {
+      mediaList.push({ type: "image", path: image.path });
+      continue;
+    }
+    // Fallback terakhir: cari media apapun untuk scene ini (backward compat)
+    const anyClip = clips.find((c) => Number(c.sceneIndex) === Number(sourceIndex) && c.path);
+    if (anyClip?.path) { mediaList.push({ type: "video", path: anyClip.path }); continue; }
+    const anyImage = images.find((img) => Number(img.sceneIndex) === Number(sourceIndex) && img.path);
+    if (anyImage?.path) { mediaList.push({ type: "image", path: anyImage.path }); continue; }
+  }
+
+  // Jika mediaList kosong, fallback ke resolveSceneMedia lama
+  if (mediaList.length === 0) {
+    mediaList.push(resolveSceneMedia(item, scene));
+  }
+
+  return mediaList;
 }
 
 export async function makeVideoSegment({ videoPath, outputPath, duration, resolution = "720p" }) {

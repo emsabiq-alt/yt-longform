@@ -110,33 +110,43 @@ export async function ensurePexelsClips(item, options = {}) {
     console.log(`[Pexels] Pola alternating: ${pexelsScenes.length} scene video Pexels, ${imageOnlyScenes.length} scene gambar DALL-E`);
   }
 
-  let clipDone = 0;
-  reportProgress("images", "Mencari video B-roll Pexels", 0, `0/${pexelsScenes.length}`);
-
+  // Hitung total segmen Pexels (multi-clip per scene via visualSegments)
+  const clipJobs = [];
   for (const scene of pexelsScenes) {
-    const existing = clips.find((c) => Number(c.sceneIndex) === Number(scene.index));
-    if (existing?.path) { clipDone += 1; continue; }
+    const segments = scene.visualSegments?.length ? scene.visualSegments : [{ visualKeywords: scene.visualKeywords }];
+    for (let segIdx = 0; segIdx < segments.length; segIdx++) {
+      const existing = clips.find((c) => Number(c.sceneIndex) === Number(scene.index) && Number(c.segmentIndex || 0) === segIdx && c.path);
+      if (existing) continue;
+      clipJobs.push({ scene, segIdx, segment: segments[segIdx] });
+    }
+  }
 
+  let clipDone = 0;
+  const totalJobs = clipJobs.length;
+  reportProgress("images", "Mencari video B-roll Pexels", 0, `0/${totalJobs}`);
+  console.log(`[Pexels] Total segmen video yang dicari: ${totalJobs} (multi-clip per scene)`);
+
+  for (const { scene, segIdx, segment } of clipJobs) {
     try {
-      reportProgress("images", "Mencari video B-roll Pexels", Math.round((clipDone / pexelsScenes.length) * 100), `scene ${scene.index}`);
+      reportProgress("images", "Mencari video B-roll Pexels", Math.round((clipDone / totalJobs) * 100), `scene ${scene.index} seg ${segIdx + 1}`);
+      const segScene = { ...scene, visualKeywords: segment.visualKeywords || scene.visualKeywords };
       const clip = await fetchPexelsClipForScene({
         itemId: item.id,
-        scene,
+        scene: segScene,
         topicFallback: item.input?.topic || ""
       });
       clipDone += 1;
       if (clip) {
-        const index = clips.findIndex((c) => Number(c.sceneIndex) === Number(scene.index));
-        if (index >= 0) clips.splice(index, 1, clip);
-        else clips.push(clip);
+        clip.segmentIndex = segIdx;
+        clips.push(clip);
         item.assets.clips = sortByScene(clips);
         item.updatedAt = nowIso();
         await saveItem(item);
       }
-      reportProgress("images", "Mencari video B-roll Pexels", Math.round((clipDone / pexelsScenes.length) * 100), `${clipDone}/${pexelsScenes.length}`);
+      reportProgress("images", "Mencari video B-roll Pexels", Math.round((clipDone / totalJobs) * 100), `${clipDone}/${totalJobs}`);
     } catch (error) {
       clipDone += 1;
-      const message = `Pexels scene ${scene.index} gagal: ${error.message}`;
+      const message = `Pexels scene ${scene.index} seg ${segIdx} gagal: ${error.message}`;
       warnings.push(message);
       console.warn(message);
     }
@@ -150,7 +160,7 @@ export async function ensurePexelsClips(item, options = {}) {
 
   const totalClips = clips.filter((c) => c.path).length;
   const mode = config.pexels.semanticSelection ? "seleksi semantik" : "pola alternating";
-  console.log(`[Pexels] Total klip video: ${totalClips}/${pexelsScenes.length} scene (${mode})`);
+  console.log(`[Pexels] Total klip video: ${totalClips}/${totalJobs} segmen (${mode}, multi-clip)`);
 }
 
 export async function ensureImages(item, options = {}) {
@@ -164,36 +174,54 @@ export async function ensureImages(item, options = {}) {
   const clips = item.assets.clips || [];
   const imageScenes = item.plan.scenes.filter((s) => {
     if (s.sceneType === "reaction") return false;
-    // Skip jika sudah punya klip video Pexels
-    const hasClip = clips.find((c) => Number(c.sceneIndex) === Number(s.index) && c.path);
-    return !hasClip;
+    return true;
   });
 
   if (imageScenes.length === 0) {
-    console.log("[Images] Semua scene sudah punya klip Pexels, skip generate gambar DALL-E.");
+    console.log("[Images] Tidak ada scene yang perlu gambar DALL-E.");
     return;
   }
 
-  console.log(`[Images] Generate gambar DALL-E untuk ${imageScenes.length} scene yang belum punya klip video.`);
-  let imageDone = 0;
-  reportProgress("images", "Membuat gambar fallback (DALL-E)", 0, `0/${imageScenes.length}`);
-
+  // Hitung total segmen yang perlu di-generate (2-3 gambar per scene yang tanpa klip Pexels)
+  let totalSegments = 0;
+  const segmentJobs = [];
   for (const scene of imageScenes) {
-    const existing = images.find((image) => Number(image.sceneIndex) === Number(scene.index));
-    if (existing?.path) { imageDone += 1; continue; }
+    const segments = scene.visualSegments?.length ? scene.visualSegments : [{ imagePrompt: scene.imagePrompt, visualKeywords: scene.visualKeywords }];
+    for (let segIdx = 0; segIdx < segments.length; segIdx++) {
+      // Skip jika sudah punya klip video Pexels untuk segmen ini
+      const hasClip = clips.find((c) => Number(c.sceneIndex) === Number(scene.index) && Number(c.segmentIndex || 0) === segIdx && c.path);
+      if (hasClip) continue;
+      // Skip jika sudah punya gambar untuk segmen ini
+      const hasImage = images.find((img) => Number(img.sceneIndex) === Number(scene.index) && Number(img.segmentIndex || 0) === segIdx && img.path);
+      if (hasImage) continue;
+      segmentJobs.push({ scene, segIdx, segment: segments[segIdx] });
+      totalSegments++;
+    }
+  }
+
+  if (totalSegments === 0) {
+    console.log("[Images] Semua segmen sudah punya media (klip/gambar), skip generate gambar DALL-E.");
+    return;
+  }
+
+  console.log(`[Images] Generate gambar DALL-E untuk ${totalSegments} segmen visual (multi-image per scene).`);
+  let imageDone = 0;
+  reportProgress("images", "Membuat gambar (DALL-E multi-segment)", 0, `0/${totalSegments}`);
+
+  for (const { scene, segIdx, segment } of segmentJobs) {
     try {
-      reportProgress("images", "Membuat gambar fallback (DALL-E)", Math.round((imageDone / imageScenes.length) * 100), `scene ${scene.index}`);
-      const image = await generateImageWithRetry({ item, scene, size, quality });
+      reportProgress("images", "Membuat gambar (DALL-E multi-segment)", Math.round((imageDone / totalSegments) * 100), `scene ${scene.index} seg ${segIdx + 1}`);
+      const segScene = { ...scene, imagePrompt: segment.imagePrompt || scene.imagePrompt };
+      const image = await generateImageWithRetry({ item, scene: segScene, size, quality });
+      image.segmentIndex = segIdx;
       imageDone += 1;
-      reportProgress("images", "Membuat gambar fallback (DALL-E)", Math.round((imageDone / imageScenes.length) * 100), `${imageDone}/${imageScenes.length}`);
-      const index = images.findIndex((entry) => Number(entry.sceneIndex) === Number(scene.index));
-      if (index >= 0) images.splice(index, 1, image);
-      else images.push(image);
+      reportProgress("images", "Membuat gambar (DALL-E multi-segment)", Math.round((imageDone / totalSegments) * 100), `${imageDone}/${totalSegments}`);
+      images.push(image);
       item.assets.images = sortByScene(images);
       item.updatedAt = nowIso();
       await saveItem(item);
     } catch (error) {
-      const message = `Gambar scene ${scene.index} gagal: ${error.message}`;
+      const message = `Gambar scene ${scene.index} seg ${segIdx} gagal: ${error.message}`;
       if (options.strict) throw new Error(message);
       warnings.push(message);
     }
@@ -389,17 +417,20 @@ export async function renderAndPersist(item) {
 }
 
 export function assertReadyToRender(item) {
-  // Cek: setiap scene image/summary harus punya MINIMAL klip video ATAU gambar
+  // Cek: setiap segmen visual dari setiap scene image/summary harus punya MINIMAL klip video ATAU gambar
   const requiredScenes = (item.plan.scenes || []).filter((scene) => scene.sceneType !== "reaction");
   const clips = item.assets.clips || [];
   const images = item.assets.images || [];
   for (const scene of requiredScenes) {
-    const hasClip = clips.find((c) => Number(c.sceneIndex) === Number(scene.index) && c.path);
-    const hasImage = images.find((img) => Number(img.sceneIndex) === Number(scene.index) && img.path);
-    if (!hasClip && !hasImage) {
-      const error = new Error(`Scene ${scene.index} belum punya media (klip video atau gambar). Generate dulu.`);
-      error.status = 409;
-      throw error;
+    const segCount = scene.visualSegments?.length || 1;
+    for (let segIdx = 0; segIdx < segCount; segIdx++) {
+      const hasClip = clips.find((c) => Number(c.sceneIndex) === Number(scene.index) && Number(c.segmentIndex || 0) === segIdx && c.path);
+      const hasImage = images.find((img) => Number(img.sceneIndex) === Number(scene.index) && Number(img.segmentIndex || 0) === segIdx && img.path);
+      if (!hasClip && !hasImage) {
+        const error = new Error(`Scene ${scene.index} segmen ${segIdx + 1} belum punya media (klip video atau gambar). Generate dulu.`);
+        error.status = 409;
+        throw error;
+      }
     }
   }
   const hasSceneAudio = (item.assets.sceneAudio || []).some((entry) => entry?.path);

@@ -149,7 +149,8 @@ export const config = {
     blackKeyBlend: Math.min(1, Math.max(0, numberEnv("PEXELS_BLACK_KEY_BLEND", 0.08)))
   },
   thumbnail: {
-    enabled: boolDefault(process.env.THUMBNAIL_GENERATION_ENABLED, true)
+    enabled: boolDefault(process.env.THUMBNAIL_GENERATION_ENABLED, true),
+    style: clean(process.env.THUMBNAIL_STYLE || "cinematic") // cinematic | vector
   },
   wikipedia: {
     // Grounding fakta dari Wikipedia (GRATIS, tanpa API key). Lihat src/wikipedia.js.
@@ -273,4 +274,5 @@ function applyConfigUpdates(updates) {
   if (updates.ELEVENLABS_SPEED !== undefined) config.elevenlabs.speed = Number(updates.ELEVENLABS_SPEED);
   if (updates.SPEECH_TEMPO !== undefined) config.render.speechTempo = Number(updates.SPEECH_TEMPO);
   if (updates.PEXELS_API_KEY !== undefined) config.pexels.apiKey = updates.PEXELS_API_KEY;
+  if (updates.THUMBNAIL_STYLE !== undefined) config.thumbnail.style = clean(updates.THUMBNAIL_STYLE);
 }
