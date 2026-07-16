@@ -4,6 +4,8 @@
  * tanpa mengorbankan fakta longform edukasi.
  */
 
+import { simplifyForLayAudience } from "./story-language.js";
+
 export const VIRAL_ANGLES = [
   {
     id: "hidden-cause",
@@ -169,14 +171,14 @@ export function pickViralAngle(history = []) {
 export function viralAngleSummary(angle) {
   if (!angle) return "";
   return [
-    `${angle.label}: ${angle.premise}`,
-    `Contoh judul: ${angle.titlePatterns.join(" | ")}`,
-    `Gerak hook: ${angle.hookMoves.join(" ")}`
+    `${simplifyForLayAudience(angle.label, 80)}: ${simplifyForLayAudience(angle.premise, 300)}`,
+    `Contoh judul: ${angle.titlePatterns.map((pattern) => simplifyForLayAudience(pattern, 120)).join(" | ")}`,
+    `Gerak hook: ${angle.hookMoves.map((move) => simplifyForLayAudience(move, 220)).join(" ")}`
   ].join("\n");
 }
 
 export function viralAnglePromptList(angles = VIRAL_ANGLES) {
   return angles
-    .map((angle) => `- ${angle.label}: ${angle.premise}`)
+    .map((angle) => `- ${simplifyForLayAudience(angle.label, 80)}: ${simplifyForLayAudience(angle.premise, 260)}`)
     .join("\n");
 }

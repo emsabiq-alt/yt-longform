@@ -9,6 +9,7 @@ import { pickFreshTopic } from "./topic-engine.js";
 import { generateViralTitle } from "./title-engine.js";
 import { buildScenePattern, formatTypeDescription, formatTypeNarrativeCue, pickFormatType, resolveSceneType } from "./format-engine.js";
 import { getViralAngleById, pickViralAngle, viralAngleSummary } from "./viral-angle-library.js";
+import { polishPlanForLayAudience, simplifyForLayAudience } from "./story-language.js";
 
 const categories = [
   "sains",
@@ -127,15 +128,15 @@ export async function createLongformDraft(rawInput) {
     seed.angle = fresh.angle;
     seed.formatType = fresh.formatType;
     seed.viralAngleId = fresh.viralAngleId;
-    seed.viralAngleLabel = fresh.viralAngleLabel;
-    console.log(`[Topic Engine] Topik otomatis (${fresh.source}): "${fresh.topic}" [${fresh.category}] [${fresh.formatType}] [${fresh.viralAngleLabel || "viral angle acak"}]`);
+    seed.viralAngleLabel = simplifyForLayAudience(fresh.viralAngleLabel || "", 80);
+    console.log(`[Topic Engine] Topik otomatis (${fresh.source}): "${fresh.topic}" [${fresh.category}] [${fresh.formatType}] [${seed.viralAngleLabel || "angle acak"}]`);
   } else {
     if (!seed.angle) seed.angle = "asal-usul yang jarang diketahui";
     if (!seed.formatType) seed.formatType = pickFormatType();
     if (!seed.viralAngleId) {
       const viralAngle = pickViralAngle();
       seed.viralAngleId = viralAngle.id;
-      seed.viralAngleLabel = viralAngle.label;
+      seed.viralAngleLabel = simplifyForLayAudience(viralAngle.label, 80);
     }
   }
   const input = normalizeInput(seed);
@@ -210,6 +211,8 @@ export async function createLongformDraft(rawInput) {
     normalized.factSource = "wikipedia";
   }
 
+  normalized = finalizeNormalizedPlan(normalized, input);
+
   const narrationText = normalized.scenes
     .filter((scene) => scene.sceneType !== "reaction")
     .map((scene) => scene.narration)
@@ -257,10 +260,10 @@ function normalizeInput(input) {
   return {
     topic: cleanText(input.topic || "Fakta menarik yang jarang diketahui orang", 260),
     category: cleanText(input.category && input.category !== "random" ? input.category : "umum", 80),
-    angle: cleanText(input.angle || "asal-usul yang jarang diketahui", 80),
+    angle: simplifyForLayAudience(input.angle || "asal-usul yang jarang diketahui", 80),
     formatType: cleanText(input.formatType || "dokumenter_klasik", 40),
     viralAngleId: cleanText(input.viralAngleId || "", 40),
-    viralAngleLabel: cleanText(input.viralAngleLabel || "", 80),
+    viralAngleLabel: simplifyForLayAudience(input.viralAngleLabel || "", 80),
     tone: cleanText(input.tone || "narrator, serius tapi menarik, informatif, mendalam, seperti video dokumenter Vox atau Lemmino", 180),
     durationSec,
     sceneCount,
@@ -271,13 +274,16 @@ function normalizeInput(input) {
 }
 
 function buildPrompt(input, wiki = null) {
-  const categoryNote = storyNoteFor(input.category);
-  const variation = pick(STORY_VARIATIONS);
-  const formatDesc = formatTypeDescription(input.formatType);
-  const formatCue = formatTypeNarrativeCue(input.formatType);
+  const categoryNote = simplifyForLayAudience(storyNoteFor(input.category), 700);
+  const variation = simplifyForLayAudience(pick(STORY_VARIATIONS), 400);
+  const formatDesc = simplifyForLayAudience(formatTypeDescription(input.formatType), 500);
+  const formatCue = simplifyForLayAudience(formatTypeNarrativeCue(input.formatType), 500);
   const scenePattern = buildScenePattern(input.sceneCount, input.formatType).join(", ");
   const viralAngle = getViralAngleById(input.viralAngleId);
-  const viralBlock = viralAngleSummary(viralAngle) || `${input.viralAngleLabel || "angle viral"}: Gunakan kemasan yang membuat topik terasa punya konflik, misteri, taruhan, atau konsekuensi.`;
+  const viralBlock = simplifyForLayAudience(
+    viralAngleSummary(viralAngle) || `${input.viralAngleLabel || "angle viral"}: Gunakan kemasan yang membuat topik terasa punya konflik, misteri, taruhan, atau akibat yang jelas.`,
+    1400
+  );
   const wikiBlock = wiki?.facts
     ? [
         "",
@@ -295,14 +301,14 @@ function buildPrompt(input, wiki = null) {
     `PANDUAN NARASI FORMAT: ${formatCue}`,
     `POLA SCENE WAJIB: ${scenePattern}. Scene terakhir wajib summary.`,
     "Buat naskah video dokumenter horizontal landscape (16:9) dalam Bahasa Indonesia untuk channel BanyakTau.",
-    "Video berdurasi panjang, sehingga gaya bahasanya harus mendalam, analitis, kaya akan informasi, dan mengalir seperti esai dokumenter profesional.",
+    "Video berdurasi panjang, jadi bahasanya harus runtut, kaya informasi, dan tetap mudah diikuti orang awam.",
     "GAYA BAHASA DAN PENYAJIAN (WAJIB DIPATUHI):",
     "  - Gunakan gaya bahasa populer yang dinamis, seru, dan mudah dipahami layaknya video essay kelas dunia seperti Vox atau Kurzgesagt.",
-    "  - HINDARI istilah akademis, sosiologis, atau teoritis yang berbelit-belit dan terkesan klise (seperti: 'efek domino', 'lanskap urban', 'tatanan sosial', 'paradoks modern', dll.).",
-    "  - Penonton ingin tahu fakta unik dan jawabannya secara langsung dan sederhana, bukan analisis akademis sosiologi perkotaan yang berbelit-belit.",
+    "  - HINDARI istilah akademis, sosiologis, atau teoritis yang berbelit-belit dan terkesan klise. Pakai benda, kejadian, angka, dan contoh yang konkret.",
+    "  - Penonton ingin tahu fakta unik dan jawabannya secara langsung, sederhana, dan konkret.",
     "  - Buat narasi yang to-the-point, jelas, dan fokus pada fakta unik/informasi 'daging' yang memancing rasa penasaran penonton.",
     "Hindari gaya bahasa lebay atau pembuka Shorts yang berisik. Penonton video panjang mencari detail faktual ('isinya daging semua').",
-    "Struktur cerita harus memiliki babak pembuka (Hook & Paradoks), isi pembahasan logis (Babak 1, 2, dst.), klimaks/analisis masalah, dan kesimpulan inspiratif di akhir.",
+    "Struktur cerita harus punya pembuka yang kuat, isi yang maju langkah demi langkah, bagian paling penting yang terasa jelas, dan penutup yang mudah diingat.",
     "Setiap scene harus berisi narasi yang dibacakan oleh TTS dan teks layar (screenText) yang sinkron. Tulis narasi agar mudah dibaca TTS: angka dan satuan ditulis dengan kata-kata (misal 'tiga puluh derajat Celcius', 'seribu kilometer per jam'), hindari singkatan dan simbol seperti %, Rp, AI, 3D, &, kecuali sangat umum.",
     "PENTING UNTUK TTS: Tulis narasi sebagai kalimat-kalimat yang MENGALIR KONTINU. HINDARI titik koma (;), titik tiga (...), tanda kurung, dan tanda kutip karena memicu jeda panjang saat dibacakan. Gunakan koma atau kata sambung ('dan', 'lalu', 'sementara', 'karena') untuk menghubungkan klausa. Satu kalimat = satu napas bicara yang mulus.",
     "Scene reaction adalah jembatan singkat berupa pertanyaan atau pernyataan penasaran 8-16 kata. Jangan menjelaskan jawaban pada scene reaction; jawabannya dilanjutkan pada scene image berikutnya.",
@@ -311,13 +317,15 @@ function buildPrompt(input, wiki = null) {
     "Scene reaction tidak memerlukan visualKeywords atau imagePrompt. Isi reactionCue dengan ekspresi yang cocok: heran, kaget, skeptis, menemukan petunjuk, atau setuju.",
     "Scene terakhir wajib bertipe summary dengan screenText 'Ringkasan Inti' dan narasi kesimpulan yang tidak kosong.",
     "Buat storyboard longform yang komprehensif: banyak beat kecil, punya fungsi naratif jelas, dan tidak terasa seperti storyboard Shorts.",
+    "Storyboard tidak boleh memakai judul layar generik berulang. Tulis screenText yang spesifik sesuai fakta scene, bukan label konsep umum.",
     "",
     "ANTI-PENGULANGAN NARASI (WAJIB DIPATUHI):",
-    "- Setiap scene WAJIB menambahkan informasi, fakta, data, contoh, atau perspektif BARU yang BELUM PERNAH disebut di scene manapun sebelumnya.",
+    "- Setiap scene WAJIB menambahkan informasi, fakta, data, contoh, atau cara melihat BARU yang BELUM PERNAH disebut di scene manapun sebelumnya.",
     "- DILARANG mengulang poin yang sama dengan kata-kata berbeda. Jika scene 3 sudah menjelaskan 'kebijakan yang menghambat', scene 4 TIDAK BOLEH mengatakan 'regulasi yang tidak efektif' karena itu poin yang sama.",
     "- Setiap scene harus membuat penonton berkata 'wah saya baru tahu ini'. Hindari informasi yang sudah umum diketahui.",
     "- Gunakan DATA SPESIFIK: angka, tahun, nama orang/tempat/organisasi, perbandingan konkret. Jangan narasi generik yang bisa ditempelkan ke topik apapun.",
-    "- Progresi narasi: scene awal = konteks unik, scene tengah = mekanisme/bukti/data baru di setiap scene, scene akhir = implikasi yang belum dibahas.",
+    "- Progresi narasi: scene awal = latar belakang unik, scene tengah = cara kerja/bukti/data baru di setiap scene, scene akhir = arti atau akibat yang belum dibahas.",
+    "- Jangan memakai screenText, chapter, atau beatPurpose yang sama persis di dua scene berbeda. Setiap baris storyboard harus punya tugas yang berbeda.",
     `CATATAN KATEGORI (${input.category}): ${categoryNote}`,
     `VARIASI CERITA UNTUK NASKAH INI: ${variation}`,
     `KEMASAN VIRAL UTAMA:\n${viralBlock}`,
@@ -348,7 +356,7 @@ function buildPrompt(input, wiki = null) {
     `Topik Utama: ${input.topic}`,
     `Kategori: ${input.category}`,
     `Sudut Pandang: ${input.angle}`,
-    `Kemasan Viral: ${input.viralAngleLabel || viralAngle?.label || input.viralAngleId || "acak"}`,
+    `Kemasan Viral: ${simplifyForLayAudience(input.viralAngleLabel || viralAngle?.label || input.viralAngleId || "acak", 80)}`,
     `Tone Narasi: ${input.tone}`,
     `Durasi Total: ${input.durationSec} detik`,
     `Jumlah Scene: ${input.sceneCount}`,
@@ -490,16 +498,15 @@ function normalizePlan(plan, input) {
     summaryScene.narration = completeSummaryNarration(summaryScene.narration, summary);
   }
 
-  const normalized = {
+  let normalized = {
     title: cleanText(plan?.title || input.topic, 100),
     hook: extractHookQuestion(plan?.hook, input.topic),
     summary,
-    importantPoints: Array.isArray(plan?.importantPoints) ? plan.importantPoints.map(p => cleanText(p, 220)).slice(0, 8) : ["Poin analisis pertama."],
+    importantPoints: Array.isArray(plan?.importantPoints) ? plan.importantPoints.map(p => cleanText(p, 220)).slice(0, 8) : ["Poin utama pertama."],
     factCheckNote: cleanText(plan?.factCheckNote || "Konten disusun dengan bantuan AI dan belum diverifikasi manual. Periksa ulang fakta penting sebelum dipublikasikan.", 300),
     scenes
   };
-  normalized.longformStoryboard = buildLongformStoryboard(normalized);
-  return normalized;
+  return finalizeNormalizedPlan(normalized, input);
 }
 
 function distributeDurations(totalSec, count) {
@@ -539,8 +546,8 @@ function fallbackPlan(input, errorMsg = "") {
     hook: `Mengapa ${input.topic} menjadi pelajaran penting hari ini?`,
     summary: `Pembahasan ini menelusuri ${input.topic} mulai dari latar belakang, sebab, hingga dampaknya, lalu menutup dengan intisari yang mudah diingat.`,
     importantPoints: [
-      `Latar belakang dan konteks penting seputar ${input.topic}.`,
-      `Sebab atau mekanisme utama di balik ${input.topic}.`,
+      `Latar belakang penting seputar ${input.topic}.`,
+      `Sebab atau cara kerja utama di balik ${input.topic}.`,
       `Dampak serta pelajaran yang bisa diambil dari ${input.topic}.`
     ],
     scenes
@@ -561,6 +568,12 @@ function buildLongformStoryboard(plan) {
     reactionCue: scene.reactionCue || "",
     narrationPreview: cleanText(scene.narration, 240)
   }));
+}
+
+function finalizeNormalizedPlan(plan, input) {
+  const polished = polishPlanForLayAudience(plan, input);
+  polished.longformStoryboard = buildLongformStoryboard(polished);
+  return polished;
 }
 
 function normalizedSceneType(value, index, total) {
@@ -656,19 +669,19 @@ async function writeLongformStoryboard(item) {
 
 function chapterName(index, total) {
   const position = (index + 1) / Math.max(1, total);
-  if (position <= 0.16) return "Hook dan konteks";
-  if (position <= 0.42) return "Akar masalah";
-  if (position <= 0.68) return "Analisis utama";
-  if (position <= 0.88) return "Dampak dan pembalikan";
-  return "Kesimpulan";
+  if (position <= 0.16) return "Pembuka";
+  if (position <= 0.42) return "Awal Masalah";
+  if (position <= 0.68) return "Bukti Baru";
+  if (position <= 0.88) return "Akibatnya";
+  return "Penutup";
 }
 
 function beatPurpose(index, total) {
   const position = (index + 1) / Math.max(1, total);
-  if (position <= 0.16) return "Membangun rasa penasaran dan pertanyaan utama.";
-  if (position <= 0.42) return "Membuka data, sejarah, atau mekanisme penyebab.";
-  if (position <= 0.68) return "Menjelaskan konflik inti dengan contoh konkret.";
-  if (position <= 0.88) return "Memperlihatkan konsekuensi dan perubahan yang terjadi.";
+  if (position <= 0.16) return "Membuat penonton paham pertanyaan utamanya.";
+  if (position <= 0.42) return "Membuka data, sejarah, atau sebab penting.";
+  if (position <= 0.68) return "Menjelaskan masalah utama dengan contoh konkret.";
+  if (position <= 0.88) return "Memperlihatkan akibat dan perubahan yang terjadi.";
   return "Menutup cerita dengan intisari yang mudah diingat.";
 }
 
@@ -684,7 +697,7 @@ function reactionCue(index) {
 }
 
 function fallbackScreenText(index, total) {
-  const labels = ["Pertanyaan Besar", "Awal Cerita", "Titik Buta", "Data Penting", "Konflik Inti", "Efek Domino", "Pembalikan", "Pelajaran"];
+  const labels = ["Awal Masalah", "Fakta Terlewat", "Bukti Baru", "Angka Penting", "Pilihan Sulit", "Akibatnya", "Arah Berubah", "Pelajaran"];
   return `${labels[index % labels.length]} ${Math.min(total, index + 1)}`;
 }
 
@@ -711,8 +724,8 @@ function fallbackImagePrompt(topic, index) {
 function fallbackNarration(topic, index, total, errorMsg) {
   const intro = index === 0
     ? `Bayangkan sebuah keputusan kecil yang pelan-pelan mengubah arah sebuah cerita besar. Dalam topik ${topic}, bagian paling menarik bukan cuma apa yang terjadi, tetapi kenapa banyak orang baru menyadarinya setelah dampaknya terasa.`
-    : `Pada bagian ke-${index + 1}, kita masuk ke lapisan berikutnya dari ${topic}. Di sini, pola yang terlihat sederhana mulai menunjukkan hubungan sebab akibat yang lebih dalam.`;
-  const context = `Kuncinya adalah membaca urutan peristiwa: siapa yang punya pilihan, informasi apa yang mereka abaikan, dan bagaimana keputusan itu menciptakan konsekuensi baru.`;
+    : `Pada bagian ke-${index + 1}, kita masuk ke bagian berikutnya dari ${topic}. Di sini, pola yang terlihat sederhana mulai menunjukkan sebab dan akibat yang lebih mudah dipahami.`;
+  const context = `Kuncinya adalah membaca urutan peristiwa: siapa yang punya pilihan, informasi apa yang mereka abaikan, dan bagaimana keputusan itu menciptakan akibat baru.`;
   const close = index === total - 1
     ? `Dari sini, pelajarannya jelas: fakta besar sering muncul dari detail kecil yang terus berulang sampai akhirnya tidak bisa diabaikan.`
     : `Bagian ini menjadi pijakan untuk memahami bab berikutnya, karena satu detail saja bisa mengubah cara kita melihat keseluruhan cerita.`;

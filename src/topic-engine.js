@@ -12,6 +12,7 @@ import { FORMAT_TYPES, pickFormatType } from "./format-engine.js";
 import { loadHistory, checkFreshness, pickFreshIdeaFromBatch } from "./continuity-engine.js";
 import { buildTrendingContext, formatTrendingForPrompt } from "./youtube-trends.js";
 import { pickViralAngle, viralAnglePromptList, viralAngleSummary } from "./viral-angle-library.js";
+import { simplifyForLayAudience } from "./story-language.js";
 
 export const TOPIC_CATEGORIES = [
   "sains", "penemuan", "sejarah", "tubuh manusia", "alam semesta",
@@ -275,14 +276,19 @@ function categoryAngles(category) {
 function buildIdeaPrompt(history, category, angle, formatType, viralAngle, trendingContext = null) {
   const recent = history
     .slice(0, 80)
-    .map((item) => `- [${item.category || "umum"}] ${item.topic}${item.title && item.title !== item.topic ? ` | judul: ${item.title}` : ""}`)
+    .map((item) => {
+      const topic = simplifyForLayAudience(item.topic || "", 180);
+      const title = simplifyForLayAudience(item.title || "", 120);
+      return `- [${item.category || "umum"}] ${topic}${title && title !== topic ? ` | judul: ${title}` : ""}`;
+    })
     .join("\n") || "- (belum ada)";
-  const anglesForCategory = categoryAngles(category).join("; ");
+  const anglesForCategory = categoryAngles(category).map((value) => simplifyForLayAudience(value, 140)).join("; ");
   const ft = FORMAT_TYPES[formatType];
   const label = ft?.label || formatType;
-  const description = ft?.description || "";
-  const trendingBlock = formatTrendingForPrompt(trendingContext);
-  const viralBlock = viralAngleSummary(viralAngle);
+  const description = simplifyForLayAudience(ft?.description || "", 400);
+  const trendingBlock = simplifyForLayAudience(formatTrendingForPrompt(trendingContext), 2000);
+  const viralBlock = simplifyForLayAudience(viralAngleSummary(viralAngle), 1400);
+  const viralList = simplifyForLayAudience(viralAnglePromptList(), 2000);
 
   return [
     "Kamu produser konten edukasi YouTube berbahasa Indonesia.",
@@ -292,14 +298,14 @@ function buildIdeaPrompt(history, category, angle, formatType, viralAngle, trend
     "kenapa es mengambang). Boleh juga sejarah/sains/misteri lebih dalam ASALKAN tetap memancing rasa",
     "penasaran tinggi dan menyebut subjek konkret yang dikenal orang.",
     "Tulis setiap 'topic' sebagai PERTANYAAN yang menyebut SUBJEK KONKRET (benda/makhluk/tempat nyata),",
-    "bukan tema abstrak. Hindari kata ganti kabur seperti 'hal ini' atau 'fenomena ini'.",
-    `Fokus kategori: ${category}. Sudut pandang yang diutamakan: ${angle}.`,
+    "bukan tema yang sulit dibayangkan. Hindari kata ganti kabur seperti 'hal ini' atau 'kejadian ini'.",
+    `Fokus kategori: ${category}. Sudut pandang yang diutamakan: ${simplifyForLayAudience(angle, 140)}.`,
     `Format video yang wajib digunakan: ${label}. ${description}`,
     `Kemasan viral utama yang wajib dipakai:\n${viralBlock}`,
     "Bank angle viral lain untuk variasi diksi, jangan dipakai semuanya sekaligus:",
-    viralAnglePromptList(),
+    viralList,
     "Topik harus SPESIFIK dan unik, bukan tema umum yang luas.",
-    "Topik harus sudah terasa seperti ide video yang punya konflik, misteri, taruhan, atau konsekuensi.",
+    "Topik harus sudah terasa seperti ide video yang punya konflik, misteri, taruhan, atau akibat yang jelas.",
     "Jangan buat topik netral seperti judul ensiklopedia. Hindari format 'Penjelasan tentang X'.",
     `Daftar sudut pandang yang tersedia untuk kategori ${category}: ${anglesForCategory}.`,
     trendingBlock ? `\n${trendingBlock}\n` : "",
@@ -397,7 +403,7 @@ export async function pickFreshTopic(options = {}) {
 
   // Coba hingga 5 kali untuk menemukan kombinasi yang benar-benar segar
   for (let attempt = 1; attempt <= 5; attempt++) {
-    const angle = pick(categoryAngles(category));
+    const angle = simplifyForLayAudience(pick(categoryAngles(category)), 140);
     const formatType = pickFormatType();
     const viralAngle = pickViralAngle(history);
 
@@ -418,10 +424,10 @@ export async function pickFreshTopic(options = {}) {
         return {
           topic: chosen.topic,
           category: chosen.category,
-          angle: chosen.angle,
+          angle: simplifyForLayAudience(chosen.angle || angle, 140),
           formatType,
           viralAngleId: viralAngle.id,
-          viralAngleLabel: viralAngle.label,
+          viralAngleLabel: simplifyForLayAudience(viralAngle.label, 80),
           source: "openai",
           trendingScore: trendingContext?.trendingScore || 0,
           trendingKeywords: trendingContext?.topKeywords || []
@@ -450,7 +456,7 @@ export async function pickFreshTopic(options = {}) {
     angle: "kenapa bisa terjadi",
     formatType,
     viralAngleId: viralAngle.id,
-    viralAngleLabel: viralAngle.label,
+    viralAngleLabel: simplifyForLayAudience(viralAngle.label, 80),
     source: "offline",
     trendingScore: 0,
     trendingKeywords: []

@@ -1,3 +1,5 @@
+import { simplifyForLayAudience } from "./story-language.js";
+
 /**
  * Format Engine - mendefinisikan pola struktur video yang berbeda-beda.
  * Tujuannya: menghancurkan pola tetap "2 image 1 reaction" agar video tidak terasa template.
@@ -89,11 +91,11 @@ export function pickFormatType() {
 }
 
 export function formatTypeDescription(formatType) {
-  return FORMAT_TYPES[formatType]?.description || FORMAT_TYPES.dokumenter_klasik.description;
+  return simplifyForLayAudience(FORMAT_TYPES[formatType]?.description || FORMAT_TYPES.dokumenter_klasik.description, 500);
 }
 
 export function formatTypeNarrativeCue(formatType) {
-  return FORMAT_TYPES[formatType]?.narrativeCue || FORMAT_TYPES.dokumenter_klasik.narrativeCue;
+  return simplifyForLayAudience(FORMAT_TYPES[formatType]?.narrativeCue || FORMAT_TYPES.dokumenter_klasik.narrativeCue, 500);
 }
 
 function patternDokumenterKlasik(count) {

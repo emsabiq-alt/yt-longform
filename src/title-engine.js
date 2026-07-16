@@ -6,6 +6,7 @@
 import { config } from "./config.js";
 import { requestKnowledgeJson } from "./openai.js";
 import { cleanText } from "./util.js";
+import { simplifyForLayAudience } from "./story-language.js";
 
 // Pola contoh: SELALU menyebut subjek konkret (benda/makhluk/tempat nyata) + rasa penasaran.
 // Penonton harus langsung paham videonya tentang apa, tapi jawabannya tetap ditahan.
@@ -27,17 +28,18 @@ const DEFAULT_TITLE_PATTERNS = [
 ];
 
 // Frasa kabur yang dilarang menggantikan subjek konkret di judul.
-const VAGUE_TITLE_PATTERNS = /\b(hal ini|hal kecil|hal biasa|hal sepele|fenomena ini|peristiwa ini|sesuatu yang|sesuatu|misteri ini|rahasia ini|benda ini|teknologi ini|suara ini|pola ini|mereka ini)\b/i;
+const VAGUE_TITLE_PATTERNS = /\b(hal ini|hal kecil|hal biasa|hal sepele|fenomena ini|kejadian ini|peristiwa ini|sesuatu yang|sesuatu|misteri ini|rahasia ini|benda ini|teknologi ini|suara ini|pola ini|mereka ini)\b/i;
+const STIFF_TITLE_PATTERNS = /\b(efek domino|paradoks modern|lanskap urban|tatanan sosial|implikasi|hipotesis|mekanisme)\b/i;
 
 /**
  * Bangun teks ringkasan dari plan untuk dijadikan bahan judul.
  */
 function buildContentDigest(plan) {
-  const hook = cleanText(plan?.hook || "", 400);
-  const summary = cleanText(plan?.summary || "", 800);
+  const hook = simplifyForLayAudience(plan?.hook || "", 400);
+  const summary = simplifyForLayAudience(plan?.summary || "", 800);
   const points = (plan?.importantPoints || [])
     .slice(0, 5)
-    .map((p) => cleanText(p, 220))
+    .map((p) => simplifyForLayAudience(p, 220))
     .filter(Boolean);
   const parts = [
     hook ? `Hook: ${hook}` : "",
@@ -64,11 +66,11 @@ function stripEmoji(value) {
 function pickBestTitle(titles, currentTitle) {
   const candidates = Array.isArray(titles) ? titles : [titles];
   const valid = candidates
-    .map((t) => cleanText(stripEmoji(t), 80))
+    .map((t) => simplifyForLayAudience(stripEmoji(t), 80))
     .filter((t) => t.length >= 10 && t.length <= 80 && /[a-zA-Z\u00C0-\u024F]/.test(t));
   if (!valid.length) return "";
   // Buang judul yang masih memakai frasa kabur (tanpa subjek konkret).
-  const concrete = valid.filter((t) => !VAGUE_TITLE_PATTERNS.test(t));
+  const concrete = valid.filter((t) => !VAGUE_TITLE_PATTERNS.test(t) && !STIFF_TITLE_PATTERNS.test(t));
   const pool = concrete.length ? concrete : valid;
   // Pilih yang paling singkat namun tetap informatif, maksimal 60 karakter.
   const preferred = pool.find((t) => t.length <= 60) || pool[0];
@@ -101,6 +103,7 @@ function buildTitlePrompt(digest, currentTitle, category, subject) {
     "  Contoh benar: 'Kenapa Madu Tidak Pernah Basi' (subjek=madu jelas, jawaban ditahan).",
     "  Contoh SALAH: 'Kenapa Hal Ini Tidak Pernah Basi' (subjek kabur — DILARANG).",
     "- DILARANG pakai kata: 'skill', 'insentif', 'trik', 'hack', 'rahasia di balik'.",
+    "- DILARANG pakai istilah kaku yang terlalu konseptual. Pilih kata sehari-hari yang langsung kebayang.",
     "- DILARANG gaya listicle ('5 Fakta...', '3 Hal...') atau gaya tips/tutorial.",
     "- Judul harus akurat sesuai konten; jangan clickbait yang menipu.",
     "",
@@ -120,8 +123,8 @@ function buildTitlePrompt(digest, currentTitle, category, subject) {
  */
 export async function generateViralTitle(plan, input = {}) {
   if (!config.openai.apiKey) return "";
-  const currentTitle = cleanText(plan?.title || input?.topic || "", 100);
-  const subject = cleanText(input?.topic || plan?.title || "", 120);
+  const currentTitle = simplifyForLayAudience(plan?.title || input?.topic || "", 100);
+  const subject = simplifyForLayAudience(input?.topic || plan?.title || "", 120);
   const digest = buildContentDigest(plan);
   if (!digest.trim()) return currentTitle;
 
