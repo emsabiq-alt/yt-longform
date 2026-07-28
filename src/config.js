@@ -149,7 +149,7 @@ export const config = {
     blackKeyBlend: Math.min(1, Math.max(0, numberEnv("PEXELS_BLACK_KEY_BLEND", 0.08)))
   },
   thumbnail: {
-    enabled: boolDefault(process.env.THUMBNAIL_GENERATION_ENABLED, true),
+    enabled: boolDefault(process.env.THUMBNAIL_GENERATION_ENABLED, false),
     style: clean(process.env.THUMBNAIL_STYLE || "cinematic") // cinematic | vector
   },
   wikipedia: {

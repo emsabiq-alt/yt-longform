@@ -88,7 +88,9 @@ app.post("/api/items/:id/render", async (req, res, next) => {
     if (req.body?.ensureAssets !== false) {
       await ensureImages(item, { warnings, strict: true });
       await ensureLongformSceneAudio(item, { provider: req.body?.provider || item.input.ttsProvider, warnings, strict: true });
-      await ensureThumbnail(item, { warnings });
+      if (config.thumbnail?.enabled) {
+        await ensureThumbnail(item, { warnings });
+      }
     }
     assertReadyToRender(item);
     await renderAndPersist(item);

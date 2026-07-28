@@ -3,11 +3,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertReadyToRender } from "../src/pipeline.js";
+import { config } from "../src/config.js";
 
 // Bangun item minimal untuk diuji.
 function makeItem({ scenes, clips = [], images = [], sceneAudio = [] }) {
   return { plan: { scenes }, assets: { clips, images, sceneAudio } };
 }
+
+test("config: pembuatan thumbnail otomatis nonaktif", () => {
+  assert.equal(config.thumbnail.enabled, false);
+});
 
 test("assertReadyToRender: lolos saat tiap scene punya gambar + ada audio", () => {
   const item = makeItem({
