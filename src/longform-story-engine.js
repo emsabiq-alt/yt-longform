@@ -326,6 +326,16 @@ function buildPrompt(input, wiki = null) {
     "- Gunakan DATA SPESIFIK: angka, tahun, nama orang/tempat/organisasi, perbandingan konkret. Jangan narasi generik yang bisa ditempelkan ke topik apapun.",
     "- Progresi narasi: scene awal = latar belakang unik, scene tengah = cara kerja/bukti/data baru di setiap scene, scene akhir = arti atau akibat yang belum dibahas.",
     "- Jangan memakai screenText, chapter, atau beatPurpose yang sama persis di dua scene berbeda. Setiap baris storyboard harus punya tugas yang berbeda.",
+    "",
+    "KNOWLEDGE BEAT (WAJIB untuk setiap scene image/summary):",
+    "- Setiap scene harus menjawab TEPAT SATU pertanyaan implisit. Tulis pertanyaan itu di field beatPurpose (misal beatPurpose: 'menjawab: kenapa kapal besi bisa mengapung?').",
+    "- Struktur narasi tiap scene: SATU klaim inti + SATU bukti/contoh/angka konkret yang mendukungnya. Jangan menumpuk tiga klaim dangkal dalam satu scene; lebih baik satu klaim yang dibuktikan tuntas.",
+    "- Akhiri narasi scene dengan satu kalimat yang membuat penonton butuh scene berikutnya (akibat yang belum dijelaskan, angka yang belum diungkap, atau pertanyaan lanjutan).",
+    "",
+    "PEMBUKA BAB (RETENSI):",
+    "- Scene PERTAMA dari setiap chapter baru (field chapter berubah) WAJIB membuka dengan pertanyaan atau ajakan menebak di 1-2 kalimat pertama narasinya (misal 'Coba tebak berapa lama waktu yang dibutuhkan...' atau 'Pertanyaannya, kenapa hal itu bisa terjadi?').",
+    "- Jawaban pertanyaan pembuka bab TIDAK boleh langsung diberikan di kalimat berikutnya; ungkap secara bertahap sepanjang bab itu.",
+    "- Scene reaction yang berada di batas bab difungsikan sebagai checkpoint tebakan: pertanyaan singkat yang jawabannya dibuka di scene sesudahnya.",
     `CATATAN KATEGORI (${input.category}): ${categoryNote}`,
     `VARIASI CERITA UNTUK NASKAH INI: ${variation}`,
     `KEMASAN VIRAL UTAMA:\n${viralBlock}`,
@@ -375,16 +385,24 @@ function buildPrompt(input, wiki = null) {
     "",
     "VISUAL SEGMENTS (WAJIB untuk scene image/summary, TIDAK untuk reaction):",
     "Setiap scene berdurasi 20-25 detik. JANGAN hanya pakai 1 gambar/video selama itu. Penonton akan bosan.",
-    "Setiap scene image/summary WAJIB punya array 'visualSegments' berisi 2-3 sub-visual.",
+    "Setiap scene image/summary WAJIB punya array 'visualSegments' berisi TEPAT 4 sub-visual berurutan.",
+    "4 sub-visual itu HARUS membentuk PROGRESI VISUAL yang mengikuti urutan narasi scene:",
+    "  - Sub-visual 1 = apa yang terlihat saat kalimat pembuka scene dibacakan.",
+    "  - Sub-visual 2-3 = perkembangan/inti/bukti di tengah narasi.",
+    "  - Sub-visual 4 = penutup/akibat/kesimpulan bagian akhir narasi scene.",
+    "KONTINUITAS: keempat sub-visual harus terasa seperti satu rangkaian cerita — subjek utama, lokasi, atau objek kunci yang sama berlanjut antar sub-visual (berubah sudut pandang, jarak, atau momen), BUKAN 4 gambar acak yang tidak berhubungan.",
     "Setiap sub-visual menggambarkan APA yang harus TERLIHAT di layar saat bagian narasi itu dibacakan.",
+    "narrativeContext (SANGAT PENTING untuk sinkronisasi): WAJIB berupa potongan frasa 3-8 kata yang DISALIN PERSIS (verbatim) dari teks narration scene itu, sesuai urutan kemunculannya. Sistem memakai frasa ini untuk mengganti gambar TEPAT saat frasa itu diucapkan oleh narator. Jangan memparafrase, jangan menerjemahkan, jangan mengarang frasa yang tidak ada di narration.",
+    "  - narrativeContext sub-visual 1 diambil dari bagian AWAL narration, sub-visual 2-3 dari bagian TENGAH, sub-visual 4 dari bagian AKHIR, tanpa saling mendahului.",
     "Setiap sub-visual juga WAJIB punya pexelsQuery dan mustMatchTerms untuk pencarian stock video:",
     "  - pexelsQuery: satu frasa pencarian stock dalam bahasa Inggris, konkret, idealnya 3-7 kata.",
     "  - mustMatchTerms: array berisi 1-3 istilah subjek bahasa Inggris yang wajib tampak relevan pada hasil.",
     "  - Jangan isi pexelsQuery dengan konsep abstrak atau kata generik seperti 'documentary footage'.",
-    "Contoh scene tentang 'cermin lift untuk aksesibilitas':",
+    "Contoh scene tentang 'cermin lift untuk aksesibilitas' (perhatikan progresi + kontinuitas subjek lift; narrativeContext di contoh ini adalah frasa yang memang muncul verbatim di narration scene-nya):",
     "  visualSegments: [",
     "    { imagePrompt: 'wheelchair user approaching modern elevator, horizontal cinematic', visualKeywords: 'wheelchair elevator entrance', pexelsQuery: 'wheelchair user entering elevator', mustMatchTerms: ['wheelchair', 'elevator'], narrativeContext: 'cermin membantu pengguna kursi roda' },",
-    "    { imagePrompt: 'elevator mirror reflection showing buttons panel, close up', visualKeywords: 'elevator buttons panel mirror', pexelsQuery: 'elevator mirror buttons panel', mustMatchTerms: ['elevator', 'buttons'], narrativeContext: 'melihat tombol tanpa berbalik' },",
+    "    { imagePrompt: 'wheelchair user inside elevator facing mirror, medium shot', visualKeywords: 'wheelchair inside elevator mirror', pexelsQuery: 'wheelchair user inside elevator', mustMatchTerms: ['wheelchair', 'elevator'], narrativeContext: 'posisi masuk tanpa bisa berbalik' },",
+    "    { imagePrompt: 'elevator mirror reflection showing buttons panel, close up', visualKeywords: 'elevator buttons panel mirror', pexelsQuery: 'elevator mirror buttons panel', mustMatchTerms: ['elevator', 'buttons'], narrativeContext: 'melihat tombol lewat pantulan cermin' },",
     "    { imagePrompt: 'modern accessible elevator interior wide angle', visualKeywords: 'modern elevator interior design', pexelsQuery: 'modern accessible elevator interior', mustMatchTerms: ['elevator'], narrativeContext: 'standar aksesibilitas internasional' }",
     "  ]",
     "Setiap sub-visual HARUS relevan dengan bagian narasi yang sedang dibacakan saat itu.",
@@ -395,7 +413,7 @@ function buildPrompt(input, wiki = null) {
 /**
  * Normalisasi visualSegments dari output AI.
  * Jika AI mengembalikan array visualSegments yang valid, bersihkan dan validasi.
- * Jika tidak, auto-split dari imagePrompt dan visualKeywords scene menjadi 2-3 segmen.
+ * Jika tidak, auto-split dari imagePrompt dan visualKeywords scene menjadi 4 segmen (grid 2x2).
  * @param {Array|null} rawSegments - visualSegments dari AI
  * @param {string} sceneImagePrompt - imagePrompt fallback level scene
  * @param {string} sceneVisualKeywords - visualKeywords fallback level scene
@@ -565,12 +583,21 @@ function normalizeMustMatchTerms(rawTerms, pexelsQuery) {
   return normalized;
 }
 
+const SEGMENT_ANGLE_VARIATIONS = [
+  ["wide establishing shot", "overview aerial landscape"],
+  ["close up detail macro", "detail texture close up"],
+  ["medium shot people activity", "people working professional"],
+  ["over the shoulder perspective", "perspective depth detail"]
+];
+
+export const VISUAL_SEGMENT_COUNT = 4;
+
 export function normalizeVisualSegments(rawSegments, sceneImagePrompt, sceneVisualKeywords, topic, index, options = {}) {
   const allowScenePexelsIntent = options.allowScenePexelsIntent
     ?? Boolean(cleanText(sceneVisualKeywords || "", 150));
-  // Jika AI mengembalikan array valid dengan ≥2 item, bersihkan dan pakai.
+  // Jika AI mengembalikan array valid dengan ≥2 item, bersihkan dan pakai (pad ke 4 bila kurang).
   if (Array.isArray(rawSegments) && rawSegments.length >= 2) {
-    return rawSegments.slice(0, 3).map((seg) => {
+    const segments = rawSegments.slice(0, VISUAL_SEGMENT_COUNT).map((seg) => {
       const segmentKeywords = cleanText(seg?.visualKeywords || "", 150);
       const visualKeywords = segmentKeywords || cleanText(sceneVisualKeywords || "", 150);
       const hasExplicitQuery = Object.prototype.hasOwnProperty.call(seg || {}, "pexelsQuery");
@@ -585,22 +612,28 @@ export function normalizeVisualSegments(rawSegments, sceneImagePrompt, sceneVisu
         narrativeContext: cleanText(seg?.narrativeContext || "", 200)
       };
     });
+    // Pad ke 4 segmen dengan variasi angle dari segmen terakhir agar grid 2x2 selalu penuh.
+    while (segments.length < VISUAL_SEGMENT_COUNT) {
+      const base = segments[segments.length - 1];
+      const angle = SEGMENT_ANGLE_VARIATIONS[segments.length % SEGMENT_ANGLE_VARIATIONS.length];
+      segments.push({
+        ...base,
+        imagePrompt: cleanText(`${base.imagePrompt}, ${angle[0]}`, 500),
+        mustMatchTerms: [...(base.mustMatchTerms || [])]
+      });
+    }
+    return segments;
   }
 
-  // Auto-split: buat 2-3 segmen dari scene-level prompt.
+  // Auto-split: buat 4 segmen dari scene-level prompt.
   // Variasikan angle visual agar setiap segmen tidak identik.
-  const angles = [
-    ["wide establishing shot", "overview aerial landscape"],
-    ["close up detail macro", "detail texture close up"],
-    ["medium shot people activity", "people working professional"]
-  ];
-  const segCount = 3;
+  const segCount = VISUAL_SEGMENT_COUNT;
   const segments = [];
   const pexelsQuery = allowScenePexelsIntent ? sanitizePexelsQuery(sceneVisualKeywords) : "";
   const mustMatchTerms = pexelsQuery ? normalizeMustMatchTerms([], pexelsQuery) : [];
   for (let i = 0; i < segCount; i++) {
-    const angleLabel = angles[i]?.[0] || "cinematic angle";
-    const angleKeywords = angles[i]?.[1] || "documentary footage";
+    const angleLabel = SEGMENT_ANGLE_VARIATIONS[i]?.[0] || "cinematic angle";
+    const angleKeywords = SEGMENT_ANGLE_VARIATIONS[i]?.[1] || "documentary footage";
     segments.push({
       imagePrompt: sceneImagePrompt
         ? `${sceneImagePrompt}, ${angleLabel}, horizontal 16:9`

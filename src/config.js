@@ -84,6 +84,8 @@ export const config = {
     imageModel: clean(process.env.IMAGE_MODEL || "gpt-image-1-mini"),
     imageSize: clean(process.env.IMAGE_SIZE || "1536x1024"),
     imageQuality: clean(process.env.IMAGE_QUALITY || "low"),
+    imageGridMode: clean(process.env.IMAGE_GRID_MODE || "on").toLowerCase() !== "off",
+    imageGridQuality: clean(process.env.IMAGE_GRID_QUALITY || "medium"),
     ttsModel: clean(process.env.OPENAI_TTS_MODEL || process.env.TTS_MODEL || "gpt-4o-mini-tts"),
     ttsVoice: clean(process.env.OPENAI_TTS_VOICE || process.env.TTS_VOICE || "cedar"),
     transcribeModel: clean(process.env.OPENAI_TRANSCRIBE_MODEL || "whisper-1")
@@ -186,6 +188,8 @@ export function publicConfig() {
       imageModel: config.openai.imageModel,
       imageSize: config.openai.imageSize,
       imageQuality: config.openai.imageQuality,
+      imageGridMode: config.openai.imageGridMode,
+      imageGridQuality: config.openai.imageGridQuality,
       openaiTtsModel: config.openai.ttsModel,
       openaiTtsVoice: config.openai.ttsVoice,
       openaiTranscribeModel: config.openai.transcribeModel,
@@ -269,6 +273,8 @@ function applyConfigUpdates(updates) {
   if (updates.OPENAI_BASE_URL !== undefined) config.openai.baseUrl = trimSlash(updates.OPENAI_BASE_URL);
   if (updates.STORY_MODEL !== undefined) config.openai.storyModel = updates.STORY_MODEL;
   if (updates.IMAGE_MODEL !== undefined) config.openai.imageModel = updates.IMAGE_MODEL;
+  if (updates.IMAGE_GRID_MODE !== undefined) config.openai.imageGridMode = clean(updates.IMAGE_GRID_MODE).toLowerCase() !== "off";
+  if (updates.IMAGE_GRID_QUALITY !== undefined) config.openai.imageGridQuality = clean(updates.IMAGE_GRID_QUALITY);
   if (updates.OPENAI_TTS_MODEL !== undefined) config.openai.ttsModel = updates.OPENAI_TTS_MODEL;
   if (updates.OPENAI_TTS_VOICE !== undefined) config.openai.ttsVoice = updates.OPENAI_TTS_VOICE;
   if (updates.OPENAI_TRANSCRIBE_MODEL !== undefined) config.openai.transcribeModel = updates.OPENAI_TRANSCRIBE_MODEL;

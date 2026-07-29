@@ -106,6 +106,119 @@ export async function generateSceneImage({ itemId, scene, size, quality }) {
   };
 }
 
+/**
+ * Generate SATU gambar grid 2x2 (4 panel fotorealistis berurutan) untuk satu scene,
+ * lalu potong menjadi 4 frame 16:9 terpisah. 1 panggilan API = 4 visual konsisten.
+ * Return: array 4 objek dengan bentuk identik dengan output generateSceneImage.
+ */
+export async function generateSceneGridImage({ itemId, scene, segments, size, quality }) {
+  assertOpenAi();
+  if (!Array.isArray(segments) || segments.length !== 4) {
+    throw new Error("Grid image membutuhkan tepat 4 segmen visual.");
+  }
+  await fs.mkdir(paths.imageDir, { recursive: true });
+  await fs.mkdir(paths.workDir, { recursive: true });
+
+  const prompt = buildGridPrompt(segments);
+  const response = await fetch(`${config.openai.baseUrl}/images/generations`, {
+    method: "POST",
+    headers: headersJson(),
+    body: JSON.stringify({
+      model: config.openai.imageModel,
+      prompt,
+      size,
+      quality,
+      n: 1
+    })
+  });
+  const data = await parseOpenAiResponse(response);
+  const item = data.data?.[0];
+  if (!item) throw new Error("OpenAI tidak mengembalikan gambar grid.");
+
+  const baseName = `${itemId}-scene-${scene.index}-${safeFilename(scene.screenText)}`;
+  const rawPath = path.join(paths.workDir, `${baseName}-grid-raw.png`);
+  if (item.b64_json) {
+    await fs.writeFile(rawPath, Buffer.from(item.b64_json, "base64"));
+  } else if (item.url) {
+    const image = await fetch(item.url);
+    if (!image.ok) throw new Error(`Gagal download image grid: HTTP ${image.status}`);
+    await fs.writeFile(rawPath, Buffer.from(await image.arrayBuffer()));
+  } else {
+    throw new Error("Format response image grid tidak dikenali.");
+  }
+
+  let panelPaths;
+  try {
+    panelPaths = await splitGridImage(rawPath, paths.imageDir, baseName);
+  } finally {
+    await fs.rm(rawPath, { force: true });
+  }
+
+  return panelPaths.map((panelPath, segIdx) => ({
+    sceneIndex: scene.index,
+    segmentIndex: segIdx,
+    provider: providerName(),
+    gridSource: true,
+    path: panelPath,
+    url: `/generated/images/${path.basename(panelPath)}`,
+    prompt
+  }));
+}
+
+export function buildGridPrompt(segments) {
+  const positions = ["top-left", "top-right", "bottom-left", "bottom-right"];
+  const panelLines = segments.map((segment, index) => (
+    `Panel ${index + 1} (${positions[index]}): ${String(segment?.imagePrompt || "").trim()}`
+  ));
+  return [
+    "A single image composed as a strict 2x2 grid of four photorealistic panels separated by thin straight white gutter lines.",
+    "The four panels tell ONE continuous visual story in reading order (top-left, top-right, bottom-left, bottom-right), like sequential documentary film stills.",
+    ...panelLines,
+    `Consistency: all four panels share the exact same photorealistic style, color grading, lighting mood, and recurring main subject or location so they feel like moments from the same footage. ${IMAGE_STYLE_SUFFIX("horizontal landscape 16:9")}`
+  ].join("\n");
+}
+
+/**
+ * Potong gambar grid 2x2 menjadi 4 frame 16:9 (1280x720) dengan FFmpeg.
+ * Inset ~2% per sisi kuadran untuk menghindari bleed garis gutter.
+ * @returns {Promise<string[]>} 4 path JPG berurutan (panel 1-4).
+ */
+export function splitGridImage(inputPath, outDir, baseName) {
+  const quadrants = [
+    { x: "0", y: "0" },
+    { x: "iw/2", y: "0" },
+    { x: "0", y: "ih/2" },
+    { x: "iw/2", y: "ih/2" }
+  ];
+  const outputs = quadrants.map((_, index) => path.join(outDir, `${baseName}-seg-${index}.jpg`));
+  const jobs = quadrants.map((quadrant, index) => {
+    // Crop kuadran dengan inset 2% dari tiap sisi (buang gutter), lalu scale+crop ke 1280x720.
+    const vf = [
+      `crop=iw/2-iw*0.02:ih/2-ih*0.02:${quadrant.x}+iw*0.01:${quadrant.y}+ih*0.01`,
+      "scale=1280:720:force_original_aspect_ratio=increase",
+      "crop=1280:720"
+    ].join(",");
+    return new Promise((resolve, reject) => {
+      const child = spawn("ffmpeg", [
+        "-y",
+        "-i", inputPath,
+        "-vf", vf,
+        "-frames:v", "1",
+        "-q:v", "7",
+        outputs[index]
+      ], { windowsHide: true, cwd: paths.rootDir });
+      let stderr = "";
+      child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(stderr || `Split grid panel ${index + 1} gagal (${code})`));
+      });
+    });
+  });
+  return Promise.all(jobs).then(() => outputs);
+}
+
 function optimizeImage(inputPath, outputPath, size = "") {
   let scaleCrop = "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280";
   if (size) {
@@ -230,6 +343,10 @@ function headersJson() {
   };
 }
 
+function IMAGE_STYLE_SUFFIX(orientation) {
+  return `${orientation} editorial knowledge video illustration, Indonesian friendly educational visual style, cinematic but bright, high detail, clear subject, varied composition, no written text inside the image, no logo, no watermark, no celebrity likeness, no gore, no injury`;
+}
+
 function sanitizeImagePrompt(value, size = "") {
   let orientation = "vertical 9:16";
   if (size) {
@@ -238,7 +355,7 @@ function sanitizeImagePrompt(value, size = "") {
   }
   return [
     String(value || ""),
-    `${orientation} editorial knowledge video illustration, Indonesian friendly educational visual style, cinematic but bright, high detail, clear subject, varied composition, no written text inside the image, no logo, no watermark, no celebrity likeness, no gore, no injury`
+    IMAGE_STYLE_SUFFIX(orientation)
   ].join(", ");
 }
 

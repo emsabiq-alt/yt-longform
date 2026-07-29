@@ -356,12 +356,15 @@ export async function renderLongformVideo(item) {
           await makeImageSegment({ imagePath: media.path, outputPath: segmentPath, duration: scene.durationSec, zoomDirection: index % 2 ? "out" : "in", resolution });
         }
       } else {
-        // Multi-media: render tiap sub-segment lalu concat
-        const subDuration = scene.durationSec / mediaList.length;
+        // Multi-media: render tiap sub-segment lalu concat.
+        // Durasi sub-segment mengikuti timestamp kata TTS (narrativeContext),
+        // sehingga gambar berganti tepat saat ide itu diucapkan.
+        const subDurations = computeSegmentDurations(scene, mediaList.length);
         const subPaths = [];
         for (let mi = 0; mi < mediaList.length; mi++) {
           const subPath = path.join(workDir, `content-segment-${String(index).padStart(2, "0")}-sub-${mi}.mp4`);
           const media = mediaList[mi];
+          const subDuration = subDurations[mi] ?? scene.durationSec / mediaList.length;
           if (media.type === "video") {
             await makeVideoSegment({ videoPath: media.path, outputPath: subPath, duration: subDuration, resolution });
           } else {
@@ -716,6 +719,111 @@ async function makeContentAudioFromScenes({ scenes, musicPath, outputPath, durat
     "-ac", "2",
     outputPath
   ]);
+}
+
+function normalizeMatchToken(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function tokenizeMatchText(value) {
+  return String(value || "")
+    .split(/\s+/)
+    .map(normalizeMatchToken)
+    .filter((token) => token.length > 1);
+}
+
+/**
+ * Cari posisi frasa (narrativeContext) di timeline kata caption scene.
+ * Sliding window dengan skor overlap token (urutan bebas di dalam window).
+ * @returns {{ time: number, score: number } | null}
+ */
+function findPhraseTime(wordTimeline, phraseTokens) {
+  if (!phraseTokens.length || !wordTimeline.length) return null;
+  const windowSize = Math.min(phraseTokens.length + 2, wordTimeline.length);
+  const phraseSet = new Set(phraseTokens);
+  let best = null;
+  for (let start = 0; start + 1 <= wordTimeline.length; start += 1) {
+    const end = Math.min(start + windowSize, wordTimeline.length);
+    let matched = 0;
+    const seen = new Set();
+    for (let i = start; i < end; i += 1) {
+      const token = wordTimeline[i].token;
+      if (phraseSet.has(token) && !seen.has(token)) {
+        matched += 1;
+        seen.add(token);
+      }
+    }
+    const score = matched / phraseTokens.length;
+    if (!best || score > best.score) {
+      best = { time: wordTimeline[start].time, score };
+      if (score === 1) break;
+    }
+  }
+  return best;
+}
+
+/**
+ * Hitung durasi tiap sub-segmen visual berdasarkan timestamp kata TTS.
+ * Pergantian gambar diselaraskan dengan momen frasa `narrativeContext`
+ * segmen itu diucapkan (dari sceneCaptions hasil transkripsi Whisper).
+ * Fallback: pembagian rata jika caption/konteks tidak tersedia atau tidak cocok.
+ * @returns {number[]} durasi per sub-segmen; totalnya = scene.durationSec.
+ */
+export function computeSegmentDurations(scene, segmentCount) {
+  const total = Number(scene.durationSec || 0);
+  if (segmentCount <= 1 || total <= 0) return [Math.max(total, 0)];
+  const equalSplit = () => Array.from({ length: segmentCount }, () => Number((total / segmentCount).toFixed(3)));
+
+  const captions = (Array.isArray(scene.sceneCaptions) ? scene.sceneCaptions : [])
+    .filter((cap) => cap && Number(cap.end) > Number(cap.start));
+  const segments = Array.isArray(scene.visualSegments) ? scene.visualSegments : [];
+  if (!captions.length || segments.length !== segmentCount) return equalSplit();
+
+  // Bangun timeline kata: waktu tiap kata diinterpolasi linear di dalam caption-nya.
+  const wordTimeline = [];
+  for (const cap of captions) {
+    const capWords = String(cap.text || "").split(/\s+/).filter(Boolean);
+    if (!capWords.length) continue;
+    const start = Number(cap.start);
+    const span = Number(cap.end) - start;
+    capWords.forEach((word, i) => {
+      const token = normalizeMatchToken(word);
+      if (token) wordTimeline.push({ token, time: start + span * (i / capWords.length) });
+    });
+  }
+  if (wordTimeline.length < segmentCount) return equalSplit();
+
+  // Batas segmen 1..n-1: waktu frasa narrativeContext diucapkan.
+  // Segmen pertama selalu mulai di 0; skor < 0.5 dianggap tidak cocok → posisi rata.
+  const boundaries = [0];
+  for (let i = 1; i < segmentCount; i += 1) {
+    const phraseTokens = tokenizeMatchText(segments[i]?.narrativeContext || "");
+    let time = (total * i) / segmentCount;
+    if (phraseTokens.length) {
+      const match = findPhraseTime(wordTimeline, phraseTokens);
+      if (match && match.score >= 0.5) time = match.time;
+    }
+    boundaries.push(time);
+  }
+  boundaries.push(total);
+
+  // Jaga urutan monoton + durasi minimum per sub-segmen.
+  const minDuration = Math.min(1.2, total / (segmentCount * 2));
+  for (let i = 1; i < boundaries.length - 1; i += 1) {
+    boundaries[i] = Math.max(boundaries[i], boundaries[i - 1] + minDuration);
+  }
+  for (let i = boundaries.length - 2; i >= 1; i -= 1) {
+    boundaries[i] = Math.min(boundaries[i], boundaries[i + 1] - minDuration);
+  }
+  for (let i = 1; i < boundaries.length; i += 1) {
+    if (boundaries[i] <= boundaries[i - 1]) return equalSplit();
+  }
+
+  return boundaries.slice(1).map((bound, i) => Number((bound - boundaries[i]).toFixed(3)));
 }
 
 function resolveSceneMedia(item, scene) {
