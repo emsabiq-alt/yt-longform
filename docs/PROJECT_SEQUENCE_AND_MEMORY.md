@@ -310,13 +310,16 @@ sequenceDiagram
   If grounding behavior changes, keep `test/grounding.test.js` aligned.
 - Pexels selection is heuristic and intentionally cheap. Concrete visual
   keywords get video priority; abstract scenes fall back to images.
-- Pexels candidate semantics are ranking-first: hard rejections are only
-  technical (excluded id, duration, no landscape mp4), plus zero-relevance
-  (no token overlap at all) and the explicit storyboard `mustMatchTerms`
-  identity gate (e.g. New York vs New Jersey). Query-token coverage and
-  `PEXELS_MIN_RELEVANCE` are no longer rejection gates — they only rank
-  (`PEXELS_MIN_RELEVANCE` is deprecated). Must-match terms are NOT auto-filled
-  from the query anymore; only what the storyboard sends explicitly gates.
+- Pexels candidate semantics are fully ranking-first: hard rejections are
+  ONLY technical (excluded id, duration, no landscape mp4). All slug-token
+  signals — query coverage AND `mustMatchTerms` — are ranking weights, never
+  rejection gates. Rationale: Pexels URL slugs are often generic
+  (e.g. "video-855") while the Pexels search API already returns results
+  ordered by query relevance, so `selectPexelsCandidate` uses `searchRank`
+  (API result order) as the tie-break when slug scores are equal (including
+  all-zero). Identity protection (New York vs New Jersey) still works via
+  score weights: a matching slug always outranks a mismatched one.
+  `PEXELS_MIN_RELEVANCE` is deprecated and ignored.
 - Clip quota is `PEXELS_CLIP_RATIO` (default 0.7): up to 70% of eligible
   visual segments get video clips, floor-rounded, minimum 1. The remaining
   segments use generated images.

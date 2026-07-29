@@ -358,10 +358,12 @@ function matchedTokens(expectedTokens, actualTokens) {
  */
 export function scorePexelsCandidate(video, options = {}) {
   const queryTokens = uniqueTokens(tokenizeWords(options.query || ""));
-  // Gerbang identitas hanya untuk istilah EKSPLISIT dari storyboard
-  // (mis. "New York", "EU"). Token query lain menjadi sinyal ranking, bukan
-  // gerbang — slug Pexels sering generik/tidak lengkap sehingga menuntut
-  // semua token query hadir membuat hampir semua kandidat valid tertolak.
+  // SEMUA kecocokan slug (query maupun mustMatchTerms) kini murni sinyal
+  // RANKING, bukan gerbang penolakan. Alasan: slug URL Pexels sering generik
+  // atau tidak deskriptif (mis. "video-855"), sedangkan hasil pencarian
+  // Pexels sendiri SUDAH terurut berdasarkan relevansi query. Menolak
+  // kandidat karena slug-nya tidak memuat token membuat hampir semua hasil
+  // valid terbuang dan scene jatuh ke gambar AI yang lebih mahal.
   const mustMatchTokens = termTokens(options.mustMatchTerms);
   const titleTokens = uniqueTokens(tokenizeWords(clipTitleFromVideo(video)));
   const matchedQueryTerms = matchedTokens(queryTokens, titleTokens);
@@ -377,19 +379,18 @@ export function scorePexelsCandidate(video, options = {}) {
     ...idSet(options.excludedPexelsIds)
   ]);
   const minDurationSec = Math.max(0, Number(options.minDurationSec) || 0);
-  // mustMatchTerms eksplisit tetap gerbang wajib agar lokasi/organisasi yang
-  // mirip tidak tertukar (mis. New York dengan New Jersey). Relevansi query
-  // TIDAK lagi menjadi gerbang (options.minRelevance diabaikan): kandidat
-  // dengan minimal satu token cocok dinilai lewat ranking skor.
   const requiredMustMatches = mustMatchTokens.length;
 
+  // Gerbang keras hanya yang TEKNIS: id yang sudah dipakai/di-exclude,
+  // durasi kurang, atau tidak ada file mp4 landscape.
   let rejectionReason = "";
   if (excludedIds.has(String(video?.id))) rejectionReason = "excluded-id";
   else if (Number(video?.duration || 0) < minDurationSec) rejectionReason = "duration";
   else if (!file) rejectionReason = "no-landscape-mp4";
-  else if (!matchedTerms.length || relevance === 0) rejectionReason = "zero-relevance";
-  else if (matchedMustTerms.length < requiredMustMatches) rejectionReason = "must-match";
 
+  // Slug yang deskriptif dan cocok tetap menang telak lewat bobot skor;
+  // slug generik (skor 0) kalah dari yang cocok, dan antar sesama skor 0
+  // urutan hasil pencarian Pexels (searchRank) yang menentukan.
   const score = (matchedMustTerms.length * 12)
     + (matchedQueryTerms.length * 3)
     + (mustMatchCoverage === 1 && mustMatchTokens.length ? 2 : 0);
@@ -419,11 +420,14 @@ export function scorePexelsCandidate(video, options = {}) {
  */
 export function selectPexelsCandidate(videos, options = {}) {
   const ranked = (Array.isArray(videos) ? videos : [])
-    .map((video) => scorePexelsCandidate(video, options))
+    .map((video, searchRank) => ({ ...scorePexelsCandidate(video, options), searchRank }))
     .filter((candidate) => candidate.eligible)
     .sort((a, b) => (
       (b.score - a.score)
       || (b.relevance - a.relevance)
+      // Pexels mengurutkan hasil berdasarkan relevansi query; saat sinyal slug
+      // seri (termasuk sama-sama nol karena slug generik), hormati urutan itu.
+      || (a.searchRank - b.searchRank)
       || (b.fileScore - a.fileScore)
       || String(a.video?.id ?? "").localeCompare(String(b.video?.id ?? ""), "en", { numeric: true })
     ));
