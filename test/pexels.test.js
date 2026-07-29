@@ -176,76 +176,67 @@ test("selectPexelsCandidate: kandidat relevan mengalahkan kandidat tidak relevan
   assert.ok(selected.matchedTerms.includes("oil"));
 });
 
-test("selectPexelsCandidate: relevansi nol selalu ditolak", () => {
+test("selectPexelsCandidate: slug generik tetap dipilih mengikuti urutan pencarian Pexels", () => {
+  // Pexels sudah mengurutkan hasil berdasarkan relevansi query, jadi kandidat
+  // dengan slug tidak deskriptif tidak boleh dibuang — pilih peringkat teratas.
   const selected = selectPexelsCandidate([
-    video(1, "sunset-over-mountains")
+    video(1, "sunset-over-mountains"),
+    video(2, "video-855")
   ], {
     query: "oil refinery",
-    minDurationSec: 8,
-    minRelevance: 0
+    minDurationSec: 8
   });
-  assert.equal(selected, null);
+  assert.ok(selected, "kandidat harus tetap terpilih");
+  assert.equal(selected.video.id, 1, "urutan hasil pencarian Pexels harus dihormati");
+  assert.equal(selected.score, 0);
 });
 
-test("scorePexelsCandidate: satu must-match wajib cocok", () => {
+test("scorePexelsCandidate: must-match kini sinyal ranking, bukan gerbang", () => {
   const scored = scorePexelsCandidate(video(1, "refinery-industrial-facility"), {
     query: "oil refinery",
     mustMatchTerms: ["oil"],
-    minDurationSec: 8,
-    minRelevance: 0.3
+    minDurationSec: 8
   });
-  assert.equal(scored.eligible, false);
-  assert.equal(scored.rejectionReason, "must-match");
-});
-
-test("scorePexelsCandidate: dua must-match wajib cocok seluruhnya", () => {
-  const scored = scorePexelsCandidate(video(1, "oil-painting-in-studio"), {
+  // Slug tanpa "oil" tetap layak (Pexels sudah mengurutkan hasil per query),
+  // tetapi skornya lebih rendah dari kandidat yang memuat istilah wajib.
+  assert.equal(scored.eligible, true);
+  assert.equal(scored.rejectionReason, "");
+  const withMust = scorePexelsCandidate(video(2, "oil-refinery-industrial"), {
     query: "oil refinery",
-    mustMatchTerms: ["oil", "refinery"],
-    minDurationSec: 8,
-    minRelevance: 0.3
+    mustMatchTerms: ["oil"],
+    minDurationSec: 8
   });
-  assert.equal(scored.relevance, 0.5);
-  assert.equal(scored.requiredMustMatches, 2);
-  assert.equal(scored.eligible, false);
-  assert.equal(scored.rejectionReason, "must-match");
+  assert.ok(withMust.score > scored.score);
 });
 
-test("scorePexelsCandidate: tiga must-match wajib cocok seluruhnya", () => {
-  const rejectedPartial = scorePexelsCandidate(video(1, "oil-refinery-at-sunset"), {
+test("scorePexelsCandidate: cakupan must-match memengaruhi skor bertingkat", () => {
+  const options = {
     query: "oil refinery workers",
     mustMatchTerms: ["oil", "refinery", "workers"],
-    minDurationSec: 8,
-    minRelevance: 0.6
-  });
-  const accepted = scorePexelsCandidate(video(2, "workers-inspecting-oil-refinery"), {
-    query: "oil refinery workers",
-    mustMatchTerms: ["oil", "refinery", "workers"],
-    minDurationSec: 8,
-    minRelevance: 0.6
-  });
+    minDurationSec: 8
+  };
+  const partial = scorePexelsCandidate(video(1, "oil-refinery-at-sunset"), options);
+  const full = scorePexelsCandidate(video(2, "workers-inspecting-oil-refinery"), options);
 
-  assert.equal(rejectedPartial.requiredMustMatches, 3);
-  assert.equal(rejectedPartial.mustMatchCoverage, 2 / 3);
-  assert.equal(rejectedPartial.eligible, false);
-  assert.equal(rejectedPartial.rejectionReason, "must-match");
-  assert.equal(accepted.mustMatchCoverage, 1);
-  assert.equal(accepted.eligible, true);
+  assert.equal(partial.requiredMustMatches, 3);
+  assert.equal(partial.mustMatchCoverage, 2 / 3);
+  assert.equal(partial.eligible, true);
+  assert.equal(full.mustMatchCoverage, 1);
+  assert.equal(full.eligible, true);
+  assert.ok(full.score > partial.score, "cakupan penuh harus menang ranking");
 });
 
-test("scorePexelsCandidate: lokasi New York tidak menerima New Jersey", () => {
+test("scorePexelsCandidate: ranking memenangkan New York atas New Jersey", () => {
   const options = {
     query: "New York skyline",
     mustMatchTerms: ["New York", "skyline"],
-    minDurationSec: 8,
-    minRelevance: 0.3
+    minDurationSec: 8
   };
-  const rejected = scorePexelsCandidate(video(1, "new-jersey-skyline-at-night"), options);
-  const accepted = scorePexelsCandidate(video(2, "new-york-skyline-at-night"), options);
-
-  assert.equal(rejected.eligible, false);
-  assert.equal(rejected.rejectionReason, "must-match");
-  assert.equal(accepted.eligible, true);
+  const selected = selectPexelsCandidate([
+    video(1, "new-jersey-skyline-at-night"),
+    video(2, "new-york-skyline-at-night")
+  ], options);
+  assert.equal(selected.video.id, 2);
 });
 
 test("scorePexelsCandidate: tanpa must-match eksplisit dinilai lewat ranking, bukan gerbang", () => {
@@ -300,95 +291,86 @@ test("scorePexelsCandidate: must-match eksplisit tidak dilengkapi otomatis dari 
   assert.equal(selected.video.id, 3);
 });
 
-test("scorePexelsCandidate: European Union tidak menerima negara Eropa generik", () => {
+test("ranking: European Union mengalahkan negara Eropa generik", () => {
   const options = {
     query: "European Union flag",
     mustMatchTerms: ["European Union", "flag"],
-    minDurationSec: 8,
-    minRelevance: 0.3
+    minDurationSec: 8
   };
-  const rejected = scorePexelsCandidate(video(1, "european-country-flag-waving"), options);
-  const accepted = scorePexelsCandidate(video(2, "european-union-flag-waving"), options);
+  const generic = scorePexelsCandidate(video(1, "european-country-flag-waving"), options);
+  const exact = scorePexelsCandidate(video(2, "european-union-flag-waving"), options);
 
-  assert.equal(rejected.eligible, false);
-  assert.equal(rejected.rejectionReason, "must-match");
-  assert.equal(accepted.eligible, true);
+  assert.equal(generic.eligible, true);
+  assert.ok(exact.score > generic.score);
+  assert.equal(selectPexelsCandidate([
+    video(1, "european-country-flag-waving"),
+    video(2, "european-union-flag-waving")
+  ], options).video.id, 2);
 });
 
-test("scorePexelsCandidate: news tidak dianggap cocok dengan new", () => {
+test("scorePexelsCandidate: news tidak dianggap cocok dengan new (token match tetap ketat)", () => {
   const scored = scorePexelsCandidate(video(1, "new-studio"), {
     query: "news studio",
     mustMatchTerms: ["news", "studio"],
-    minDurationSec: 8,
-    minRelevance: 0.3
+    minDurationSec: 8
   });
+  // Tokenizer tetap ketat: "new" bukan "news". Kandidat tetap layak (ranking),
+  // tapi istilah "news" tidak boleh dihitung cocok.
   assert.equal(scored.matchedMustTerms.includes("news"), false);
-  assert.equal(scored.eligible, false);
-  assert.equal(scored.rejectionReason, "must-match");
+  assert.equal(scored.mustMatchCoverage, 1 / 2);
 });
 
-test("scorePexelsCandidate: EU flag tidak menerima rainbow flag", () => {
-  const rejected = scorePexelsCandidate(video(1, "rainbow-flag-waving"), {
+test("ranking: EU flag mengalahkan rainbow flag", () => {
+  const options = {
     query: "EU flag",
     mustMatchTerms: ["EU", "flag"],
-    minDurationSec: 8,
-    minRelevance: 0.3
-  });
-  const accepted = scorePexelsCandidate(video(2, "EU-flag-waving"), {
-    query: "EU flag",
-    mustMatchTerms: ["EU", "flag"],
-    minDurationSec: 8,
-    minRelevance: 0.3
-  });
-
-  assert.equal(rejected.matchedMustTerms.includes("eu"), false);
-  assert.equal(rejected.eligible, false);
-  assert.equal(rejected.rejectionReason, "must-match");
-  assert.equal(accepted.eligible, true);
+    minDurationSec: 8
+  };
+  const rainbow = scorePexelsCandidate(video(1, "rainbow-flag-waving"), options);
+  assert.equal(rainbow.matchedMustTerms.includes("eu"), false);
+  assert.equal(selectPexelsCandidate([
+    video(1, "rainbow-flag-waving"),
+    video(2, "EU-flag-waving")
+  ], options).video.id, 2);
 });
 
-test("scorePexelsCandidate: UN headquarters wajib mempertahankan akronim subjek", () => {
+test("ranking: UN headquarters mengalahkan corporate headquarters", () => {
   const options = {
     query: "UN headquarters",
     mustMatchTerms: ["UN", "headquarters"],
-    minDurationSec: 8,
-    minRelevance: 0.3
+    minDurationSec: 8
   };
-  const rejected = scorePexelsCandidate(video(1, "corporate-headquarters"), options);
-  const accepted = scorePexelsCandidate(video(2, "un-headquarters"), options);
-
-  assert.equal(rejected.eligible, false);
-  assert.equal(rejected.rejectionReason, "must-match");
-  assert.equal(accepted.eligible, true);
+  assert.equal(selectPexelsCandidate([
+    video(1, "corporate-headquarters"),
+    video(2, "un-headquarters")
+  ], options).video.id, 2);
 });
 
-test("scorePexelsCandidate: G20 summit tidak menerima business summit", () => {
+test("ranking: G20 summit mengalahkan business summit", () => {
   const options = {
     query: "G20 summit leaders",
     mustMatchTerms: ["G20", "summit", "leaders"],
-    minDurationSec: 8,
-    minRelevance: 0.3
+    minDurationSec: 8
   };
-  const rejected = scorePexelsCandidate(video(1, "business-summit-leaders"), options);
-  const accepted = scorePexelsCandidate(video(2, "g20-summit-leaders"), options);
-
-  assert.equal(rejected.eligible, false);
-  assert.equal(rejected.rejectionReason, "must-match");
-  assert.equal(accepted.eligible, true);
+  assert.equal(selectPexelsCandidate([
+    video(1, "business-summit-leaders"),
+    video(2, "g20-summit-leaders")
+  ], options).video.id, 2);
 });
 
-test("scorePexelsCandidate: São Paulo dinormalisasi tanpa kehilangan identitas", () => {
+test("ranking: São Paulo dinormalisasi tanpa kehilangan identitas", () => {
   const options = {
     query: "São Paulo skyline",
     mustMatchTerms: ["São Paulo", "skyline"],
     minDurationSec: 8
   };
-  const rejected = scorePexelsCandidate(video(1, "paulo-skyline"), options);
-  const accepted = scorePexelsCandidate(video(2, "sao-paulo-skyline"), options);
-
-  assert.equal(rejected.eligible, false);
-  assert.equal(rejected.rejectionReason, "must-match");
-  assert.equal(accepted.eligible, true);
+  const partial = scorePexelsCandidate(video(1, "paulo-skyline"), options);
+  const exact = scorePexelsCandidate(video(2, "sao-paulo-skyline"), options);
+  assert.ok(exact.score > partial.score);
+  assert.equal(selectPexelsCandidate([
+    video(1, "paulo-skyline"),
+    video(2, "sao-paulo-skyline")
+  ], options).video.id, 2);
 });
 
 test("scorePexelsCandidate: must-match parsial diselesaikan lewat ranking query", () => {
@@ -474,16 +456,17 @@ test("selectPexelsCandidate: ID yang sudah dipakai dikecualikan", () => {
   assert.equal(selected.video.id, 2);
 });
 
-test("selectPexelsCandidate: pemenang deterministik saat skor sama", () => {
+test("selectPexelsCandidate: pemenang deterministik saat skor sama mengikuti urutan pencarian", () => {
   const first = video(10, "oil-refinery-workers");
   const second = video(2, "oil-refinery-workers");
   const options = {
     query: "oil refinery workers",
     mustMatchTerms: ["oil"],
-    minDurationSec: 8,
-    minRelevance: 0.3
+    minDurationSec: 8
   };
-  assert.equal(selectPexelsCandidate([first, second], options).video.id, 2);
+  // Saat sinyal slug identik, urutan hasil pencarian Pexels yang menentukan:
+  // kandidat pertama dari API menang, terlepas dari nilai id-nya.
+  assert.equal(selectPexelsCandidate([first, second], options).video.id, 10);
   assert.equal(selectPexelsCandidate([second, first], options).video.id, 2);
 });
 
@@ -561,9 +544,11 @@ test("scorePexelsCandidate: nama entitas berakhiran s tidak di-stem generik", ()
       minDurationSec: 8,
       minRelevance: 0
     });
+    // Kandidat tetap eligible (ranking-first), tapi token palsu tidak boleh
+    // dihitung cocok: skor tetap nol sehingga kalah dari kandidat sebenarnya.
     assert.equal(scored.matchedMustTerms.length, 0, `${entity} tidak boleh cocok dengan ${falseStem}`);
-    assert.equal(scored.eligible, false);
-    assert.equal(scored.rejectionReason, "zero-relevance");
+    assert.equal(scored.score, 0);
+    assert.equal(scored.relevance, 0);
   }
 });
 

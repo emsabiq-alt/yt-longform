@@ -33,7 +33,7 @@ test("normalizeVisualSegments mempertahankan dan membersihkan intent Pexels dari
   assert.deepEqual(segments[1].mustMatchTerms, ["elevator", "buttons", "mirror"]);
 });
 
-test("intent hasil normalisasi tetap menjadi gerbang relevansi kandidat Pexels", () => {
+test("intent hasil normalisasi menjadi sinyal ranking kandidat Pexels", () => {
   const [segment] = normalizeVisualSegments([
     {
       imagePrompt: "wheelchair user entering an elevator",
@@ -67,8 +67,10 @@ test("intent hasil normalisasi tetap menjadi gerbang relevansi kandidat Pexels",
   });
 
   assert.deepEqual(segment.mustMatchTerms, ["wheelchair", "elevator", "user"]);
-  assert.equal(scored.eligible, false);
-  assert.equal(scored.rejectionReason, "must-match");
+  // Kandidat tanpa "elevator" pada slug tetap layak (ranking-first), tetapi
+  // cakupan must-match-nya parsial sehingga kalah dari kandidat yang lengkap.
+  assert.equal(scored.eligible, true);
+  assert.equal(scored.mustMatchCoverage, 2 / 3);
 });
 
 test("normalizeVisualSegments menurunkan intent lama dari visualKeywords", () => {
@@ -462,12 +464,20 @@ test("normalizer dan scorer menjaga identitas subjek query panjang", () => {
     minRelevance: 0.3
   });
 
-  assert.equal(score("electric-guitar-player-in-city", segments[0]).eligible, false);
-  assert.equal(score("electric-bus-drivers-in-city-traffic", segments[0]).eligible, true);
-  assert.equal(score("oil-painting-workers", segments[1]).eligible, false);
-  assert.equal(score("oil-refinery-workers", segments[1]).eligible, true);
-  assert.equal(score("new-jersey-skyline", segments[2]).eligible, false);
-  assert.equal(score("new-york-skyline", segments[2]).eligible, true);
+  // Ranking-first: subjek yang salah tetap layak tetapi selalu kalah skor
+  // dari subjek yang benar, sehingga tidak pernah terpilih saat keduanya ada.
+  assert.ok(
+    score("electric-bus-drivers-in-city-traffic", segments[0]).score
+    > score("electric-guitar-player-in-city", segments[0]).score
+  );
+  assert.ok(
+    score("oil-refinery-workers", segments[1]).score
+    > score("oil-painting-workers", segments[1]).score
+  );
+  assert.ok(
+    score("new-york-skyline", segments[2]).score
+    > score("new-jersey-skyline", segments[2]).score
+  );
 });
 
 test("fallback offline sebenarnya tidak meneruskan keyword generik ke Pexels", async (t) => {
