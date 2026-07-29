@@ -157,6 +157,32 @@ export const config = {
     blackKeySimilarity: Math.min(1, Math.max(0.01, numberEnv("PEXELS_BLACK_KEY_SIMILARITY", 0.16))),
     blackKeyBlend: Math.min(1, Math.max(0, numberEnv("PEXELS_BLACK_KEY_BLEND", 0.08)))
   },
+  wikimedia: {
+    // Commons gratis dan tidak memakai API key. Default lisensi dibuat
+    // konservatif: Public Domain, CC0, dan CC BY.
+    enabled: boolDefault(process.env.WIKIMEDIA_MEDIA_ENABLED, true),
+    userAgent: clean(process.env.WIKIMEDIA_USER_AGENT
+      || "yt-longform-studio/1.0 (+https://github.com/emsabiq-alt/yt-longform)"),
+    maxAssetsPerVideo: Math.max(0, Math.min(12,
+      Math.floor(numberEnv("WIKIMEDIA_MAX_ASSETS_PER_VIDEO", 8))
+    )),
+    maxResults: Math.max(1, Math.min(25,
+      Math.floor(numberEnv("WIKIMEDIA_MAX_RESULTS", 12))
+    )),
+    maxQueryAttempts: Math.max(1, Math.min(2,
+      Math.floor(numberEnv("WIKIMEDIA_MAX_QUERY_ATTEMPTS", 2))
+    )),
+    minRelevance: Math.max(0.1, Math.min(1, numberEnv("WIKIMEDIA_MIN_RELEVANCE", 0.2))),
+    imageWidth: Math.max(720, Math.min(2560,
+      Math.floor(numberEnv("WIKIMEDIA_IMAGE_WIDTH", 1920))
+    )),
+    maxImageBytes: Math.max(1, numberEnv("WIKIMEDIA_MAX_IMAGE_MB", 20)) * 1024 * 1024,
+    maxVideoBytes: Math.max(1, numberEnv("WIKIMEDIA_MAX_VIDEO_MB", 120)) * 1024 * 1024,
+    allowShareAlike: boolDefault(process.env.WIKIMEDIA_ALLOW_SHARE_ALIKE, false),
+    timeoutMs: Math.max(3000, numberEnv("WIKIMEDIA_TIMEOUT_MS", 15000)),
+    downloadTimeoutMs: Math.max(5000, numberEnv("WIKIMEDIA_DOWNLOAD_TIMEOUT_MS", 120000)),
+    requestDelayMs: Math.max(0, numberEnv("WIKIMEDIA_REQUEST_DELAY_MS", 150))
+  },
   thumbnail: {
     enabled: boolDefault(process.env.THUMBNAIL_GENERATION_ENABLED, false),
     style: clean(process.env.THUMBNAIL_STYLE || "cinematic") // cinematic | vector
@@ -203,7 +229,8 @@ export function publicConfig() {
       youtubeClientIdSet: bool(config.youtube.clientId),
       youtubeRefreshTokenSet: bool(config.youtube.refreshToken),
       pexels: Boolean(config.pexels.apiKey),
-      pexelsPreferVideo: config.pexels.preferVideo
+      pexelsPreferVideo: config.pexels.preferVideo,
+      wikimedia: config.wikimedia.enabled
     },
     render: config.render,
     automation: config.automation,

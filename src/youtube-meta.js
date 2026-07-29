@@ -71,21 +71,31 @@ export function buildDescription(item) {
 
   const chapters = buildChapters(item);
   const sources = buildSourcesBlock(item);
+  const mediaAttribution = buildMediaAttributionBlock(item);
   const tags = buildTags(item);
   const hashtags = tags.slice(0, 6).map((t) => `#${t.replace(/\s+/g, "")}`).join(" ");
 
-  const blocks = [
+  const contentBlocks = [
     hook || item.title,
     summary,
     points ? `Yang akan kamu pahami:\n${points}` : "",
     chapters ? `Bab:\n${chapters}` : "",
     "Tonton sampai habis supaya gambaran lengkapnya nyambung.",
-    "Kalau bermanfaat, like dan subscribe untuk video pengetahuan lainnya.",
+    "Kalau bermanfaat, like dan subscribe untuk video pengetahuan lainnya."
+  ].filter(Boolean);
+  const protectedBlocks = [
     sources,
+    mediaAttribution,
     hashtags
   ].filter(Boolean);
 
-  return blocks.join("\n\n").slice(0, 4900);
+  // Atribusi lisensi tidak boleh terpotong ketika deskripsi panjang. Konten
+  // editorial dipangkas lebih dulu dan blok sumber selalu dipertahankan.
+  const protectedText = protectedBlocks.join("\n\n");
+  const separatorLength = protectedText ? 2 : 0;
+  const contentBudget = Math.max(0, 4900 - protectedText.length - separatorLength);
+  const contentText = contentBlocks.join("\n\n").slice(0, contentBudget).trim();
+  return [contentText, protectedText].filter(Boolean).join("\n\n").slice(0, 4900);
 }
 
 /**
@@ -106,6 +116,59 @@ export function buildSourcesBlock(item) {
   if (!valid.length) return "";
   const lines = valid.map((s) => `• ${s.title ? `${s.title}: ` : ""}${s.url}`).join("\n");
   return `Sumber & referensi fakta:\n${lines}\nSebagian fakta dirangkum dari Wikipedia (lisensi CC BY-SA).`;
+}
+
+/**
+ * Atribusi visual Wikimedia Commons. Semua aset tetap dicantumkan, termasuk
+ * Public Domain, agar asal-usul media dapat diaudit. URL lisensi didedup agar
+ * deskripsi tetap ringkas.
+ */
+export function buildMediaAttributionBlock(item) {
+  const rawAssets = [
+    ...(item.assets?.clips || []),
+    ...(item.assets?.images || [])
+  ].filter((asset) => (
+    asset?.provider === "wikimedia"
+    && oneLine(asset.sourceUrl, 400)
+  ));
+  const seen = new Set();
+  const assets = [];
+  for (const asset of rawAssets) {
+    const pageId = oneLine(asset.wikimediaPageId, 40);
+    const sourceUrl = pageId
+      ? `https://commons.wikimedia.org/?curid=${encodeURIComponent(pageId)}`
+      : oneLine(asset.sourceUrl, 300);
+    const key = pageId || sourceUrl;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    assets.push({
+      title: oneLine(asset.title || asset.wikimediaPageTitle || "Media Wikimedia Commons", 100),
+      creator: oneLine(asset.creator || "Kontributor Wikimedia Commons", 90),
+      license: oneLine(asset.license || "Lisensi pada halaman sumber", 50),
+      licenseUrl: oneLine(asset.licenseUrl, 300),
+      sourceUrl
+    });
+  }
+  if (!assets.length) return "";
+
+  const lines = assets.map((asset) => (
+    `• ${asset.title} — ${asset.creator} — ${asset.license} — ${asset.sourceUrl}`
+  ));
+  const licenseLinks = [];
+  const seenLicenses = new Set();
+  for (const asset of assets) {
+    if (!asset.licenseUrl) continue;
+    const key = `${asset.license}|${asset.licenseUrl}`;
+    if (seenLicenses.has(key)) continue;
+    seenLicenses.add(key);
+    licenseLinks.push(`• ${asset.license}: ${asset.licenseUrl}`);
+  }
+  return [
+    "Kredit media Wikimedia Commons:",
+    lines.join("\n"),
+    "Media dipotong, diubah ukuran, atau disesuaikan untuk video ini.",
+    licenseLinks.length ? `Tautan lisensi:\n${licenseLinks.join("\n")}` : ""
+  ].filter(Boolean).join("\n");
 }
 
 /** Timestamp bab perkiraan dari durasi scene (kalau ada). */

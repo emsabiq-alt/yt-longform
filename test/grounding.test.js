@@ -4,7 +4,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildSearchQuery } from "../src/wikipedia.js";
-import { buildSourcesBlock, buildDescription } from "../src/youtube-meta.js";
+import {
+  buildSourcesBlock,
+  buildDescription,
+  buildMediaAttributionBlock
+} from "../src/youtube-meta.js";
 
 test("buildSearchQuery: membuang kata tanya di awal", () => {
   assert.equal(buildSearchQuery("Kenapa madu tidak pernah basi?"), "madu tidak pernah basi");
@@ -73,4 +77,51 @@ test("buildDescription: menyertakan blok sumber bila plan.sources ada", () => {
     input: { category: "makanan dan dapur" }
   });
   assert.doesNotMatch(withoutSource, /Sumber & referensi fakta/);
+});
+
+test("buildMediaAttributionBlock: kredit Wikimedia lengkap dan didedup", () => {
+  const asset = {
+    provider: "wikimedia",
+    wikimediaPageId: 12345,
+    title: "Saturn V launch",
+    creator: "NASA",
+    license: "Public domain",
+    licenseUrl: "https://creativecommons.org/publicdomain/mark/1.0/",
+    sourceUrl: "https://commons.wikimedia.org/wiki/File:Saturn_V_launch.jpg"
+  };
+  const block = buildMediaAttributionBlock({
+    assets: { clips: [asset], images: [{ ...asset }] }
+  });
+  assert.match(block, /Kredit media Wikimedia Commons:/);
+  assert.match(block, /NASA/);
+  assert.match(block, /Public domain/);
+  assert.match(block, /commons\.wikimedia\.org\/\?curid=12345/);
+  assert.equal(block.split("?curid=12345").length - 1, 1);
+  assert.match(block, /dipotong, diubah ukuran/);
+});
+
+test("buildDescription: atribusi Wikimedia dipertahankan saat ringkasan sangat panjang", () => {
+  const description = buildDescription({
+    title: "Peluncuran Saturn V",
+    plan: {
+      hook: "Bagaimana roket terbesar ini dapat terbang?",
+      summary: "Ringkasan ".repeat(1000),
+      importantPoints: ["Mesin F-1", "Tahapan roket"]
+    },
+    assets: {
+      images: [{
+        provider: "wikimedia",
+        wikimediaPageId: 12345,
+        title: "Saturn V launch",
+        creator: "NASA",
+        license: "Public domain",
+        licenseUrl: "https://creativecommons.org/publicdomain/mark/1.0/",
+        sourceUrl: "https://commons.wikimedia.org/wiki/File:Saturn_V_launch.jpg"
+      }]
+    },
+    input: { category: "transportasi" }
+  });
+  assert.ok(description.length <= 4900);
+  assert.match(description, /Kredit media Wikimedia Commons:/);
+  assert.match(description, /commons\.wikimedia\.org\/\?curid=12345/);
 });

@@ -10,6 +10,7 @@ import {
   buildPexelsClipJobs,
   ensureImages,
   ensurePexelsClips,
+  ensureWikimediaMedia,
   ensureVisualAssets,
   pexelsIntentHash
 } from "../src/pipeline.js";
@@ -181,7 +182,7 @@ test("buildPexelsClipJobs: index scene duplikat tidak menghasilkan slot duplikat
   assert.equal(jobs[0].query, "wheelchair elevator");
 });
 
-test("ensureVisualAssets: selalu mencoba Pexels sebelum fallback gambar", async () => {
+test("ensureVisualAssets: urutan Pexels lalu Wikimedia lalu fallback gambar", async () => {
   const calls = [];
   const warnings = [];
   const item = makeItem({ scenes: [] });
@@ -194,6 +195,11 @@ test("ensureVisualAssets: selalu mencoba Pexels sebelum fallback gambar", async 
       assert.equal(receivedItem, item);
       assert.equal(options.warnings, warnings);
     },
+    wikimediaRunner: async (receivedItem, options) => {
+      calls.push("wikimedia");
+      assert.equal(receivedItem, item);
+      assert.equal(options.warnings, warnings);
+    },
     imageRunner: async (receivedItem, options) => {
       calls.push("images");
       assert.equal(receivedItem, item);
@@ -202,7 +208,73 @@ test("ensureVisualAssets: selalu mencoba Pexels sebelum fallback gambar", async 
     }
   });
 
-  assert.deepEqual(calls, ["pexels", "images"]);
+  assert.deepEqual(calls, ["pexels", "wikimedia", "images"]);
+});
+
+test("ensureWikimediaMedia: hanya mengisi slot kosong dan menyimpan atribusi", async () => {
+  const originalEnabled = config.wikimedia.enabled;
+  config.wikimedia.enabled = true;
+  try {
+    const item = makeItem({
+      scenes: [{
+        index: 0,
+        sceneType: "image",
+        visualSegments: [
+          {
+            pexelsQuery: "Apollo 11 moon landing",
+            mustMatchTerms: ["apollo", "moon"],
+            visualKeywords: "Apollo 11 moon landing"
+          },
+          {
+            pexelsQuery: "Saturn V launch",
+            mustMatchTerms: ["saturn", "launch"],
+            visualKeywords: "Saturn V rocket launch"
+          }
+        ]
+      }],
+      clips: [{
+        sceneIndex: 0,
+        segmentIndex: 0,
+        provider: "pexels",
+        pexelsId: 7,
+        path: "/existing-pexels.mp4"
+      }]
+    });
+    const requestedSegments = [];
+
+    await ensureWikimediaMedia(item, {
+      delayMs: 0,
+      maxAssets: 8,
+      persistItem: async () => {},
+      fileExists: async (filePath) => (
+        filePath === "/existing-pexels.mp4" || filePath === "/wikimedia-saturn.jpg"
+      ),
+      fetchMedia: async ({ scene, usedPageIds }) => {
+        requestedSegments.push(scene.segmentIndex);
+        assert.equal(usedPageIds.size, 0);
+        return {
+          mediaType: "image",
+          wikimediaPageId: 12345,
+          title: "Saturn V launch",
+          creator: "NASA",
+          license: "Public domain",
+          sourceUrl: "https://commons.wikimedia.org/wiki/File:Saturn_V_launch.jpg",
+          query: "Saturn V launch",
+          path: "/wikimedia-saturn.jpg",
+          url: "/generated/images/wikimedia-saturn.jpg"
+        };
+      }
+    });
+
+    assert.deepEqual(requestedSegments, [1]);
+    assert.equal(item.assets.clips.length, 1);
+    assert.equal(item.assets.images.length, 1);
+    assert.equal(item.assets.images[0].provider, "wikimedia");
+    assert.equal(item.assets.images[0].creator, "NASA");
+    assert.equal(item.assets.wikimediaAudit[0].status, "selected");
+  } finally {
+    config.wikimedia.enabled = originalEnabled;
+  }
 });
 
 test("buildPexelsClipJobs: fallback legacy abstrak tidak menjadi job atau request API", async () => {

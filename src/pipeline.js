@@ -10,6 +10,10 @@ import {
   PEXELS_SELECTOR_VERSION,
   scoreSceneVisualConcreteness
 } from "./pexels.js";
+import {
+  fetchWikimediaMediaForScene,
+  WIKIMEDIA_SELECTOR_VERSION
+} from "./wikimedia.js";
 import { renderLongformVideo } from "./longform-render.js";
 import { generateThumbnail } from "./thumbnail.js";
 import { saveItem, listContextItems } from "./storage.js";
@@ -35,11 +39,14 @@ const SCENE_TTS_INSTRUCTIONS = [
 export async function ensureVisualAssets(item, options = {}) {
   const warnings = options.warnings || [];
   const pexelsRunner = options.pexelsRunner || ensurePexelsClips;
+  const wikimediaRunner = options.wikimediaRunner || ensureWikimediaMedia;
   const imageRunner = options.imageRunner || ensureImages;
   const pexelsOptions = options.pexelsOptions || {};
+  const wikimediaOptions = options.wikimediaOptions || {};
   const imageOptions = options.imageOptions || {};
 
   await pexelsRunner(item, { ...pexelsOptions, warnings });
+  await wikimediaRunner(item, { ...wikimediaOptions, warnings });
   await imageRunner(item, {
     ...imageOptions,
     warnings,
@@ -63,7 +70,7 @@ export async function generateFullItem(input = {}, options = {}) {
   await saveItem(item);
   reportProgress("script", "Naskah siap", 100, item.title || "");
 
-  // Pexels video clips dulu (prioritas), lalu gambar sebagai fallback
+  // Pexels dulu, Wikimedia Commons untuk slot kosong, lalu OpenAI sebagai fallback.
   await ensureVisualAssets(item, { warnings, strict: true });
   await ensureLongformSceneAudio(item, {
     provider: item.input.ttsProvider,
@@ -560,6 +567,236 @@ export async function ensurePexelsClips(item, options = {}) {
   const totalClips = clips.filter((clip) => isPexelsClip(clip) && clip.path).length;
   const mode = semanticSelection ? "seleksi semantik" : "pola alternating";
   console.log(`[Pexels] Total klip valid: ${totalClips}; mode ${mode}, seleksi per segmen.`);
+}
+
+function isWikimediaMedia(asset) {
+  return asset?.provider === "wikimedia" || asset?.wikimediaPageId !== undefined;
+}
+
+function wikimediaPageIdKey(value) {
+  return value !== undefined && value !== null && String(value).trim()
+    ? String(value).trim()
+    : null;
+}
+
+function upsertWikimediaAudit(audits, entry) {
+  const slot = segmentSlot(entry.sceneIndex, entry.segmentIndex);
+  const next = (Array.isArray(audits) ? audits : [])
+    .filter((audit) => segmentSlot(audit.sceneIndex, audit.segmentIndex) !== slot);
+  next.push(entry);
+  return sortByScene(next);
+}
+
+/**
+ * Isi slot yang masih kosong menggunakan Wikimedia Commons sebelum meminta
+ * gambar berbayar ke OpenAI. Hanya media berlisensi aman yang dapat lolos dari
+ * src/wikimedia.js; metadata atribusi disimpan bersama aset.
+ */
+export async function ensureWikimediaMedia(item, options = {}) {
+  const warnings = options.warnings || [];
+  const fetchMedia = options.fetchMedia || fetchWikimediaMediaForScene;
+  const persistItem = options.persistItem || saveItem;
+  const mediaExists = createMediaExists(options.fileExists || pathExists);
+  const sleep = options.sleep || ((delay) => new Promise((resolve) => setTimeout(resolve, delay)));
+  const delayMs = Math.max(0, Number(
+    options.delayMs ?? config.wikimedia.requestDelayMs
+  ) || 0);
+  const maxAssets = Math.max(0, Math.floor(Number(
+    options.maxAssets ?? config.wikimedia.maxAssetsPerVideo
+  ) || 0));
+
+  item.assets = item.assets || {};
+  const slots = flattenPexelsSegments(item);
+  const managedSlots = new Set(slots.map((slot) => slot.slot));
+  const images = [];
+  const clips = [];
+  const occupiedSlots = new Set();
+  let prunedStaleMedia = false;
+
+  for (const image of item.assets.images || []) {
+    const slot = segmentSlot(image.sceneIndex, image.segmentIndex);
+    if (!managedSlots.has(slot)) {
+      images.push(image);
+      continue;
+    }
+    if (await mediaExists(image.path)) {
+      images.push(image);
+      occupiedSlots.add(slot);
+    } else {
+      prunedStaleMedia = true;
+    }
+  }
+  for (const clip of item.assets.clips || []) {
+    const slot = segmentSlot(clip.sceneIndex, clip.segmentIndex);
+    if (!managedSlots.has(slot)) {
+      clips.push(clip);
+      continue;
+    }
+    if (await mediaExists(clip.path)) {
+      clips.push(clip);
+      occupiedSlots.add(slot);
+    } else {
+      prunedStaleMedia = true;
+    }
+  }
+
+  let audits = Array.isArray(item.assets.wikimediaAudit)
+    ? item.assets.wikimediaAudit.filter((audit) => managedSlots.has(
+      segmentSlot(audit.sceneIndex, audit.segmentIndex)
+    ))
+    : [];
+  const retainedMedia = [...images, ...clips];
+  const usedPageIds = new Set(
+    retainedMedia
+      .filter(isWikimediaMedia)
+      .map((asset) => wikimediaPageIdKey(asset.wikimediaPageId))
+      .filter(Boolean)
+  );
+  const existingWikimediaCount = retainedMedia.filter((asset) => (
+    isWikimediaMedia(asset) && managedSlots.has(
+      segmentSlot(asset.sceneIndex, asset.segmentIndex)
+    )
+  )).length;
+
+  item.assets.images = sortByScene(images);
+  item.assets.clips = sortByScene(clips);
+  item.assets.wikimediaAudit = audits;
+  if (prunedStaleMedia) {
+    item.updatedAt = nowIso();
+    await persistItem(item);
+  }
+
+  if (!config.wikimedia.enabled || maxAssets === 0) {
+    console.log("[Wikimedia] Dinonaktifkan; slot kosong dilanjutkan ke gambar OpenAI.");
+    return;
+  }
+
+  const remainingQuota = Math.max(0, maxAssets - existingWikimediaCount);
+  const jobs = slots
+    .filter((slot) => (
+      !occupiedSlots.has(slot.slot)
+      && slot.hasSearchIntent
+      && !slot.explicitImageFallback
+    ))
+    .sort((a, b) => (
+      (b.selectionScore - a.selectionScore)
+      || (a.flatIndex - b.flatIndex)
+    ))
+    .slice(0, remainingQuota);
+
+  if (!jobs.length) {
+    console.log("[Wikimedia] Tidak ada slot relevan yang perlu dicari.");
+    return;
+  }
+
+  let done = 0;
+  reportProgress("images", "Mencari media Wikimedia Commons", 0, `0/${jobs.length}`);
+  console.log(`[Wikimedia] Mencari maksimal ${jobs.length} media berlisensi aman.`);
+
+  for (const job of jobs) {
+    const intentHash = pexelsIntentHash(job.segScene);
+    try {
+      reportProgress(
+        "images",
+        "Mencari media Wikimedia Commons",
+        Math.round((done / jobs.length) * 100),
+        `scene ${job.sceneIndex} seg ${job.segmentIndex + 1}`
+      );
+      const media = await fetchMedia({
+        itemId: item.id,
+        scene: job.segScene,
+        topicFallback: item.input?.topic || "",
+        usedPageIds
+      });
+      done += 1;
+
+      const pageId = wikimediaPageIdKey(media?.wikimediaPageId);
+      const validMetadata = Boolean(
+        media
+        && cleanIntentText(media.path)
+        && ["image", "video"].includes(media.mediaType)
+        && pageId
+      );
+      const duplicatePage = validMetadata && usedPageIds.has(pageId);
+      const downloadedFileExists = validMetadata && !duplicatePage
+        ? await mediaExists(media.path, { refresh: true })
+        : false;
+
+      if (validMetadata && !duplicatePage && downloadedFileExists) {
+        const selected = {
+          ...media,
+          provider: "wikimedia",
+          selectorVersion: WIKIMEDIA_SELECTOR_VERSION,
+          sceneIndex: job.sceneIndex,
+          segmentIndex: job.segmentIndex,
+          intentHash
+        };
+        if (selected.mediaType === "video") clips.push(selected);
+        else images.push(selected);
+        occupiedSlots.add(job.slot);
+        usedPageIds.add(pageId);
+        audits = upsertWikimediaAudit(audits, {
+          sceneIndex: job.sceneIndex,
+          segmentIndex: job.segmentIndex,
+          status: "selected",
+          intentHash,
+          query: selected.query || job.query,
+          mediaType: selected.mediaType,
+          wikimediaPageId: selected.wikimediaPageId
+        });
+      } else {
+        let fallbackReason = media ? "invalid-media" : "no-relevant-candidate";
+        if (duplicatePage) fallbackReason = "duplicate-wikimedia-page";
+        else if (validMetadata) fallbackReason = "missing-fetched-file";
+        audits = upsertWikimediaAudit(audits, {
+          sceneIndex: job.sceneIndex,
+          segmentIndex: job.segmentIndex,
+          status: "openai-fallback",
+          intentHash,
+          query: media?.query || job.query,
+          fallbackReason
+        });
+      }
+    } catch (error) {
+      done += 1;
+      const message = `Wikimedia scene ${job.sceneIndex} seg ${job.segmentIndex} gagal: ${error.message}`;
+      warnings.push(message);
+      console.warn(`[Wikimedia] ${message}`);
+      audits = upsertWikimediaAudit(audits, {
+        sceneIndex: job.sceneIndex,
+        segmentIndex: job.segmentIndex,
+        status: "openai-fallback",
+        intentHash,
+        query: job.query,
+        fallbackReason: "fetch-error"
+      });
+    }
+
+    item.assets.images = sortByScene(images);
+    item.assets.clips = sortByScene(clips);
+    item.assets.wikimediaAudit = audits;
+    item.updatedAt = nowIso();
+    await persistItem(item);
+    reportProgress(
+      "images",
+      "Mencari media Wikimedia Commons",
+      Math.round((done / jobs.length) * 100),
+      `${done}/${jobs.length}`
+    );
+    if (delayMs > 0 && done < jobs.length) await sleep(delayMs);
+  }
+
+  item.assets.images = sortByScene(images);
+  item.assets.clips = sortByScene(clips);
+  item.assets.wikimediaAudit = audits;
+  item.updatedAt = nowIso();
+  await persistItem(item);
+  const selectedCount = [...images, ...clips].filter((asset) => (
+    isWikimediaMedia(asset) && managedSlots.has(
+      segmentSlot(asset.sceneIndex, asset.segmentIndex)
+    )
+  )).length;
+  console.log(`[Wikimedia] Total media Commons valid: ${selectedCount}/${maxAssets}.`);
 }
 
 export async function ensureImages(item, options = {}) {
