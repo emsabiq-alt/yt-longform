@@ -320,6 +320,18 @@ sequenceDiagram
   falls back to the legacy single-image-per-segment path
   (`generateSceneImage`). `IMAGE_GRID_MODE=off` restores the legacy behavior
   entirely. Grid behavior tests live in `test/grid-image.test.js`.
+- Visual switches are synced to speech: `computeSegmentDurations()` in
+  `longform-render.js` matches each visualSegment's `narrativeContext`
+  (a verbatim 3-8 word phrase from the scene narration, enforced by the
+  storyboard prompt) against the word timeline interpolated from
+  `sceneCaptions` (Whisper timings), so images change exactly when that idea
+  is spoken. Falls back to equal split when captions are missing, phrases
+  don't match (score < 0.5), or ordering can't be kept monotonic with the
+  minimum sub-segment duration. Tests: `test/segment-sync.test.js`.
+- Storyboard prompt enforces knowledge beats (one question per scene in
+  beatPurpose, one claim + one concrete evidence, hook ending per scene) and
+  chapter-opening scenes must start with a question/prediction that is
+  answered progressively across the chapter.
 - YouTube publish is resumable upload followed by optional thumbnail upload and
   optional playlist insert.
 - SFTP cleanup intentionally avoids `state/` and `thumbnails/`; it sweeps media
