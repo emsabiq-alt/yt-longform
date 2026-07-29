@@ -171,7 +171,10 @@ export async function fetchMultiCategoryTrending(regionCode = "ID") {
     }
   }
 
-  // 1. Trending kategori Education & Science
+  // 1. Trending kategori Education & Science.
+  // Catatan: chart=mostPopular dengan videoCategoryId mengembalikan 404 untuk
+  // beberapa region (termasuk ID). Jika keduanya kosong, fallback ke chart
+  // umum tanpa kategori lalu saring ke kategori edukasi/sains di sisi kita.
   console.log("[Trends] Fetching trending Education & Science...");
   const [edu, sci] = await Promise.all([
     fetchTrendingByCategory(regionCode, "27"),
@@ -179,6 +182,12 @@ export async function fetchMultiCategoryTrending(regionCode = "ID") {
   ]);
   addUnique(edu);
   addUnique(sci);
+
+  if (!edu.length && !sci.length) {
+    console.log("[Trends] Chart per-kategori tidak tersedia untuk region ini, fallback ke chart umum...");
+    const general = await fetchTrendingByCategory(regionCode);
+    addUnique(general.filter((v) => v.categoryId === "27" || v.categoryId === "28"));
+  }
 
   // 2. Search niche queries — pilih 4 random agar hemat quota
   const shuffled = [...NICHE_SEARCH_QUERIES].sort(() => Math.random() - 0.5);
@@ -233,7 +242,10 @@ export async function extractTrendingThemes(videos) {
     "INSTRUKSI:",
     "1. ABAIKAN video musik, sinetron, gaming, dan vlog yang tidak edukasi.",
     "2. Fokus HANYA pada tema yang bisa diangkat sebagai video edukasi mendalam.",
-    "3. Dari setiap video yang relevan, abstraksi ke TEMA UMUM (bukan copy judul).",
+    "3. Dari setiap video yang relevan, abstraksi ke TEMA UNIVERSAL (bukan copy judul).",
+    "   Tema harus berlaku global: JANGAN terpaku pada kota, daerah, tokoh, atau peristiwa",
+    "   lokal Indonesia dari judul trending. Contoh: video tentang banjir Jakarta diabstraksi",
+    "   menjadi 'kenapa kota-kota besar dunia kesulitan mengendalikan banjir', bukan tema tentang Jakarta.",
     "4. Beri sudut pandang spesifik yang menarik untuk video 6-10 menit.",
     "5. Skor relevansi: 80-100 sangat cocok, 60-79 cukup cocok, <60 skip.",
     "6. Berikan keywords trending bahasa Indonesia untuk SEO.",
@@ -313,6 +325,8 @@ export function formatTrendingForPrompt(context) {
     "INSTRUKSI TRENDING:",
     "- Gunakan tema trending sebagai INSPIRASI sudut pandang, JANGAN copy judul trending.",
     "- Buat topik yang related dengan tren tapi dari sudut EDUKASI MENDALAM.",
+    "- Topik hasil akhir harus UNIVERSAL (menarik bagi siapa pun di negara mana pun),",
+    "  jangan sempitkan ke kota/daerah/tokoh lokal dari judul trending.",
     "- Fokus pada angle 'kenapa', 'bagaimana', atau 'rahasia di balik' dari tema trending.",
     "- Jika tidak ada tema yang cocok, abaikan dan usulkan berdasarkan kategori."
   ].filter(Boolean).join("\n");
