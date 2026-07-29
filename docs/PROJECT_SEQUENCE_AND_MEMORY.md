@@ -146,7 +146,7 @@ sequenceDiagram
   Pipeline->>Storage: save draft item
 
   Pipeline->>Pexels: search and download B-roll per selected visual segment
-  Pipeline->>OpenAI: generate fallback scene images
+  Pipeline->>OpenAI: generate fallback scene images (2x2 grid per scene, split into 4 panels)
   Pipeline->>TTS: generate per-scene audio
   Pipeline->>OpenAI: transcribe audio segments
   Pipeline->>TTS: generate cold-open hook audio if enabled
@@ -310,6 +310,16 @@ sequenceDiagram
   If grounding behavior changes, keep `test/grounding.test.js` aligned.
 - Pexels selection is heuristic and intentionally cheap. Concrete visual
   keywords get video priority; abstract scenes fall back to images.
+- Image generation uses a 2x2 grid strategy (`IMAGE_GRID_MODE`, default on):
+  each image/summary scene has exactly 4 sequential `visualSegments`, and one
+  OpenAI image call produces a 2x2 photorealistic grid that
+  `splitGridImage()` (FFmpeg) crops into four 1280x720 panels with a 2% gutter
+  inset. Panels for segments already covered by Pexels clips are discarded.
+  Grid quality is `IMAGE_GRID_QUALITY` (default medium). If a scene needs only
+  1 segment, or the grid call fails after a safe-prompt retry, the pipeline
+  falls back to the legacy single-image-per-segment path
+  (`generateSceneImage`). `IMAGE_GRID_MODE=off` restores the legacy behavior
+  entirely. Grid behavior tests live in `test/grid-image.test.js`.
 - YouTube publish is resumable upload followed by optional thumbnail upload and
   optional playlist insert.
 - SFTP cleanup intentionally avoids `state/` and `thumbnails/`; it sweeps media

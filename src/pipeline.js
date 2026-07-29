@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import { config, paths } from "./config.js";
 import { estimateTtsUsd } from "./cost.js";
 import { generateElevenLabsSpeech } from "./elevenlabs.js";
-import { generateOpenAiSpeech, generateSceneImage, transcribeSpeechSegments } from "./openai.js";
+import { generateOpenAiSpeech, generateSceneGridImage, generateSceneImage, transcribeSpeechSegments } from "./openai.js";
 import {
   fetchPexelsClipForScene,
   PEXELS_SELECTOR_VERSION,
@@ -611,11 +611,18 @@ export async function ensureImages(item, options = {}) {
     return;
   }
 
-  // Hitung total segmen yang perlu di-generate (2-3 gambar per scene yang tanpa klip Pexels)
+  const gridMode = options.gridMode ?? config.openai.imageGridMode;
+  const gridQuality = options.gridQuality || config.openai.imageGridQuality || quality;
+  const generateGridImages = options.generateGridImages || generateGridImagesDefault;
+
+  // Kelompokkan pekerjaan PER SCENE: kumpulkan segmen yang belum punya media
+  // (klip Pexels/gambar). Grid 2x2 dipakai jika scene punya 4 visualSegments
+  // dan >= 2 segmen kosong (1 panggilan API menghasilkan 4 panel).
   let totalSegments = 0;
-  const segmentJobs = [];
+  const sceneJobs = [];
   for (const scene of imageScenes) {
     const segments = scene.visualSegments?.length ? scene.visualSegments : [{ imagePrompt: scene.imagePrompt, visualKeywords: scene.visualKeywords }];
+    const missing = [];
     for (let segIdx = 0; segIdx < segments.length; segIdx++) {
       // Skip jika sudah punya klip video Pexels untuk segmen ini
       const hasClip = clips.find((c) => Number(c.sceneIndex) === Number(scene.index) && Number(c.segmentIndex || 0) === segIdx && c.path);
@@ -623,9 +630,10 @@ export async function ensureImages(item, options = {}) {
       // Skip jika sudah punya gambar untuk segmen ini
       const hasImage = images.find((img) => Number(img.sceneIndex) === Number(scene.index) && Number(img.segmentIndex || 0) === segIdx && img.path);
       if (hasImage) continue;
-      segmentJobs.push({ scene, segIdx, segment: segments[segIdx] });
+      missing.push({ segIdx, segment: segments[segIdx] });
       totalSegments++;
     }
+    if (missing.length) sceneJobs.push({ scene, segments, missing });
   }
 
   if (totalSegments === 0) {
@@ -633,30 +641,64 @@ export async function ensureImages(item, options = {}) {
     return;
   }
 
-  console.log(`[Images] Generate gambar DALL-E untuk ${totalSegments} segmen visual (multi-image per scene).`);
+  console.log(`[Images] Generate gambar untuk ${totalSegments} segmen visual (${gridMode ? "grid 2x2 per scene" : "single per segmen"}).`);
   let imageDone = 0;
-  reportProgress("images", "Membuat gambar (DALL-E multi-segment)", 0, `0/${totalSegments}`);
+  reportProgress("images", "Membuat gambar (grid multi-segment)", 0, `0/${totalSegments}`);
 
-  for (const { scene, segIdx, segment } of segmentJobs) {
-    try {
-      reportProgress("images", "Membuat gambar (DALL-E multi-segment)", Math.round((imageDone / totalSegments) * 100), `scene ${scene.index} seg ${segIdx + 1}`);
-      const segScene = { 
-        ...scene, 
-        imagePrompt: segment.imagePrompt || scene.imagePrompt,
-        segmentIndex: segIdx
-      };
-      const image = await generateImage({ item, scene: segScene, size, quality });
-      image.segmentIndex = segIdx;
-      imageDone += 1;
-      reportProgress("images", "Membuat gambar (DALL-E multi-segment)", Math.round((imageDone / totalSegments) * 100), `${imageDone}/${totalSegments}`);
-      images.push(image);
-      item.assets.images = sortByScene(images);
-      item.updatedAt = nowIso();
-      await persistItem(item);
-    } catch (error) {
-      const message = `Gambar scene ${scene.index} seg ${segIdx} gagal: ${error.message}`;
-      if (options.strict) throw new Error(message);
-      warnings.push(message);
+  const generateSingleSegment = async ({ scene, segIdx, segment }) => {
+    const segScene = {
+      ...scene,
+      imagePrompt: segment.imagePrompt || scene.imagePrompt,
+      segmentIndex: segIdx
+    };
+    const image = await generateImage({ item, scene: segScene, size, quality });
+    image.segmentIndex = segIdx;
+    return image;
+  };
+
+  for (const { scene, segments, missing } of sceneJobs) {
+    const useGrid = gridMode && segments.length === 4 && missing.length >= 2;
+    reportProgress("images", "Membuat gambar (grid multi-segment)", Math.round((imageDone / totalSegments) * 100), `scene ${scene.index}`);
+
+    if (useGrid) {
+      try {
+        const panels = await generateGridImages({ item, scene, segments, size, quality: gridQuality });
+        const missingIndexes = new Set(missing.map((entry) => entry.segIdx));
+        for (const panel of panels) {
+          // Simpan hanya panel untuk segmen yang belum punya media
+          // (panel milik segmen ber-klip Pexels dibuang).
+          if (!missingIndexes.has(Number(panel.segmentIndex))) continue;
+          images.push(panel);
+          imageDone += 1;
+        }
+        reportProgress("images", "Membuat gambar (grid multi-segment)", Math.round((imageDone / totalSegments) * 100), `${imageDone}/${totalSegments}`);
+        item.assets.images = sortByScene(images);
+        item.updatedAt = nowIso();
+        await persistItem(item);
+        continue;
+      } catch (error) {
+        // Fallback otomatis ke single-image per segmen (perilaku lama).
+        const message = `Grid gambar scene ${scene.index} gagal: ${error.message}. Fallback ke single-image per segmen.`;
+        console.warn(`[Images] ${message}`);
+        warnings.push(message);
+      }
+    }
+
+    for (const { segIdx, segment } of missing) {
+      try {
+        reportProgress("images", "Membuat gambar (grid multi-segment)", Math.round((imageDone / totalSegments) * 100), `scene ${scene.index} seg ${segIdx + 1}`);
+        const image = await generateSingleSegment({ scene, segIdx, segment });
+        imageDone += 1;
+        reportProgress("images", "Membuat gambar (grid multi-segment)", Math.round((imageDone / totalSegments) * 100), `${imageDone}/${totalSegments}`);
+        images.push(image);
+        item.assets.images = sortByScene(images);
+        item.updatedAt = nowIso();
+        await persistItem(item);
+      } catch (error) {
+        const message = `Gambar scene ${scene.index} seg ${segIdx} gagal: ${error.message}`;
+        if (options.strict) throw new Error(message);
+        warnings.push(message);
+      }
     }
   }
   item.assets.images = sortByScene(images);
@@ -877,6 +919,26 @@ export function assertReadyToRender(item) {
 export function ffmpegAvailable() {
   const ffmpeg = spawnSync("ffmpeg", ["-version"], { encoding: "utf8", windowsHide: true });
   return ffmpeg.status === 0;
+}
+
+async function generateGridImagesDefault({ item, scene, segments, size, quality }) {
+  try {
+    return await generateSceneGridImage({ itemId: item.id, scene, segments, size, quality });
+  } catch (error) {
+    // Retry sekali dengan prompt panel yang di-safe-kan (pola sama dengan generateImageWithRetry).
+    const safeSegments = segments.map((segment, segIdx) => ({
+      ...segment,
+      imagePrompt: [
+        `safe educational illustration about ${item.input.topic}`,
+        `scene focus: ${scene.screenText}`,
+        `moment ${segIdx + 1} of 4 in sequence`,
+        "objects, hands, table, museum display, science concept, no people in danger, no medical procedure, no text"
+      ].join(", ")
+    }));
+    const panels = await generateSceneGridImage({ itemId: item.id, scene, segments: safeSegments, size, quality });
+    for (const panel of panels) panel.recoveredFrom = error.message;
+    return panels;
+  }
 }
 
 async function generateImageWithRetry({ item, scene, size, quality }) {

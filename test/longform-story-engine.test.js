@@ -99,7 +99,7 @@ test("segmen fallback generik aman dan tidak meminta video Pexels", () => {
     { allowScenePexelsIntent: false }
   );
 
-  assert.equal(segments.length, 3);
+  assert.equal(segments.length, 4);
   assert.ok(segments.every((segment) => segment.pexelsQuery === ""));
   assert.ok(segments.every((segment) => segment.mustMatchTerms.length === 0));
 });
