@@ -2,15 +2,56 @@
 // Semua fungsi di bawah tidak menyentuh jaringan/disk — aman diuji langsung.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { Readable } from "node:stream";
 import {
+  buildPexelsQueryPlan,
+  downloadPexelsVideo,
   tokenizeWords,
   scoreSceneVisualConcreteness,
   clipTitleFromVideo,
-  clipRelevanceScore
+  clipRelevanceScore,
+  scorePexelsCandidate,
+  searchPexelsVideos,
+  selectPexelsCandidate
 } from "../src/pexels.js";
+import { config, numberEnv } from "../src/config.js";
 
-test("tokenizeWords: lowercase, buang stopword & kata <3 huruf", () => {
-  assert.deepEqual(tokenizeWords("US dollar bills"), ["dollar", "bills"]); // "us" (2 huruf) dibuang
+function video(id, slug, options = {}) {
+  return {
+    id,
+    duration: options.duration ?? 12,
+    url: `https://www.pexels.com/video/${slug}-${id}/`,
+    video_files: options.files || [{
+      file_type: "video/mp4",
+      link: `https://videos.pexels.com/${id}.mp4`,
+      width: options.width ?? 1920,
+      height: options.height ?? 1080,
+      quality: options.quality || "hd"
+    }]
+  };
+}
+
+function minimalValidMp4() {
+  return Buffer.concat([
+    Buffer.from([0, 0, 0, 16]),
+    Buffer.from("ftyp"),
+    Buffer.from("isom"),
+    Buffer.from([0, 0, 2, 0]),
+    Buffer.from([0, 0, 0, 8]),
+    Buffer.from("free")
+  ]);
+}
+
+test("tokenizeWords: lowercase, buang stopword & token pendek nonvisual", () => {
+  assert.deepEqual(tokenizeWords("US dollar bills"), ["us", "dollar", "bills"]);
+  assert.deepEqual(
+    tokenizeWords("UN EU US UK AI VR EV x y"),
+    ["un", "eu", "us", "uk", "ai", "vr", "ev"]
+  );
+  assert.deepEqual(tokenizeWords("G20 summit in São Paulo"), ["g20", "summit", "sao", "paulo"]);
   assert.deepEqual(tokenizeWords("oil barrels and the trade"), ["oil", "barrels", "trade"]);
   assert.deepEqual(tokenizeWords(""), []);
   assert.deepEqual(tokenizeWords(null), []);
@@ -35,6 +76,13 @@ test("clipTitleFromVideo: ambil slug dari URL Pexels, buang id numerik", () => {
     clipTitleFromVideo({ url: "https://www.pexels.com/video/aerial-view-of-a-city-3209828/" }),
     "aerial view of a city"
   );
+  assert.equal(
+    clipTitleFromVideo({ url: "https://www.pexels.com/video/s%C3%A3o-paulo-skyline-99/" }),
+    "são paulo skyline"
+  );
+  assert.doesNotThrow(() => clipTitleFromVideo({
+    url: "https://www.pexels.com/video/bad-%E0%A4%A-99/"
+  }));
   assert.equal(clipTitleFromVideo({ url: "" }), "");
 });
 
@@ -51,4 +99,728 @@ test("clipRelevanceScore: kata keyword berulang dihitung sekali", () => {
   const tokens = tokenizeWords("dollar dollar dollar");
   const video = { url: "https://www.pexels.com/video/a-stack-of-dollar-bills-111/" };
   assert.equal(clipRelevanceScore(tokens, video), 1);
+});
+
+test("searchPexelsVideos: gunakan endpoint dan parameter resmi tanpa min_duration", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = config.pexels.apiKey;
+  let requestedUrl;
+  globalThis.fetch = async (url) => {
+    requestedUrl = new URL(url);
+    return { ok: true, json: async () => ({ videos: [] }) };
+  };
+  config.pexels.apiKey = "test-key";
+
+  try {
+    await searchPexelsVideos("oil refinery", {
+      orientation: "landscape",
+      size: "medium",
+      locale: "en-US",
+      page: 2,
+      perPage: 999,
+      minDuration: 99
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    config.pexels.apiKey = originalKey;
+  }
+
+  assert.equal(requestedUrl.origin + requestedUrl.pathname, "https://api.pexels.com/v1/videos/search");
+  assert.deepEqual(
+    [...requestedUrl.searchParams.keys()].sort(),
+    ["locale", "orientation", "page", "per_page", "query", "size"]
+  );
+  assert.equal(requestedUrl.searchParams.get("query"), "oil refinery");
+  assert.equal(requestedUrl.searchParams.get("per_page"), "80");
+  assert.equal(requestedUrl.searchParams.has("min_duration"), false);
+});
+
+test("buildPexelsQueryPlan: intent eksplisit kosong tidak mencari Pexels", () => {
+  assert.deepEqual(buildPexelsQueryPlan({
+    pexelsQuery: "",
+    visualKeywords: "oil refinery"
+  }, "oil industry"), []);
+});
+
+test("buildPexelsQueryPlan: scene lama tetap berasal dari visualKeywords atau topik", () => {
+  assert.equal(
+    buildPexelsQueryPlan({ visualKeywords: "oil refinery workers inspecting pipeline" })[0],
+    "oil refinery workers inspecting pipeline"
+  );
+  assert.equal(buildPexelsQueryPlan({}, "modern elevator interior")[0], "modern elevator interior");
+});
+
+test("buildPexelsQueryPlan: fallback mempertahankan seluruh subjek wajib", () => {
+  const plan = buildPexelsQueryPlan({
+    pexelsQuery: "oil refinery workers inspecting pipeline",
+    mustMatchTerms: ["oil", "pipeline"]
+  });
+  assert.equal(plan.length, 2);
+  assert.match(plan[1], /\boil\b/);
+  assert.match(plan[1], /\bpipeline\b/);
+  assert.notEqual(plan[1], "oil refinery");
+});
+
+test("selectPexelsCandidate: kandidat relevan mengalahkan kandidat tidak relevan", () => {
+  const selected = selectPexelsCandidate([
+    video(1, "sunset-over-mountains"),
+    video(2, "workers-inspecting-oil-refinery-pipelines")
+  ], {
+    query: "oil refinery workers inspecting pipeline",
+    mustMatchTerms: ["oil", "refinery"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  });
+  assert.equal(selected.video.id, 2);
+  assert.ok(selected.score > 0);
+  assert.ok(selected.matchedTerms.includes("oil"));
+});
+
+test("selectPexelsCandidate: relevansi nol selalu ditolak", () => {
+  const selected = selectPexelsCandidate([
+    video(1, "sunset-over-mountains")
+  ], {
+    query: "oil refinery",
+    minDurationSec: 8,
+    minRelevance: 0
+  });
+  assert.equal(selected, null);
+});
+
+test("scorePexelsCandidate: satu must-match wajib cocok", () => {
+  const scored = scorePexelsCandidate(video(1, "refinery-industrial-facility"), {
+    query: "oil refinery",
+    mustMatchTerms: ["oil"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  });
+  assert.equal(scored.eligible, false);
+  assert.equal(scored.rejectionReason, "must-match");
+});
+
+test("scorePexelsCandidate: dua must-match wajib cocok seluruhnya", () => {
+  const scored = scorePexelsCandidate(video(1, "oil-painting-in-studio"), {
+    query: "oil refinery",
+    mustMatchTerms: ["oil", "refinery"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  });
+  assert.equal(scored.relevance, 0.5);
+  assert.equal(scored.requiredMustMatches, 2);
+  assert.equal(scored.eligible, false);
+  assert.equal(scored.rejectionReason, "must-match");
+});
+
+test("scorePexelsCandidate: tiga must-match wajib cocok seluruhnya", () => {
+  const rejectedPartial = scorePexelsCandidate(video(1, "oil-refinery-at-sunset"), {
+    query: "oil refinery workers",
+    mustMatchTerms: ["oil", "refinery", "workers"],
+    minDurationSec: 8,
+    minRelevance: 0.6
+  });
+  const accepted = scorePexelsCandidate(video(2, "workers-inspecting-oil-refinery"), {
+    query: "oil refinery workers",
+    mustMatchTerms: ["oil", "refinery", "workers"],
+    minDurationSec: 8,
+    minRelevance: 0.6
+  });
+
+  assert.equal(rejectedPartial.requiredMustMatches, 3);
+  assert.equal(rejectedPartial.mustMatchCoverage, 2 / 3);
+  assert.equal(rejectedPartial.eligible, false);
+  assert.equal(rejectedPartial.rejectionReason, "must-match");
+  assert.equal(accepted.mustMatchCoverage, 1);
+  assert.equal(accepted.eligible, true);
+});
+
+test("scorePexelsCandidate: lokasi New York tidak menerima New Jersey", () => {
+  const options = {
+    query: "New York skyline",
+    mustMatchTerms: ["New York", "skyline"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  };
+  const rejected = scorePexelsCandidate(video(1, "new-jersey-skyline-at-night"), options);
+  const accepted = scorePexelsCandidate(video(2, "new-york-skyline-at-night"), options);
+
+  assert.equal(rejected.eligible, false);
+  assert.equal(rejected.rejectionReason, "must-match");
+  assert.equal(accepted.eligible, true);
+});
+
+test("scorePexelsCandidate: tanpa must-match tetap menjaga tiga token identitas awal", () => {
+  const options = {
+    query: "new york skyline at night",
+    minDurationSec: 8,
+    minRelevance: 0.3
+  };
+  const rejected = scorePexelsCandidate(video(1, "new-jersey-skyline-at-night"), options);
+  const accepted = scorePexelsCandidate(video(2, "new-york-skyline-at-night"), options);
+
+  assert.deepEqual(rejected.queryTokens.slice(0, 3), ["new", "york", "skyline"]);
+  assert.equal(rejected.requiredMustMatches, 3);
+  assert.equal(rejected.mustMatchCoverage, 2 / 3);
+  assert.equal(rejected.eligible, false);
+  assert.equal(rejected.rejectionReason, "must-match");
+  assert.equal(accepted.mustMatchCoverage, 1);
+  assert.equal(accepted.eligible, true);
+});
+
+test("scorePexelsCandidate: must-match parsial dilengkapi langsung dari query panjang", () => {
+  const locationRejected = scorePexelsCandidate(video(1, "new-jersey-skyline-at-night"), {
+    query: "new york skyline at night",
+    mustMatchTerms: ["new"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  });
+  const subjectRejected = scorePexelsCandidate(video(2, "oil-painting-in-studio"), {
+    query: "oil refinery workers inspecting pipeline",
+    mustMatchTerms: ["oil"],
+    minDurationSec: 8,
+    minRelevance: 0.2
+  });
+
+  assert.equal(locationRejected.requiredMustMatches, 3);
+  assert.equal(locationRejected.eligible, false);
+  assert.equal(locationRejected.rejectionReason, "must-match");
+  assert.equal(subjectRejected.requiredMustMatches, 3);
+  assert.equal(subjectRejected.mustMatchCoverage, 1 / 3);
+  assert.equal(subjectRejected.eligible, false);
+  assert.equal(subjectRejected.rejectionReason, "must-match");
+});
+
+test("scorePexelsCandidate: European Union tidak menerima negara Eropa generik", () => {
+  const options = {
+    query: "European Union flag",
+    mustMatchTerms: ["European Union", "flag"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  };
+  const rejected = scorePexelsCandidate(video(1, "european-country-flag-waving"), options);
+  const accepted = scorePexelsCandidate(video(2, "european-union-flag-waving"), options);
+
+  assert.equal(rejected.eligible, false);
+  assert.equal(rejected.rejectionReason, "must-match");
+  assert.equal(accepted.eligible, true);
+});
+
+test("scorePexelsCandidate: news tidak dianggap cocok dengan new", () => {
+  const scored = scorePexelsCandidate(video(1, "new-studio"), {
+    query: "news studio",
+    mustMatchTerms: ["news", "studio"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  });
+  assert.equal(scored.matchedMustTerms.includes("news"), false);
+  assert.equal(scored.eligible, false);
+  assert.equal(scored.rejectionReason, "must-match");
+});
+
+test("scorePexelsCandidate: EU flag tidak menerima rainbow flag", () => {
+  const rejected = scorePexelsCandidate(video(1, "rainbow-flag-waving"), {
+    query: "EU flag",
+    mustMatchTerms: ["EU", "flag"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  });
+  const accepted = scorePexelsCandidate(video(2, "EU-flag-waving"), {
+    query: "EU flag",
+    mustMatchTerms: ["EU", "flag"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  });
+
+  assert.equal(rejected.matchedMustTerms.includes("eu"), false);
+  assert.equal(rejected.eligible, false);
+  assert.equal(rejected.rejectionReason, "must-match");
+  assert.equal(accepted.eligible, true);
+});
+
+test("scorePexelsCandidate: UN headquarters wajib mempertahankan akronim subjek", () => {
+  const options = {
+    query: "UN headquarters",
+    mustMatchTerms: ["UN", "headquarters"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  };
+  const rejected = scorePexelsCandidate(video(1, "corporate-headquarters"), options);
+  const accepted = scorePexelsCandidate(video(2, "un-headquarters"), options);
+
+  assert.equal(rejected.eligible, false);
+  assert.equal(rejected.rejectionReason, "must-match");
+  assert.equal(accepted.eligible, true);
+});
+
+test("scorePexelsCandidate: G20 summit tidak menerima business summit", () => {
+  const options = {
+    query: "G20 summit leaders",
+    mustMatchTerms: ["G20", "summit", "leaders"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  };
+  const rejected = scorePexelsCandidate(video(1, "business-summit-leaders"), options);
+  const accepted = scorePexelsCandidate(video(2, "g20-summit-leaders"), options);
+
+  assert.equal(rejected.eligible, false);
+  assert.equal(rejected.rejectionReason, "must-match");
+  assert.equal(accepted.eligible, true);
+});
+
+test("scorePexelsCandidate: São Paulo dinormalisasi tanpa kehilangan identitas", () => {
+  const options = {
+    query: "São Paulo skyline",
+    mustMatchTerms: ["skyline"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  };
+  const rejected = scorePexelsCandidate(video(1, "paulo-skyline"), options);
+  const accepted = scorePexelsCandidate(video(2, "sao-paulo-skyline"), options);
+
+  assert.equal(rejected.eligible, false);
+  assert.equal(rejected.rejectionReason, "must-match");
+  assert.equal(accepted.eligible, true);
+});
+
+test("scorePexelsCandidate: query pendek menutup must-match yang kurang lengkap", () => {
+  const options = {
+    query: "oil refinery",
+    mustMatchTerms: ["oil"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  };
+  const rejected = scorePexelsCandidate(video(1, "oil-painting"), options);
+  const accepted = scorePexelsCandidate(video(2, "oil-refinery"), options);
+
+  assert.equal(rejected.eligible, false);
+  assert.equal(rejected.rejectionReason, "must-match");
+  assert.equal(accepted.eligible, true);
+});
+
+test("selectPexelsCandidate: video portrait-only ditolak", () => {
+  const selected = selectPexelsCandidate([
+    video(1, "oil-refinery-workers", {
+      files: [{
+        file_type: "video/mp4",
+        link: "https://videos.pexels.com/portrait.mp4",
+        width: 1080,
+        height: 1920,
+        quality: "hd"
+      }]
+    })
+  ], {
+    query: "oil refinery workers",
+    mustMatchTerms: ["oil", "refinery"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  });
+  assert.equal(selected, null);
+});
+
+test("numberEnv: env kosong memakai default dan nol eksplisit tetap valid", () => {
+  const name = "TEST_PEXELS_NUMBER_ENV";
+  const original = process.env[name];
+  try {
+    process.env[name] = "";
+    assert.equal(numberEnv(name, 30), 30);
+    process.env[name] = "  ";
+    assert.equal(numberEnv(name, 30), 30);
+    process.env[name] = "0";
+    assert.equal(numberEnv(name, 30), 0);
+  } finally {
+    if (original === undefined) delete process.env[name];
+    else process.env[name] = original;
+  }
+});
+
+test("selectPexelsCandidate: durasi difilter lokal", () => {
+  const selected = selectPexelsCandidate([
+    video(1, "oil-refinery-workers", { duration: 4 }),
+    video(2, "oil-refinery-workers", { duration: 12 })
+  ], {
+    query: "oil refinery workers",
+    mustMatchTerms: ["oil"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  });
+  assert.equal(selected.video.id, 2);
+});
+
+test("selectPexelsCandidate: ID yang sudah dipakai dikecualikan", () => {
+  const selected = selectPexelsCandidate([
+    video(1, "oil-refinery-workers"),
+    video(2, "oil-refinery-workers")
+  ], {
+    query: "oil refinery workers",
+    mustMatchTerms: ["oil"],
+    minDurationSec: 8,
+    minRelevance: 0.3,
+    usedPexelsIds: new Set([1])
+  });
+  assert.equal(selected.video.id, 2);
+});
+
+test("selectPexelsCandidate: pemenang deterministik saat skor sama", () => {
+  const first = video(10, "oil-refinery-workers");
+  const second = video(2, "oil-refinery-workers");
+  const options = {
+    query: "oil refinery workers",
+    mustMatchTerms: ["oil"],
+    minDurationSec: 8,
+    minRelevance: 0.3
+  };
+  assert.equal(selectPexelsCandidate([first, second], options).video.id, 2);
+  assert.equal(selectPexelsCandidate([second, first], options).video.id, 2);
+});
+
+test("selectPexelsCandidate: singular dan plural sederhana dianggap cocok", () => {
+  const selected = selectPexelsCandidate([
+    video(1, "worker-checking-refineries-and-pipes")
+  ], {
+    query: "workers checking refinery pipelines",
+    mustMatchTerms: ["workers", "refinery"],
+    minDurationSec: 8,
+    minRelevance: 0.5
+  });
+  assert.equal(selected.video.id, 1);
+  assert.ok(selected.matchedMustTerms.includes("workers"));
+});
+
+test("scorePexelsCandidate: houses/house dan horses/horse dinormalisasi aman", () => {
+  const pluralQuery = scorePexelsCandidate(video(1, "house-and-horse-in-countryside"), {
+    query: "houses horses",
+    mustMatchTerms: ["houses", "horses"],
+    minDurationSec: 8,
+    minRelevance: 1
+  });
+  const singularQuery = scorePexelsCandidate(video(2, "houses-and-horses-in-countryside"), {
+    query: "house horse",
+    mustMatchTerms: ["house", "horse"],
+    minDurationSec: 8,
+    minRelevance: 1
+  });
+
+  assert.equal(pluralQuery.eligible, true);
+  assert.equal(pluralQuery.relevance, 1);
+  assert.equal(singularQuery.eligible, true);
+  assert.equal(singularQuery.relevance, 1);
+});
+
+test("scorePexelsCandidate: plural -ies mendukung city dan kata singular berakhiran ie", () => {
+  const cases = [
+    ["city", "cities"],
+    ["movie", "movies"],
+    ["cookie", "cookies"],
+    ["selfie", "selfies"],
+    ["zombie", "zombies"]
+  ];
+
+  for (const [singular, plural] of cases) {
+    const pluralQuery = scorePexelsCandidate(video(1, singular), {
+      query: plural,
+      mustMatchTerms: [plural],
+      minDurationSec: 8,
+      minRelevance: 1
+    });
+    const singularQuery = scorePexelsCandidate(video(2, plural), {
+      query: singular,
+      mustMatchTerms: [singular],
+      minDurationSec: 8,
+      minRelevance: 1
+    });
+    assert.equal(pluralQuery.eligible, true, `${plural} harus cocok dengan ${singular}`);
+    assert.equal(singularQuery.eligible, true, `${singular} harus cocok dengan ${plural}`);
+  }
+});
+
+test("scorePexelsCandidate: nama entitas berakhiran s tidak di-stem generik", () => {
+  const cases = [
+    ["paris", "pari"],
+    ["hamas", "hama"],
+    ["brics", "bric"]
+  ];
+
+  for (const [entity, falseStem] of cases) {
+    const scored = scorePexelsCandidate(video(1, falseStem), {
+      query: entity,
+      mustMatchTerms: [entity],
+      minDurationSec: 8,
+      minRelevance: 0
+    });
+    assert.equal(scored.matchedMustTerms.length, 0, `${entity} tidak boleh cocok dengan ${falseStem}`);
+    assert.equal(scored.eligible, false);
+    assert.equal(scored.rejectionReason, "zero-relevance");
+  }
+});
+
+test("downloadPexelsVideo: stream gagal mempertahankan destination dan membersihkan partial", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "pexels-download-"));
+  const outputPath = path.join(tempDir, "existing.mp4");
+  const originalFetch = globalThis.fetch;
+  await fs.writeFile(outputPath, "video-lama-valid");
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    body: Readable.toWeb(Readable.from((async function* failingStream() {
+      yield Buffer.from("potongan-baru");
+      throw new Error("stream terputus");
+    })()))
+  });
+
+  try {
+    await assert.rejects(
+      downloadPexelsVideo("https://videos.pexels.com/test.mp4", outputPath),
+      /stream terputus/
+    );
+    assert.equal(await fs.readFile(outputPath, "utf8"), "video-lama-valid");
+    assert.deepEqual(await fs.readdir(tempDir), ["existing.mp4"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("downloadPexelsVideo: response HTML ditolak sebelum ditulis", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "pexels-download-html-"));
+  const outputPath = path.join(tempDir, "existing.mp4");
+  const originalFetch = globalThis.fetch;
+  await fs.writeFile(outputPath, "video-lama-valid");
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: { get: () => "text/html; charset=utf-8" },
+    body: Readable.toWeb(Readable.from(["<html>error</html>"]))
+  });
+
+  try {
+    await assert.rejects(
+      downloadPexelsVideo("https://videos.pexels.com/test.mp4", outputPath),
+      /Content-Type text\/html bukan video/
+    );
+    assert.equal(await fs.readFile(outputPath, "utf8"), "video-lama-valid");
+    assert.deepEqual(await fs.readdir(tempDir), ["existing.mp4"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("downloadPexelsVideo: response tanpa header yang berisi HTML ditolak via signature", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "pexels-download-no-header-"));
+  const outputPath = path.join(tempDir, "existing.mp4");
+  const originalFetch = globalThis.fetch;
+  await fs.writeFile(outputPath, "video-lama-valid");
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: { get: () => null },
+    body: Readable.toWeb(Readable.from(["<html>not a video</html>"]))
+  });
+
+  try {
+    await assert.rejects(
+      downloadPexelsVideo("https://videos.pexels.com/test.mp4", outputPath),
+      /signature MP4 ftyp tidak ditemukan/
+    );
+    assert.equal(await fs.readFile(outputPath, "utf8"), "video-lama-valid");
+    assert.deepEqual(await fs.readdir(tempDir), ["existing.mp4"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("downloadPexelsVideo: octet-stream HTML ditolak via signature", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "pexels-download-octet-html-"));
+  const outputPath = path.join(tempDir, "existing.mp4");
+  const originalFetch = globalThis.fetch;
+  await fs.writeFile(outputPath, "video-lama-valid");
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: { get: () => "application/octet-stream" },
+    body: Readable.toWeb(Readable.from(["<html>octet-stream error</html>"]))
+  });
+
+  try {
+    await assert.rejects(
+      downloadPexelsVideo("https://videos.pexels.com/test.mp4", outputPath),
+      /signature MP4 ftyp tidak ditemukan/
+    );
+    assert.equal(await fs.readFile(outputPath, "utf8"), "video-lama-valid");
+    assert.deepEqual(await fs.readdir(tempDir), ["existing.mp4"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("downloadPexelsVideo: signature ftyp valid dipindah atomik ke destination", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "pexels-download-valid-"));
+  const outputPath = path.join(tempDir, "clip.mp4");
+  const originalFetch = globalThis.fetch;
+  const minimalMp4 = minimalValidMp4();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: { get: () => "video/mp4" },
+    body: Readable.toWeb(Readable.from([minimalMp4]))
+  });
+
+  try {
+    assert.equal(
+      await downloadPexelsVideo("https://videos.pexels.com/test.mp4", outputPath),
+      outputPath
+    );
+    assert.deepEqual(await fs.readFile(outputPath), minimalMp4);
+    assert.deepEqual(await fs.readdir(tempDir), ["clip.mp4"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("downloadPexelsVideo: ftyp 16-byte saja dan major brand kosong ditolak", async () => {
+  const invalidPayloads = [
+    Buffer.concat([
+      Buffer.from([0, 0, 0, 16]),
+      Buffer.from("ftyp"),
+      Buffer.from("isom"),
+      Buffer.from([0, 0, 2, 0])
+    ]),
+    Buffer.concat([
+      Buffer.from([0, 0, 0, 16]),
+      Buffer.from("ftyp"),
+      Buffer.alloc(4),
+      Buffer.from([0, 0, 0, 0]),
+      Buffer.from("<html>error</html>")
+    ])
+  ];
+  const originalFetch = globalThis.fetch;
+
+  try {
+    for (const [index, payload] of invalidPayloads.entries()) {
+      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), `pexels-truncated-ftyp-${index}-`));
+      const outputPath = path.join(tempDir, "existing.mp4");
+      await fs.writeFile(outputPath, "video-lama-valid");
+      globalThis.fetch = async () => ({
+        ok: true,
+        headers: { get: () => "video/mp4" },
+        body: Readable.toWeb(Readable.from([payload]))
+      });
+      await assert.rejects(
+        downloadPexelsVideo("https://videos.pexels.com/test.mp4", outputPath),
+        /signature MP4 ftyp tidak ditemukan/
+      );
+      assert.equal(await fs.readFile(outputPath, "utf8"), "video-lama-valid");
+      assert.deepEqual(await fs.readdir(tempDir), ["existing.mp4"]);
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("downloadPexelsVideo: payload HTML dengan ftyp tertanam ditolak walau mengaku video", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "pexels-download-embedded-ftyp-"));
+  const outputPath = path.join(tempDir, "existing.mp4");
+  const originalFetch = globalThis.fetch;
+  const destinationBefore = "video-lama-valid";
+  await fs.writeFile(outputPath, destinationBefore);
+  const maliciousPayload = Buffer.concat([
+    Buffer.from("<html><body>error payload "),
+    Buffer.from([0, 0, 0, 16]),
+    Buffer.from("ftyp"),
+    Buffer.from("isom"),
+    Buffer.from([0, 0, 0, 0]),
+    Buffer.from("</body></html>")
+  ]);
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: { get: () => "video/mp4" },
+    body: Readable.toWeb(Readable.from([maliciousPayload]))
+  });
+
+  try {
+    await assert.rejects(
+      downloadPexelsVideo("https://videos.pexels.com/test.mp4", outputPath),
+      /signature MP4 ftyp tidak ditemukan/
+    );
+    assert.equal(await fs.readFile(outputPath, "utf8"), destinationBefore);
+    assert.deepEqual(await fs.readdir(tempDir), ["existing.mp4"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("downloadPexelsVideo: ukuran box dan major brand ftyp wajib valid", async () => {
+  const invalidPayloads = [
+    Buffer.concat([
+      Buffer.from([0, 0, 0, 0]),
+      Buffer.from("ftyp"),
+      Buffer.from("isom"),
+      Buffer.from([0, 0, 0, 0])
+    ]),
+    Buffer.concat([
+      Buffer.from([0, 0, 0, 32]),
+      Buffer.from("ftyp"),
+      Buffer.from("isom"),
+      Buffer.from([0, 0, 0, 0])
+    ]),
+    Buffer.concat([
+      Buffer.from([0, 0, 0, 16]),
+      Buffer.from("ftyp"),
+      Buffer.from([0x69, 0x73, 0x00, 0x6d]),
+      Buffer.from([0, 0, 0, 0])
+    ])
+  ];
+  const originalFetch = globalThis.fetch;
+
+  try {
+    for (const [index, payload] of invalidPayloads.entries()) {
+      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), `pexels-invalid-ftyp-${index}-`));
+      const outputPath = path.join(tempDir, "existing.mp4");
+      await fs.writeFile(outputPath, "video-lama-valid");
+      globalThis.fetch = async () => ({
+        ok: true,
+        headers: { get: () => "video/mp4" },
+        body: Readable.toWeb(Readable.from([payload]))
+      });
+      await assert.rejects(
+        downloadPexelsVideo("https://videos.pexels.com/test.mp4", outputPath),
+        /signature MP4 ftyp tidak ditemukan/
+      );
+      assert.equal(await fs.readFile(outputPath, "utf8"), "video-lama-valid");
+      assert.deepEqual(await fs.readdir(tempDir), ["existing.mp4"]);
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("downloadPexelsVideo: stream kosong ditolak dan partial dibersihkan", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "pexels-download-empty-"));
+  const outputPath = path.join(tempDir, "existing.mp4");
+  const originalFetch = globalThis.fetch;
+  await fs.writeFile(outputPath, "video-lama-valid");
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: { get: () => "video/mp4" },
+    body: Readable.toWeb(Readable.from([]))
+  });
+
+  try {
+    await assert.rejects(
+      downloadPexelsVideo("https://videos.pexels.com/test.mp4", outputPath),
+      /file hasil kosong/
+    );
+    assert.equal(await fs.readFile(outputPath, "utf8"), "video-lama-valid");
+    assert.deepEqual(await fs.readdir(tempDir), ["existing.mp4"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
 });

@@ -13,11 +13,14 @@ import fs from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { config, paths } from "./config.js";
-import { safeFilename } from "./util.js";
 
-const PEXELS_API_BASE = "https://api.pexels.com";
+const PEXELS_VIDEO_SEARCH_URL = "https://api.pexels.com/v1/videos/search";
+export const PEXELS_SELECTOR_VERSION = 2;
+const PEXELS_SEARCH_TIMEOUT_MS = 30_000;
+const PEXELS_DOWNLOAD_TIMEOUT_MS = 120_000;
 
 function assertPexels() {
   if (!config.pexels.apiKey) throw new Error("PEXELS_API_KEY belum diisi.");
@@ -34,21 +37,25 @@ function pexelsHeaders() {
  * @param {string} [options.orientation] - landscape | portrait | square
  * @param {string} [options.size] - large | medium | small
  * @param {number} [options.perPage] - Jumlah hasil (1-80)
- * @param {number} [options.minDuration] - Durasi minimum (detik)
  * @returns {Promise<object[]>} Array of Pexels video objects
  */
 export async function searchPexelsVideos(query, options = {}) {
   assertPexels();
-  const url = new URL(`${PEXELS_API_BASE}/videos/search`);
+  const url = new URL(PEXELS_VIDEO_SEARCH_URL);
   url.searchParams.set("query", query);
   url.searchParams.set("orientation", options.orientation || "landscape");
   url.searchParams.set("size", options.size || "medium");
-  url.searchParams.set("per_page", String(options.perPage || config.pexels.maxResultsPerScene || 5));
-  if (options.minDuration) {
-    url.searchParams.set("min_duration", String(options.minDuration));
-  }
+  url.searchParams.set("locale", options.locale || config.pexels.locale || "en-US");
+  url.searchParams.set("page", String(Math.max(1, Math.floor(Number(options.page) || 1))));
+  const perPage = Math.max(1, Math.min(80,
+    Math.floor(Number(options.perPage) || config.pexels.maxResultsPerScene || 30)
+  ));
+  url.searchParams.set("per_page", String(perPage));
 
-  const response = await fetch(url.toString(), { headers: pexelsHeaders() });
+  const response = await fetch(url.toString(), {
+    headers: pexelsHeaders(),
+    signal: AbortSignal.timeout(PEXELS_SEARCH_TIMEOUT_MS)
+  });
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(`Pexels search gagal HTTP ${response.status}: ${detail.slice(0, 500)}`);
@@ -65,7 +72,11 @@ export async function searchPexelsVideos(query, options = {}) {
 export function pickBestVideoFile(video) {
   if (!video?.video_files?.length) return null;
   const files = video.video_files
-    .filter((f) => f.file_type === "video/mp4")
+    .filter((f) => (
+      f.file_type === "video/mp4"
+      && Boolean(f.link)
+      && Number(f.width || 0) > Number(f.height || 0)
+    ))
     .sort((a, b) => {
       // Prefer HD (720p-1080p), landscape, not too large
       const scoreA = videoFileScore(a);
@@ -122,15 +133,22 @@ const ABSTRACT_WORDS = new Set([
 ]);
 
 /**
- * Pecah teks jadi kata bermakna (lowercase, buang stopword & kata <3 huruf).
+ * Pecah teks jadi kata bermakna. Unicode dilipat ke bentuk ASCII bila ada
+ * padanannya (São -> sao), huruf/angka dipertahankan (G20 -> g20), lalu
+ * stopword dan token satu karakter dibuang.
  * @param {string} text
  * @returns {string[]}
  */
 export function tokenizeWords(text) {
   return String(text || "")
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
     .toLowerCase()
-    .split(/[^a-z]+/)
-    .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+    .split(/[^\p{L}\p{N}]+/gu)
+    .filter((w) => (
+      w.length >= 2
+      && !STOPWORDS.has(w)
+    ));
 }
 
 /**
@@ -166,8 +184,21 @@ export function scoreSceneVisualConcreteness(scene) {
  */
 export function clipTitleFromVideo(video) {
   const url = String(video?.url || "");
-  const match = url.match(/\/video\/(.+?)-\d+\/?$/);
-  const slug = match ? match[1] : url.replace(/^https?:\/\/[^/]+\//, "").replace(/\/+$/, "");
+  let pathname = url;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    // URL parsial/malformed tetap dapat dipakai sebagai fallback tanpa throw.
+  }
+  const match = pathname.match(/\/video\/(.+?)-\d+\/?$/);
+  let slug = match
+    ? match[1]
+    : pathname.replace(/^https?:\/\/[^/]+\//, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
+  try {
+    slug = decodeURIComponent(slug);
+  } catch {
+    // Encoding persen yang rusak tidak boleh menggagalkan seluruh pipeline.
+  }
   return slug.replace(/-/g, " ");
 }
 
@@ -188,6 +219,222 @@ export function clipRelevanceScore(keywordTokens, video) {
   return hits;
 }
 
+function cleanQuery(value) {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(/[^\p{L}\p{N}'-]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenForms(token) {
+  const word = String(token || "").toLowerCase();
+  if (!word) return new Set();
+
+  const forms = new Set([word]);
+  if (SAFE_PLURAL_TOKENS.has(word)) {
+    forms.add(SAFE_PLURAL_TOKENS.get(word));
+    return forms;
+  }
+  return forms;
+}
+
+function tokensEquivalent(left, right) {
+  const leftForms = tokenForms(left);
+  const rightForms = tokenForms(right);
+  for (const form of leftForms) {
+    if (rightForms.has(form)) return true;
+  }
+  return false;
+}
+
+function uniqueTokens(tokens) {
+  const result = [];
+  for (const token of tokens) {
+    const normalized = String(token || "").toLowerCase();
+    if (!normalized || result.some((existing) => tokensEquivalent(existing, normalized))) continue;
+    result.push(normalized);
+  }
+  return result;
+}
+
+// Plural matching sengaja berbasis allow-list. Stemming generik akhiran `s`
+// membuat nama entitas berbeda terlihat sama (Paris/pari, Hamas/hama,
+// BRICS/bric), sehingga false negative lebih aman daripada B-roll salah.
+const SAFE_PLURAL_TOKENS = new Map([
+  ["analyses", "analysis"],
+  ["biases", "bias"],
+  ["buses", "bus"],
+  ["campuses", "campus"],
+  ["cities", "city"],
+  ["cookies", "cookie"],
+  ["crises", "crisis"],
+  ["focuses", "focus"],
+  ["gases", "gas"],
+  ["horses", "horse"],
+  ["houses", "house"],
+  ["lenses", "lens"],
+  ["movies", "movie"],
+  ["pipelines", "pipeline"],
+  ["pipes", "pipe"],
+  ["refineries", "refinery"],
+  ["selfies", "selfie"],
+  ["statuses", "status"],
+  ["theses", "thesis"],
+  ["viruses", "virus"],
+  ["workers", "worker"],
+  ["zombies", "zombie"]
+]);
+
+function canonicalToken(token) {
+  const word = String(token || "").toLowerCase();
+  return SAFE_PLURAL_TOKENS.get(word) || word;
+}
+
+function termTokens(value) {
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+  return uniqueTokens(values.flatMap((entry) => tokenizeWords(entry)));
+}
+
+/**
+ * Susun maksimal dua query Pexels. Field pexelsQuery yang eksplisit selalu
+ * menang; string kosong berarti storyboard sengaja meminta fallback gambar.
+ * Query kedua dipersempit ke subjek wajib, bukan sekadar dua kata pertama.
+ *
+ * @param {object} scene
+ * @param {string} [topicFallback]
+ * @returns {string[]}
+ */
+export function buildPexelsQueryPlan(scene = {}, topicFallback = "") {
+  const hasExplicitIntent = Object.prototype.hasOwnProperty.call(scene, "pexelsQuery");
+  const source = hasExplicitIntent
+    ? cleanQuery(scene.pexelsQuery)
+    : cleanQuery(scene.visualKeywords) || cleanQuery(topicFallback);
+
+  if (!source) return [];
+
+  const plan = [source];
+  const primaryTokens = uniqueTokens(tokenizeWords(source));
+  const explicitMustTokens = termTokens(scene.mustMatchTerms);
+  const subjectTokens = explicitMustTokens.length
+    ? explicitMustTokens
+    : primaryTokens.slice(0, Math.min(3, primaryTokens.length));
+
+  const fallbackTokens = uniqueTokens([
+    ...subjectTokens,
+    ...primaryTokens.filter((token) => (
+      !subjectTokens.some((subject) => canonicalToken(subject) === canonicalToken(token))
+    ))
+  ]).slice(0, Math.max(3, subjectTokens.length));
+  const fallback = fallbackTokens.join(" ");
+
+  if (fallback && fallback.toLowerCase() !== source.toLowerCase()) plan.push(fallback);
+  return plan.slice(0, 2);
+}
+
+function idSet(value) {
+  if (value instanceof Set) return new Set([...value].map(String));
+  if (!Array.isArray(value)) return new Set();
+  return new Set(value.map(String));
+}
+
+function matchedTokens(expectedTokens, actualTokens) {
+  return expectedTokens.filter((expected) => (
+    actualTokens.some((actual) => tokensEquivalent(expected, actual))
+  ));
+}
+
+/**
+ * Nilai satu kandidat secara murni. Sinyal semantik selalu menjadi skor utama;
+ * mutu file hanya disimpan sebagai tie-break.
+ *
+ * @param {object} video
+ * @param {object} options
+ * @returns {object}
+ */
+export function scorePexelsCandidate(video, options = {}) {
+  const queryTokens = uniqueTokens(tokenizeWords(options.query || ""));
+  const explicitMustMatchTokens = termTokens(options.mustMatchTerms);
+  // Jangan bergantung pada normalizer storyboard untuk melengkapi identitas.
+  // Jika caller hanya mengirim sebagian must-match (atau tidak sama sekali),
+  // isi hingga tiga token dari awal query. Ketiganya menjadi gerbang wajib.
+  const mustMatchTokens = uniqueTokens([
+    ...explicitMustMatchTokens,
+    ...queryTokens.filter((token) => !ABSTRACT_WORDS.has(token))
+  ]).slice(0, 3);
+  const titleTokens = uniqueTokens(tokenizeWords(clipTitleFromVideo(video)));
+  const matchedQueryTerms = matchedTokens(queryTokens, titleTokens);
+  const matchedMustTerms = matchedTokens(mustMatchTokens, titleTokens);
+  const matchedTerms = uniqueTokens([...matchedMustTerms, ...matchedQueryTerms]);
+  const relevance = queryTokens.length ? matchedQueryTerms.length / queryTokens.length : 0;
+  const mustMatchCoverage = mustMatchTokens.length
+    ? matchedMustTerms.length / mustMatchTokens.length
+    : 1;
+  const file = pickBestVideoFile(video);
+  const excludedIds = new Set([
+    ...idSet(options.usedPexelsIds),
+    ...idSet(options.excludedPexelsIds)
+  ]);
+  const minDurationSec = Math.max(0, Number(options.minDurationSec) || 0);
+  const minRelevance = Math.max(0, Math.min(1, Number(options.minRelevance) || 0));
+  // mustMatchTerms adalah gerbang identitas subjek, bukan sekadar sinyal skor.
+  // Story engine membatasi field ini ke 1-3 istilah esensial, jadi semuanya
+  // wajib terlihat pada slug kandidat agar lokasi/organisasi yang mirip tidak
+  // tertukar (mis. New York dengan New Jersey).
+  const requiredMustMatches = mustMatchTokens.length;
+
+  let rejectionReason = "";
+  if (excludedIds.has(String(video?.id))) rejectionReason = "excluded-id";
+  else if (Number(video?.duration || 0) < minDurationSec) rejectionReason = "duration";
+  else if (!file) rejectionReason = "no-landscape-mp4";
+  else if (!matchedTerms.length || relevance === 0) rejectionReason = "zero-relevance";
+  else if (matchedMustTerms.length < requiredMustMatches) rejectionReason = "must-match";
+  else if (relevance < minRelevance) rejectionReason = "relevance-gate";
+
+  const score = (matchedMustTerms.length * 12)
+    + (matchedQueryTerms.length * 3)
+    + (mustMatchCoverage === 1 && mustMatchTokens.length ? 2 : 0);
+
+  return {
+    video,
+    file,
+    score,
+    relevance,
+    mustMatchCoverage,
+    requiredMustMatches,
+    matchedTerms,
+    matchedMustTerms,
+    queryTokens,
+    eligible: !rejectionReason,
+    rejectionReason,
+    fileScore: file ? videoFileScore(file) : 0
+  };
+}
+
+/**
+ * Pilih kandidat terbaik secara deterministik.
+ *
+ * @param {object[]} videos
+ * @param {object} options
+ * @returns {object|null} hasil scorePexelsCandidate atau null
+ */
+export function selectPexelsCandidate(videos, options = {}) {
+  const ranked = (Array.isArray(videos) ? videos : [])
+    .map((video) => scorePexelsCandidate(video, options))
+    .filter((candidate) => candidate.eligible)
+    .sort((a, b) => (
+      (b.score - a.score)
+      || (b.relevance - a.relevance)
+      || (b.fileScore - a.fileScore)
+      || String(a.video?.id ?? "").localeCompare(String(b.video?.id ?? ""), "en", { numeric: true })
+    ));
+  return ranked[0] || null;
+}
+
 /**
  * Download file video dari URL Pexels ke disk.
  * @param {string} videoUrl - URL file video
@@ -195,15 +442,109 @@ export function clipRelevanceScore(keywordTokens, video) {
  * @returns {Promise<string>} outputPath
  */
 export async function downloadPexelsVideo(videoUrl, outputPath) {
-  await fs.mkdir(path.dirname(outputPath), { recursive: true });
-  const response = await fetch(videoUrl);
-  if (!response.ok) {
-    throw new Error(`Download Pexels video gagal HTTP ${response.status}`);
+  const outputDir = path.dirname(outputPath);
+  const tempPath = path.join(
+    outputDir,
+    `.${path.basename(outputPath)}.${process.pid}-${randomUUID()}.part`
+  );
+  await fs.mkdir(outputDir, { recursive: true });
+  try {
+    const response = await fetch(videoUrl, {
+      signal: AbortSignal.timeout(PEXELS_DOWNLOAD_TIMEOUT_MS)
+    });
+    if (!response.ok) {
+      throw new Error(`Download Pexels video gagal HTTP ${response.status}`);
+    }
+    const contentType = String(response.headers?.get?.("content-type") || "")
+      .split(";", 1)[0]
+      .trim()
+      .toLowerCase();
+    if (
+      contentType
+      && !contentType.startsWith("video/")
+      && contentType !== "application/octet-stream"
+    ) {
+      throw new Error(`Download Pexels video ditolak: Content-Type ${contentType} bukan video`);
+    }
+    const nodeStream = Readable.fromWeb(response.body);
+    const writer = createWriteStream(tempPath, { flags: "wx" });
+    await pipeline(nodeStream, writer);
+    const tempStat = await fs.stat(tempPath);
+    if (!tempStat.isFile() || tempStat.size <= 0) {
+      throw new Error("Download Pexels video gagal: file hasil kosong atau bukan file reguler");
+    }
+    // ISO BMFF/MP4 harus dimulai dengan box `ftyp`, memakai major brand yang
+    // dikenal, lalu memiliki box top-level kedua yang masuk akal. Pemeriksaan
+    // struktur kecil ini menolak HTML/error body yang menyisipkan teks `ftyp`
+    // atau file yang terpotong tepat setelah header.
+    if (tempStat.size < 24) {
+      throw new Error("Download Pexels video ditolak: signature MP4 ftyp tidak ditemukan");
+    }
+    const tempHandle = await fs.open(tempPath, "r");
+    try {
+      const ftypHeader = Buffer.alloc(16);
+      const { bytesRead: headerBytesRead } = await tempHandle.read(
+        ftypHeader,
+        0,
+        ftypHeader.length,
+        0
+      );
+      const firstBoxSize = headerBytesRead === ftypHeader.length
+        ? ftypHeader.readUInt32BE(0)
+        : 0;
+      const firstBoxType = ftypHeader.toString("ascii", 4, 8);
+      const majorBrand = ftypHeader.toString("ascii", 8, 12);
+      const knownMajorBrands = new Set([
+        "isom", "iso2", "iso3", "iso4", "iso5", "iso6", "iso7", "iso8", "iso9",
+        "mp41", "mp42", "avc1", "dash", "M4V ", "M4A ", "qt  ",
+        "3gp4", "3gp5", "3g2a"
+      ]);
+      const hasPlausibleFtyp = (
+        firstBoxSize >= 16
+        && firstBoxSize % 4 === 0
+        && firstBoxSize <= tempStat.size - 8
+        && firstBoxType === "ftyp"
+        && knownMajorBrands.has(majorBrand)
+      );
+      if (!hasPlausibleFtyp) {
+        throw new Error("Download Pexels video ditolak: signature MP4 ftyp tidak ditemukan");
+      }
+
+      const nextBoxHeader = Buffer.alloc(8);
+      const { bytesRead: nextHeaderBytesRead } = await tempHandle.read(
+        nextBoxHeader,
+        0,
+        nextBoxHeader.length,
+        firstBoxSize
+      );
+      const nextBoxSize = nextHeaderBytesRead === nextBoxHeader.length
+        ? nextBoxHeader.readUInt32BE(0)
+        : 0;
+      const nextBoxType = nextBoxHeader.toString("ascii", 4, 8);
+      const knownNextBoxTypes = new Set(["moov", "mdat", "free", "skip", "wide", "moof"]);
+      const remainingBytes = tempStat.size - firstBoxSize;
+      const hasPlausibleNextBox = (
+        nextHeaderBytesRead === nextBoxHeader.length
+        && knownNextBoxTypes.has(nextBoxType)
+        && (
+          nextBoxSize === 0
+          || (nextBoxSize >= 8 && nextBoxSize <= remainingBytes)
+        )
+      );
+      if (!hasPlausibleNextBox) {
+        throw new Error("Download Pexels video ditolak: struktur MP4 terpotong atau tidak valid");
+      }
+    } finally {
+      await tempHandle.close();
+    }
+    await fs.rename(tempPath, outputPath);
+    return outputPath;
+  } catch (error) {
+    // Hanya bersihkan file parsial milik percobaan ini. Destination yang sudah
+    // valid tidak boleh rusak ketika network/stream gagal.
+    await fs.rm(tempPath, { force: true }).catch(() => {});
+    throw error;
   }
-  const nodeStream = Readable.fromWeb(response.body);
-  const writer = createWriteStream(outputPath);
-  await pipeline(nodeStream, writer);
-  return outputPath;
 }
 
 /**
@@ -212,83 +553,100 @@ export async function downloadPexelsVideo(videoUrl, outputPath) {
  * @param {string} params.itemId - ID item
  * @param {object} params.scene - Scene object dari storyboard
  * @param {string} [params.topicFallback] - Fallback query jika visualKeywords kosong
- * @returns {Promise<object|null>} { sceneIndex, path, url, pexelsId, query } atau null
+ * @param {Array|Set} [params.usedPexelsIds] - ID yang sudah dipakai
+ * @param {Array|Set} [params.excludedPexelsIds] - ID yang tidak boleh dipilih
+ * @param {Function} [params.onAudit] - Callback audit tanpa mengubah return contract
+ * @returns {Promise<object|null>} metadata clip atau null untuk fallback gambar
  */
-export async function fetchPexelsClipForScene({ itemId, scene, topicFallback = "" }) {
+export async function fetchPexelsClipForScene({
+  itemId,
+  scene,
+  topicFallback = "",
+  usedPexelsIds = [],
+  excludedPexelsIds = [],
+  onAudit
+}) {
+  const emitAudit = (audit) => {
+    if (typeof onAudit !== "function") return;
+    try {
+      onAudit(audit);
+    } catch {
+      // Audit observability tidak boleh menggagalkan pencarian media.
+    }
+  };
+  const queryPlan = buildPexelsQueryPlan(scene, topicFallback)
+    .slice(0, config.pexels.maxQueryAttempts || 2);
+  if (!queryPlan.length) {
+    console.log(`[Pexels] Scene ${scene.index} tidak memiliki intent video; gunakan fallback gambar.`);
+    emitAudit({ status: "image-fallback", query: "", fallbackReason: "no-search-intent" });
+    return null;
+  }
+
   assertPexels();
   const clipsDir = path.join(paths.generatedDir, "clips");
   await fs.mkdir(clipsDir, { recursive: true });
 
-  // Build search query dari visualKeywords, jatuhkan ke topic jika kosong
-  const rawKeywords = String(scene.visualKeywords || "").trim();
-  const query = rawKeywords || topicFallback || "documentary footage";
-  if (!query) return null;
+  const queryAttemptLog = [];
+  let accepted = null;
+  let acceptedQuery = "";
+  let candidateCount = 0;
 
-  let videos = [];
-  try {
-    videos = await searchPexelsVideos(query, {
-      orientation: "landscape",
-      size: "medium",
-      perPage: config.pexels.maxResultsPerScene,
-      minDuration: config.pexels.minDurationSec
-    });
-  } catch (error) {
-    console.warn(`[Pexels] Search gagal untuk scene ${scene.index} (query: "${query}"): ${error.message}`);
-    return null;
-  }
-
-  if (!videos.length) {
-    // Retry dengan query yang lebih sederhana (ambil 2 kata pertama)
-    const simpleQuery = query.split(/\s+/).slice(0, 2).join(" ");
-    if (simpleQuery !== query) {
-      try {
-        videos = await searchPexelsVideos(simpleQuery, {
-          orientation: "landscape",
-          size: "medium",
-          perPage: 3,
-          minDuration: config.pexels.minDurationSec
-        });
-      } catch {
-        // silent fallback
-      }
+  for (const query of queryPlan) {
+    let videos = [];
+    try {
+      videos = await searchPexelsVideos(query, {
+        orientation: "landscape",
+        size: "medium",
+        locale: config.pexels.locale,
+        page: 1,
+        perPage: config.pexels.maxResultsPerScene
+      });
+    } catch (error) {
+      queryAttemptLog.push({ query, candidateCount: 0, accepted: false, error: error.message });
+      console.warn(`[Pexels] Search gagal untuk scene ${scene.index} (query: "${query}"): ${error.message}`);
+      continue;
     }
+
+    candidateCount += videos.length;
+    const candidate = selectPexelsCandidate(videos, {
+      query,
+      mustMatchTerms: scene.mustMatchTerms,
+      minDurationSec: config.pexels.minDurationSec,
+      minRelevance: config.pexels.minRelevance,
+      usedPexelsIds,
+      excludedPexelsIds
+    });
+    queryAttemptLog.push({
+      query,
+      candidateCount: videos.length,
+      accepted: Boolean(candidate),
+      score: candidate?.score || 0,
+      relevance: candidate?.relevance || 0,
+      matchedTerms: candidate?.matchedTerms || []
+    });
+
+    if (candidate) {
+      accepted = candidate;
+      acceptedQuery = query;
+      break;
+    }
+    console.warn(`[Pexels] Tidak ada kandidat layak untuk scene ${scene.index} (query: "${query}", hasil=${videos.length}).`);
   }
 
-  if (!videos.length) {
-    console.warn(`[Pexels] Tidak ada video untuk scene ${scene.index} (query: "${query}")`);
+  if (!accepted) {
+    console.warn(`[Pexels] Scene ${scene.index} jatuh ke gambar setelah ${queryAttemptLog.length} query.`);
+    const searchOnlyFailed = queryAttemptLog.length > 0
+      && queryAttemptLog.every((attempt) => Boolean(attempt.error));
+    emitAudit({
+      status: "image-fallback",
+      query: queryAttemptLog.at(-1)?.query || queryPlan[0],
+      fallbackReason: searchOnlyFailed ? "search-error" : "no-relevant-candidate"
+    });
     return null;
   }
 
-  // Rangking kandidat berdasarkan relevansi keyword↔judul klip, lalu kualitas file.
-  // Tokens dari keyword scene (bukan query efektif) agar relevansi tetap mengukur
-  // niat asli scene meski search jatuh ke simpleQuery.
-  const keywordTokens = tokenizeWords(rawKeywords || topicFallback);
-  const scored = videos.map((video) => ({
-    video,
-    relevance: clipRelevanceScore(keywordTokens, video),
-    fileScore: videoFileScore(pickBestVideoFile(video) || {})
-  }));
-  scored.sort((a, b) => (b.relevance - a.relevance) || (b.fileScore - a.fileScore));
-
-  const topRelevance = scored[0].relevance;
-
-  // Gate minRelevance: hanya menolak bila ambang > 0 dan tak satu pun klip mencapainya.
-  // minRelevance = 0 berarti hanya merangking, tak pernah menolak (scene jatuh ke DALL-E
-  // hanya bila Pexels memang kosong).
-  if (config.pexels.minRelevance > 0 && topRelevance < config.pexels.minRelevance) {
-    console.warn(`[Pexels] Scene ${scene.index} ditolak: relevansi tertinggi ${topRelevance} < minRelevance ${config.pexels.minRelevance} (query="${query}")`);
-    return null;
-  }
-
-  // Acak di antara kandidat ber-relevansi tertinggi (maks 3) agar tetap bervariasi
-  // tanpa mengorbankan ketepatan.
-  const pool = scored.filter((s) => s.relevance === topRelevance).slice(0, 3);
-  const chosen = pool[Math.floor(Math.random() * pool.length)].video;
-  const bestFile = pickBestVideoFile(chosen);
-  if (!bestFile?.link) {
-    console.warn(`[Pexels] Tidak ada file MP4 yang cocok untuk scene ${scene.index}`);
-    return null;
-  }
+  const chosen = accepted.video;
+  const bestFile = accepted.file;
 
   const segSuffix = typeof scene.segmentIndex === "number" ? `-seg-${scene.segmentIndex}` : "";
   const filename = `${itemId}-scene-${String(scene.index).padStart(2, "0")}${segSuffix}-pexels-${chosen.id}.mp4`;
@@ -296,15 +654,22 @@ export async function fetchPexelsClipForScene({ itemId, scene, topicFallback = "
 
   try {
     await downloadPexelsVideo(bestFile.link, outputPath);
-    console.log(`[Pexels] Downloaded scene ${scene.index} seg ${scene.segmentIndex || 0}: ${bestFile.width}x${bestFile.height} (${chosen.id}) relevance=${topRelevance} query="${query}"`);
+    console.log(`[Pexels] Downloaded scene ${scene.index} seg ${scene.segmentIndex || 0}: ${bestFile.width}x${bestFile.height} (${chosen.id}) score=${accepted.score} relevance=${accepted.relevance.toFixed(2)} query="${acceptedQuery}"`);
+    emitAudit({ status: "selected", query: acceptedQuery });
     return {
       sceneIndex: scene.index,
       segmentIndex: scene.segmentIndex || 0,
       provider: "pexels",
+      selectorVersion: PEXELS_SELECTOR_VERSION,
       pexelsId: chosen.id,
       pexelsUrl: chosen.url,
-      query,
-      relevance: topRelevance,
+      query: acceptedQuery,
+      queryAttempts: queryAttemptLog.length,
+      queryAttemptLog,
+      candidateCount,
+      score: accepted.score,
+      relevance: accepted.relevance,
+      matchedTerms: accepted.matchedTerms,
       width: bestFile.width,
       height: bestFile.height,
       path: outputPath,
@@ -312,6 +677,7 @@ export async function fetchPexelsClipForScene({ itemId, scene, topicFallback = "
     };
   } catch (error) {
     console.warn(`[Pexels] Download gagal scene ${scene.index}: ${error.message}`);
+    emitAudit({ status: "image-fallback", query: acceptedQuery, fallbackReason: "download-error" });
     return null;
   }
 }

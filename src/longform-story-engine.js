@@ -331,7 +331,7 @@ function buildPrompt(input, wiki = null) {
     `KEMASAN VIRAL UTAMA:\n${viralBlock}`,
     "Gunakan kemasan viral ini sebagai tulang punggung judul, hook 30 detik pertama, dan transisi antar babak. Jangan hanya menempelkannya di judul.",
     "Kembalikan JSON valid saja dengan format:",
-    "{ title, hook, summary, importantPoints:[string], factCheckNote, scenes:[{ index, sceneType:'image'|'reaction'|'summary', durationSec, narration, screenText, visualKeywords, imagePrompt, visualSegments:[{ imagePrompt, visualKeywords, narrativeContext }], chapter, beatPurpose, reactionCue }] }",
+    "{ title, hook, summary, importantPoints:[string], factCheckNote, scenes:[{ index, sceneType:'image'|'reaction'|'summary', durationSec, narration, screenText, visualKeywords, imagePrompt, visualSegments:[{ imagePrompt, visualKeywords, pexelsQuery, mustMatchTerms:[string], narrativeContext }], chapter, beatPurpose, reactionCue }] }",
     "",
     "JUDUL (cadangan): Buat judul singkat (maksimal 60 karakter), spesifik dengan subjek konkret yang jelas, dan memancing rasa penasaran tanpa terasa template. Judul final akan disempurnakan terpisah, jadi cukup sediakan satu judul layak pakai.",
     "",
@@ -363,7 +363,7 @@ function buildPrompt(input, wiki = null) {
     `Target Jumlah Kata: sekitar ${Math.round(input.durationSec * 2.1)} kata bahasa Indonesia secara keseluruhan.`,
     wikiBlock,
     "",
-    "PENTING: visualKeywords akan digunakan untuk MENCARI VIDEO STOCK di Pexels, bukan untuk generate gambar AI.",
+    "PENTING: pexelsQuery pada setiap visualSegment adalah query utama untuk MENCARI VIDEO STOCK di Pexels. visualKeywords tetap wajib sebagai fallback kompatibilitas.",
     "KATA KUNCI VISUAL (visualKeywords) untuk scene image/summary wajib:",
     "  - Dalam bahasa Inggris",
     "  - 3-5 kata GENERIK yang bisa ditemukan di stock video (misal: 'ocean waves aerial', 'laboratory scientist research', 'city skyline night')",
@@ -377,11 +377,15 @@ function buildPrompt(input, wiki = null) {
     "Setiap scene berdurasi 20-25 detik. JANGAN hanya pakai 1 gambar/video selama itu. Penonton akan bosan.",
     "Setiap scene image/summary WAJIB punya array 'visualSegments' berisi 2-3 sub-visual.",
     "Setiap sub-visual menggambarkan APA yang harus TERLIHAT di layar saat bagian narasi itu dibacakan.",
+    "Setiap sub-visual juga WAJIB punya pexelsQuery dan mustMatchTerms untuk pencarian stock video:",
+    "  - pexelsQuery: satu frasa pencarian stock dalam bahasa Inggris, konkret, idealnya 3-7 kata.",
+    "  - mustMatchTerms: array berisi 1-3 istilah subjek bahasa Inggris yang wajib tampak relevan pada hasil.",
+    "  - Jangan isi pexelsQuery dengan konsep abstrak atau kata generik seperti 'documentary footage'.",
     "Contoh scene tentang 'cermin lift untuk aksesibilitas':",
     "  visualSegments: [",
-    "    { imagePrompt: 'wheelchair user approaching modern elevator, horizontal cinematic', visualKeywords: 'wheelchair elevator entrance', narrativeContext: 'cermin membantu pengguna kursi roda' },",
-    "    { imagePrompt: 'elevator mirror reflection showing buttons panel, close up', visualKeywords: 'elevator buttons panel mirror', narrativeContext: 'melihat tombol tanpa berbalik' },",
-    "    { imagePrompt: 'modern accessible elevator interior wide angle', visualKeywords: 'modern elevator interior design', narrativeContext: 'standar aksesibilitas internasional' }",
+    "    { imagePrompt: 'wheelchair user approaching modern elevator, horizontal cinematic', visualKeywords: 'wheelchair elevator entrance', pexelsQuery: 'wheelchair user entering elevator', mustMatchTerms: ['wheelchair', 'elevator'], narrativeContext: 'cermin membantu pengguna kursi roda' },",
+    "    { imagePrompt: 'elevator mirror reflection showing buttons panel, close up', visualKeywords: 'elevator buttons panel mirror', pexelsQuery: 'elevator mirror buttons panel', mustMatchTerms: ['elevator', 'buttons'], narrativeContext: 'melihat tombol tanpa berbalik' },",
+    "    { imagePrompt: 'modern accessible elevator interior wide angle', visualKeywords: 'modern elevator interior design', pexelsQuery: 'modern accessible elevator interior', mustMatchTerms: ['elevator'], narrativeContext: 'standar aksesibilitas internasional' }",
     "  ]",
     "Setiap sub-visual HARUS relevan dengan bagian narasi yang sedang dibacakan saat itu.",
     "Field visualKeywords dan imagePrompt di level scene tetap wajib diisi sebagai fallback."
@@ -397,16 +401,190 @@ function buildPrompt(input, wiki = null) {
  * @param {string} sceneVisualKeywords - visualKeywords fallback level scene
  * @param {string} topic - topik utama
  * @param {number} index - index scene (0-based)
- * @returns {Array} - Array of { imagePrompt, visualKeywords, narrativeContext }
+ * @param {{allowScenePexelsIntent?: boolean}} [options] - Izinkan keyword level scene menjadi intent Pexels.
+ * @returns {Array} - Array of { imagePrompt, visualKeywords, pexelsQuery, mustMatchTerms, narrativeContext }
  */
-function normalizeVisualSegments(rawSegments, sceneImagePrompt, sceneVisualKeywords, topic, index) {
+const GENERIC_PEXELS_TERMS = new Set([
+  "activity", "aerial", "angle", "background", "camera", "cinematic",
+  "close", "close-up", "closeup", "closeups", "detail", "documentary", "drone", "establishing",
+  "footage", "horizontal", "landscape", "macro", "medium", "modern",
+  "motion", "overview", "people", "professional", "scene", "shot", "slow",
+  "stock", "texture", "up", "video", "view", "visual", "wide",
+  "wide-angle", "working"
+]);
+
+const PEXELS_QUERY_STOPWORDS = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "been", "being", "but",
+  "by", "for", "from", "in", "into", "is", "it", "its", "of", "on",
+  "or", "that", "the", "their", "these", "this", "those", "to", "was",
+  "were", "with"
+]);
+
+const MEANINGLESS_PEXELS_TERMS = new Set([
+  "false", "nan", "none", "null", "true", "undefined", "unknown"
+]);
+
+const MEANINGLESS_PEXELS_QUERIES = new Set([
+  "n a", "no query", "not available", "object object"
+]);
+
+const UNSAFE_PEXELS_SINGULARS = new Set([
+  "atlas", "bias", "business", "chaos", "cosmos", "economics", "ethics",
+  "headquarters", "lens", "mathematics", "means", "news", "physics",
+  "politics", "series", "species"
+]);
+
+const PEXELS_IRREGULAR_PLURAL_FORMS = new Map([
+  ["analyses", "analysis"],
+  ["biases", "bias"],
+  ["buses", "bus"],
+  ["campuses", "campus"],
+  ["crises", "crisis"],
+  ["focuses", "focus"],
+  ["gases", "gas"],
+  ["lenses", "lens"],
+  ["statuses", "status"],
+  ["theses", "thesis"],
+  ["viruses", "virus"]
+]);
+
+function pexelsTokenMatchForms(token) {
+  const normalized = String(token || "").toLowerCase().replace(/[’']/g, "");
+  const forms = new Set(normalized ? [normalized] : []);
+  if (PEXELS_IRREGULAR_PLURAL_FORMS.has(normalized)) {
+    forms.add(PEXELS_IRREGULAR_PLURAL_FORMS.get(normalized));
+    return forms;
+  }
+  if (
+    normalized.length <= 3
+    || UNSAFE_PEXELS_SINGULARS.has(normalized)
+    || normalized.endsWith("ss")
+    || normalized.endsWith("us")
+    || normalized.endsWith("is")
+  ) {
+    return forms;
+  }
+  if (normalized.length > 4 && normalized.endsWith("ies")) {
+    forms.add(`${normalized.slice(0, -3)}y`);
+    return forms;
+  }
+  if (normalized.length > 4 && /(ches|shes|xes|zes|sses)$/.test(normalized)) {
+    forms.add(normalized.slice(0, -2));
+    return forms;
+  }
+  if (normalized.endsWith("s")) {
+    forms.add(normalized.slice(0, -1));
+  }
+  return forms;
+}
+
+function isGenericPexelsToken(token) {
+  const normalized = String(token || "").toLowerCase();
+  return [...pexelsTokenMatchForms(normalized)].some((form) => (
+    GENERIC_PEXELS_TERMS.has(form)
+  )) || /^\d+$/.test(normalized);
+}
+
+function isConcretePexelsToken(token) {
+  const normalized = String(token || "").toLowerCase();
+  return Boolean(normalized)
+    && !isGenericPexelsToken(normalized)
+    && !PEXELS_QUERY_STOPWORDS.has(normalized)
+    && !MEANINGLESS_PEXELS_TERMS.has(normalized)
+    && /[\p{L}]/u.test(normalized);
+}
+
+function isGenericPexelsPhraseToken(token, position, tokens) {
+  const normalized = String(token || "").toLowerCase();
+  const previous = position > 0
+    ? String(tokens[position - 1] || "").toLowerCase()
+    : "";
+  return normalized === "ups" && previous === "close";
+}
+
+function concretePexelsQueryTokens(tokens) {
+  return tokens.filter((token, position, allTokens) => (
+    isConcretePexelsToken(token)
+    && !isGenericPexelsPhraseToken(token, position, allTokens)
+  ));
+}
+
+function pexelsTokensOverlap(left, right) {
+  const leftForms = pexelsTokenMatchForms(left);
+  return [...pexelsTokenMatchForms(right)].some((form) => leftForms.has(form));
+}
+
+function sanitizePexelsQuery(value) {
+  if (typeof value !== "string") return "";
+  const tokens = cleanText(value, 120)
+    .replace(/[|,;/]+/g, " ")
+    .replace(/[^\p{L}\p{N}'’-]+/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 7);
+  const query = tokens.join(" ");
+  if (
+    !concretePexelsQueryTokens(tokens).length
+    || MEANINGLESS_PEXELS_QUERIES.has(query.toLowerCase())
+  ) {
+    return "";
+  }
+  return query;
+}
+
+function normalizeMustMatchTerms(rawTerms, pexelsQuery) {
+  const queryTokens = sanitizePexelsQuery(pexelsQuery)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  const concreteQueryTokens = concretePexelsQueryTokens(queryTokens)
+    .filter((token, position, tokens) => tokens.indexOf(token) === position);
+  const provided = Array.isArray(rawTerms)
+    ? rawTerms
+    : typeof rawTerms === "string"
+      ? rawTerms.split(",")
+      : [];
+  const normalized = [];
+  for (const candidate of provided) {
+    const term = sanitizePexelsQuery(candidate).toLowerCase();
+    const tokens = term.split(/\s+/).filter(isConcretePexelsToken);
+    if (!term) continue;
+    for (const token of tokens) {
+      const queryToken = concreteQueryTokens.find((queryCandidate) => (
+        pexelsTokensOverlap(token, queryCandidate)
+      ));
+      if (queryToken && !normalized.includes(queryToken)) normalized.push(queryToken);
+      if (normalized.length >= 3) break;
+    }
+    if (normalized.length >= 3) break;
+  }
+  for (const queryToken of concreteQueryTokens) {
+    if (normalized.length >= 3) break;
+    if (!normalized.includes(queryToken)) normalized.push(queryToken);
+  }
+  return normalized;
+}
+
+export function normalizeVisualSegments(rawSegments, sceneImagePrompt, sceneVisualKeywords, topic, index, options = {}) {
+  const allowScenePexelsIntent = options.allowScenePexelsIntent
+    ?? Boolean(cleanText(sceneVisualKeywords || "", 150));
   // Jika AI mengembalikan array valid dengan ≥2 item, bersihkan dan pakai.
   if (Array.isArray(rawSegments) && rawSegments.length >= 2) {
-    return rawSegments.slice(0, 3).map((seg) => ({
-      imagePrompt: cleanText(seg?.imagePrompt || sceneImagePrompt, 500),
-      visualKeywords: cleanText(seg?.visualKeywords || sceneVisualKeywords, 150),
-      narrativeContext: cleanText(seg?.narrativeContext || "", 200)
-    }));
+    return rawSegments.slice(0, 3).map((seg) => {
+      const segmentKeywords = cleanText(seg?.visualKeywords || "", 150);
+      const visualKeywords = segmentKeywords || cleanText(sceneVisualKeywords || "", 150);
+      const hasExplicitQuery = Object.prototype.hasOwnProperty.call(seg || {}, "pexelsQuery");
+      const pexelsQuery = hasExplicitQuery
+        ? sanitizePexelsQuery(seg?.pexelsQuery)
+        : sanitizePexelsQuery(segmentKeywords || (allowScenePexelsIntent ? sceneVisualKeywords : ""));
+      return {
+        imagePrompt: cleanText(seg?.imagePrompt || sceneImagePrompt, 500),
+        visualKeywords,
+        pexelsQuery,
+        mustMatchTerms: pexelsQuery ? normalizeMustMatchTerms(seg?.mustMatchTerms, pexelsQuery) : [],
+        narrativeContext: cleanText(seg?.narrativeContext || "", 200)
+      };
+    });
   }
 
   // Auto-split: buat 2-3 segmen dari scene-level prompt.
@@ -418,6 +596,8 @@ function normalizeVisualSegments(rawSegments, sceneImagePrompt, sceneVisualKeywo
   ];
   const segCount = 3;
   const segments = [];
+  const pexelsQuery = allowScenePexelsIntent ? sanitizePexelsQuery(sceneVisualKeywords) : "";
+  const mustMatchTerms = pexelsQuery ? normalizeMustMatchTerms([], pexelsQuery) : [];
   for (let i = 0; i < segCount; i++) {
     const angleLabel = angles[i]?.[0] || "cinematic angle";
     const angleKeywords = angles[i]?.[1] || "documentary footage";
@@ -428,6 +608,8 @@ function normalizeVisualSegments(rawSegments, sceneImagePrompt, sceneVisualKeywo
       visualKeywords: sceneVisualKeywords
         ? `${sceneVisualKeywords} ${angleKeywords}`.trim().slice(0, 150)
         : `${angleKeywords} documentary`,
+      pexelsQuery,
+      mustMatchTerms: [...mustMatchTerms],
       narrativeContext: ""
     });
   }
@@ -450,7 +632,8 @@ function normalizePlan(plan, input) {
     const narration = sceneType === "reaction"
       ? reactionLine
       : cleanText(scene?.narration || `Ini adalah bagian penjelasan untuk babak ke-${index + 1}.`, 1600);
-    const sceneVisualKeywords = sceneType === "reaction" ? "" : cleanText(scene?.visualKeywords || fallbackKeywords(index), 150);
+    const rawSceneVisualKeywords = sceneType === "reaction" ? "" : cleanText(scene?.visualKeywords || "", 150);
+    const sceneVisualKeywords = sceneType === "reaction" ? "" : rawSceneVisualKeywords || fallbackKeywords(index);
     const sceneImagePrompt = sceneType === "reaction" ? "" : cleanText(scene?.imagePrompt || fallbackImagePrompt(input.topic, index), 500);
     return {
       index: index + 1,
@@ -460,7 +643,14 @@ function normalizePlan(plan, input) {
       screenText,
       visualKeywords: sceneVisualKeywords,
       imagePrompt: sceneImagePrompt,
-      visualSegments: sceneType === "reaction" ? [] : normalizeVisualSegments(scene?.visualSegments, sceneImagePrompt, sceneVisualKeywords, input.topic, index),
+      visualSegments: sceneType === "reaction" ? [] : normalizeVisualSegments(
+        scene?.visualSegments,
+        sceneImagePrompt,
+        sceneVisualKeywords,
+        input.topic,
+        index,
+        { allowScenePexelsIntent: Boolean(rawSceneVisualKeywords) }
+      ),
       chapter: cleanText(scene?.chapter || chapterName(index, input.sceneCount), 80),
       beatPurpose: cleanText(scene?.beatPurpose || beatPurpose(index, input.sceneCount), 180),
       reactionCue: cleanText(scene?.reactionCue || reactionCue(index), 120)
@@ -483,7 +673,14 @@ function normalizePlan(plan, input) {
       screenText: sceneType === "summary" ? "Ringkasan Inti" : fallbackScreenText(index, input.sceneCount),
       visualKeywords: fbKeywords,
       imagePrompt: fbImagePrompt,
-      visualSegments: sceneType === "reaction" ? [] : normalizeVisualSegments(null, fbImagePrompt, fbKeywords, input.topic, index),
+      visualSegments: sceneType === "reaction" ? [] : normalizeVisualSegments(
+        null,
+        fbImagePrompt,
+        fbKeywords,
+        input.topic,
+        index,
+        { allowScenePexelsIntent: false }
+      ),
       chapter: chapterName(index, input.sceneCount),
       beatPurpose: beatPurpose(index, input.sceneCount),
       reactionCue: reactionCue(index)
@@ -535,7 +732,14 @@ function fallbackPlan(input, errorMsg = "") {
       screenText: sceneType === "summary" ? "Ringkasan Inti" : fallbackScreenText(i, count),
       visualKeywords: fbKw,
       imagePrompt: fbIp,
-      visualSegments: sceneType === "reaction" ? [] : normalizeVisualSegments(null, fbIp, fbKw, input.topic, i),
+      visualSegments: sceneType === "reaction" ? [] : normalizeVisualSegments(
+        null,
+        fbIp,
+        fbKw,
+        input.topic,
+        i,
+        { allowScenePexelsIntent: false }
+      ),
       chapter: chapterName(i, count),
       beatPurpose: beatPurpose(i, count),
       reactionCue: reactionCue(i)
@@ -554,7 +758,7 @@ function fallbackPlan(input, errorMsg = "") {
   };
 }
 
-function buildLongformStoryboard(plan) {
+export function buildLongformStoryboard(plan) {
   return (plan.scenes || []).map((scene) => ({
     sceneIndex: scene.index,
     sceneType: scene.sceneType || "image",

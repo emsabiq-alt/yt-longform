@@ -2,9 +2,9 @@ import express from "express";
 import { ensureProjectDirs, paths, publicConfig, updateRuntimeSettings, config } from "./config.js";
 import {
   assertReadyToRender,
-  ensureImages,
   ensureLongformSceneAudio,
   ensureThumbnail,
+  ensureVisualAssets,
   ffmpegAvailable,
   generateFullItem,
   renderAndPersist
@@ -86,7 +86,7 @@ app.post("/api/items/:id/render", async (req, res, next) => {
     const item = await requireItem(req.params.id);
     const warnings = [];
     if (req.body?.ensureAssets !== false) {
-      await ensureImages(item, { warnings, strict: true });
+      await ensureVisualAssets(item, { warnings, strict: true });
       await ensureLongformSceneAudio(item, { provider: req.body?.provider || item.input.ttsProvider, warnings, strict: true });
       if (config.thumbnail?.enabled) {
         await ensureThumbnail(item, { warnings });

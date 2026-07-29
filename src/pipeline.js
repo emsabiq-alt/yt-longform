@@ -1,9 +1,15 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import fs from "node:fs/promises";
 import { config, paths } from "./config.js";
 import { estimateTtsUsd } from "./cost.js";
 import { generateElevenLabsSpeech } from "./elevenlabs.js";
 import { generateOpenAiSpeech, generateSceneImage, transcribeSpeechSegments } from "./openai.js";
-import { fetchPexelsClipForScene, scoreSceneVisualConcreteness } from "./pexels.js";
+import {
+  fetchPexelsClipForScene,
+  PEXELS_SELECTOR_VERSION,
+  scoreSceneVisualConcreteness
+} from "./pexels.js";
 import { renderLongformVideo } from "./longform-render.js";
 import { generateThumbnail } from "./thumbnail.js";
 import { saveItem, listContextItems } from "./storage.js";
@@ -22,6 +28,25 @@ const SCENE_TTS_INSTRUCTIONS = [
   "Nada suara: Positif, penuh tenaga (energetic), dan memberdayakan (empowering), menciptakan suasana penuh semangat dan pencapaian."
 ].join(" ");
 
+/**
+ * Pastikan aset visual dalam urutan yang benar: video relevan dicoba lebih
+ * dahulu, lalu gambar hanya mengisi slot yang masih kosong.
+ */
+export async function ensureVisualAssets(item, options = {}) {
+  const warnings = options.warnings || [];
+  const pexelsRunner = options.pexelsRunner || ensurePexelsClips;
+  const imageRunner = options.imageRunner || ensureImages;
+  const pexelsOptions = options.pexelsOptions || {};
+  const imageOptions = options.imageOptions || {};
+
+  await pexelsRunner(item, { ...pexelsOptions, warnings });
+  await imageRunner(item, {
+    ...imageOptions,
+    warnings,
+    strict: options.strict ?? imageOptions.strict ?? true
+  });
+}
+
 export async function generateFullItem(input = {}, options = {}) {
   const warnings = [];
   reportProgress("script", "Menyusun naskah AI", 10, "meminta storyboard");
@@ -39,8 +64,7 @@ export async function generateFullItem(input = {}, options = {}) {
   reportProgress("script", "Naskah siap", 100, item.title || "");
 
   // Pexels video clips dulu (prioritas), lalu gambar sebagai fallback
-  await ensurePexelsClips(item, { warnings });
-  await ensureImages(item, { warnings, strict: true });
+  await ensureVisualAssets(item, { warnings, strict: true });
   await ensureLongformSceneAudio(item, {
     provider: item.input.ttsProvider,
     voice: options.voice || input.ttsVoice,
@@ -69,113 +93,514 @@ export async function generateFullItem(input = {}, options = {}) {
   return { item, warnings };
 }
 
+function own(object, key) {
+  return Object.prototype.hasOwnProperty.call(object || {}, key);
+}
+
+function cleanIntentText(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function segmentSlot(sceneIndex, segmentIndex) {
+  return `${Number(sceneIndex)}:${Number(segmentIndex || 0)}`;
+}
+
+function sceneSegments(scene) {
+  if (Array.isArray(scene?.visualSegments) && scene.visualSegments.length) {
+    return scene.visualSegments;
+  }
+  return [scene || {}];
+}
+
+function buildSegmentScene(scene, segment, segmentIndex) {
+  const segScene = {
+    ...scene,
+    visualKeywords: cleanIntentText(segment?.visualKeywords || scene?.visualKeywords),
+    mustMatchTerms: Array.isArray(segment?.mustMatchTerms)
+      ? segment.mustMatchTerms
+      : Array.isArray(scene?.mustMatchTerms)
+        ? scene.mustMatchTerms
+        : [],
+    narrativeContext: cleanIntentText(segment?.narrativeContext || scene?.narrativeContext),
+    segmentIndex
+  };
+
+  if (own(segment, "pexelsQuery")) segScene.pexelsQuery = cleanIntentText(segment.pexelsQuery);
+  else if (own(scene, "pexelsQuery")) segScene.pexelsQuery = cleanIntentText(scene.pexelsQuery);
+  else delete segScene.pexelsQuery;
+
+  return segScene;
+}
+
+function flattenPexelsSegments(item) {
+  const topicFallback = cleanIntentText(item?.input?.topic);
+  const slots = [];
+  let flatIndex = 0;
+
+  for (const scene of item?.plan?.scenes || []) {
+    if (scene?.sceneType === "reaction") continue;
+    const segments = sceneSegments(scene);
+    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+      const segment = segments[segmentIndex] || {};
+      const segScene = buildSegmentScene(scene, segment, segmentIndex);
+      const explicitIntent = own(segScene, "pexelsQuery");
+      const query = explicitIntent
+        ? cleanIntentText(segScene.pexelsQuery)
+        : cleanIntentText(segScene.visualKeywords || topicFallback);
+      const selectionText = [
+        query,
+        ...(Array.isArray(segScene.mustMatchTerms) ? segScene.mustMatchTerms : []),
+        segScene.visualKeywords
+      ].filter(Boolean).join(", ");
+
+      slots.push({
+        scene,
+        segment,
+        segScene,
+        sceneIndex: scene.index,
+        segmentIndex,
+        flatIndex,
+        slot: segmentSlot(scene.index, segmentIndex),
+        explicitIntent,
+        explicitImageFallback: explicitIntent && !query,
+        hasSearchIntent: Boolean(query),
+        query,
+        selectionScore: scoreSceneVisualConcreteness({ visualKeywords: selectionText })
+      });
+      flatIndex += 1;
+    }
+  }
+  return slots;
+}
+
 /**
- * Cari dan download klip video dari Pexels untuk sebagian scene non-reaction.
- * Hasil akhir: video campuran gambar statis (DALL-E) + video bergerak (Pexels)
- * supaya lebih hidup. Jumlah scene video ≈ separuh agar tetap berimbang.
- *
- * Pemilihan scene penerima video:
- *   - semantic (default): scene paling KONKRET visualnya yang dapat B-roll, sebab
- *     keyword konkret jauh lebih gampang menemukan footage Pexels yang relevan;
- *     scene abstrak diserahkan ke DALL-E yang bisa melukiskan konsep.
- *   - fallback: pola ALTERNATING klasik (indeks genap dapat video).
+ * Rencanakan slot Pexels per segmen. Kuota adalah batas maksimum, bukan target
+ * yang dipaksakan: intent kosong tetap menjadi slot gambar.
+ */
+export function buildPexelsClipJobs(item, options = {}) {
+  const seenSlots = new Set();
+  const slots = flattenPexelsSegments(item).filter((slot) => {
+    if (seenSlots.has(slot.slot)) return false;
+    seenSlots.add(slot.slot);
+    return true;
+  });
+  // Satu segmen tetap mendapat satu kesempatan. Untuk lebih dari satu segmen,
+  // kuota selalu dibulatkan ke bawah agar "maksimum 50%" tidak berubah menjadi
+  // tiga video dari lima segmen.
+  const quota = slots.length === 1 ? 1 : Math.floor(slots.length / 2);
+  const eligible = slots.filter((slot) => (
+    slot.hasSearchIntent
+    && !slot.explicitImageFallback
+    // Intent terstruktur sudah divalidasi story engine. Fallback legacy hanya
+    // layak dicari bila punya subjek visual konkret, bukan sekadar konsep.
+    && (slot.explicitIntent || slot.selectionScore > 0)
+  ));
+  const semanticSelection = options.semanticSelection ?? true;
+
+  let chosen;
+  if (semanticSelection) {
+    chosen = new Set(
+      [...eligible]
+        .sort((a, b) => (b.selectionScore - a.selectionScore) || (a.flatIndex - b.flatIndex))
+        .slice(0, quota)
+        .map((slot) => slot.slot)
+    );
+  } else {
+    chosen = new Set(
+      eligible
+        .filter((slot) => slot.flatIndex % 2 === 0)
+        .slice(0, quota)
+        .map((slot) => slot.slot)
+    );
+  }
+
+  return slots.filter((slot) => chosen.has(slot.slot));
+}
+
+/**
+ * Hash intent stabil untuk memastikan klip lama hanya dipakai pada intent
+ * storyboard yang sama.
+ */
+export function pexelsIntentHash(scene = {}) {
+  const intent = {
+    pexelsQuery: own(scene, "pexelsQuery")
+      ? cleanIntentText(scene.pexelsQuery).toLowerCase()
+      : null,
+    mustMatchTerms: [...new Set(
+      (Array.isArray(scene.mustMatchTerms) ? scene.mustMatchTerms : [])
+        .map((term) => cleanIntentText(term).toLowerCase())
+        .filter(Boolean)
+    )].sort(),
+    visualKeywords: cleanIntentText(scene.visualKeywords).toLowerCase()
+  };
+  return createHash("sha256").update(JSON.stringify(intent)).digest("hex");
+}
+
+export function isReusablePexelsClip(clip, scene) {
+  return Boolean(
+    clip?.path
+    && isPexelsClip(clip)
+    && validPexelsId(clip.pexelsId)
+    && clip?.selectorVersion === PEXELS_SELECTOR_VERSION
+    && clip?.intentHash === pexelsIntentHash(scene)
+  );
+}
+
+function isPexelsClip(clip) {
+  return clip?.provider === "pexels" || clip?.pexelsId !== undefined;
+}
+
+function validPexelsId(value) {
+  return value !== undefined && value !== null && String(value).trim() !== "";
+}
+
+function pexelsIdKey(value) {
+  return validPexelsId(value) ? String(value).trim() : null;
+}
+
+async function pathExists(filePath) {
+  if (typeof filePath !== "string" || !filePath.trim()) return false;
+  try {
+    const mediaStat = await fs.stat(filePath);
+    return mediaStat.isFile() && mediaStat.size > 0;
+  } catch {
+    return false;
+  }
+}
+
+function createMediaExists(fileExists = pathExists) {
+  const cache = new Map();
+  return async (filePath, { refresh = false } = {}) => {
+    if (typeof filePath !== "string" || !filePath.trim()) return false;
+    if (refresh) cache.delete(filePath);
+    if (!cache.has(filePath)) {
+      cache.set(filePath, Promise.resolve()
+        .then(() => fileExists(filePath))
+        .then(Boolean)
+        .catch(() => false));
+    }
+    return cache.get(filePath);
+  };
+}
+
+function upsertPexelsAudit(audits, entry) {
+  const slot = segmentSlot(entry.sceneIndex, entry.segmentIndex);
+  const next = (Array.isArray(audits) ? audits : [])
+    .filter((audit) => segmentSlot(audit.sceneIndex, audit.segmentIndex) !== slot);
+  next.push(entry);
+  return sortByScene(next);
+}
+
+/**
+ * Cari dan download klip Pexels per segmen. Segmen yang tidak lolos kuota,
+ * sengaja ber-intent kosong, atau tak punya kandidat relevan dibiarkan tanpa
+ * metadata klip agar ensureImages membuat fallback gambar.
  */
 export async function ensurePexelsClips(item, options = {}) {
-  if (!config.pexels.apiKey || !config.pexels.preferVideo) {
-    console.log("[Pexels] Dimatikan atau API key tidak tersedia, skip Pexels clips.");
-    return;
-  }
   const warnings = options.warnings || [];
-  const clips = [...(item.assets.clips || [])];
-  const nonReactionScenes = item.plan.scenes.filter((s) => s.sceneType !== "reaction");
+  const fetchClip = options.fetchClip || fetchPexelsClipForScene;
+  const persistItem = options.persistItem || saveItem;
+  const mediaExists = createMediaExists(options.fileExists || pathExists);
+  const sleep = options.sleep || ((delay) => new Promise((resolve) => setTimeout(resolve, delay)));
+  const delayMs = Math.max(0, Number(options.delayMs ?? 200) || 0);
+  const semanticSelection = options.semanticSelection ?? config.pexels.semanticSelection;
+  const pexelsEnabled = Boolean(config.pexels.apiKey && config.pexels.preferVideo);
+  item.assets = item.assets || {};
+  const allSlots = flattenPexelsSegments(item);
+  const jobs = buildPexelsClipJobs(item, { semanticSelection });
+  const jobSlots = new Set(jobs.map((job) => job.slot));
+  const managedSlots = new Set(allSlots.map((slot) => slot.slot));
+  const existingClips = [...(item.assets?.clips || [])];
+  const existingImages = [...(item.assets?.images || [])];
+  const pexelsBySlot = new Map();
+  const blockingMediaBySlot = new Map();
 
-  // Jaga jumlah scene video setara pola alternating (≈separuh) agar mix tetap seimbang.
-  const videoQuota = Math.ceil(nonReactionScenes.length / 2);
-
-  let pexelsScenes;
-  let imageOnlyScenes;
-  if (config.pexels.semanticSelection) {
-    // Rangking scene berdasarkan kekonkretan keyword, ambil yang teratas sebanyak kuota.
-    const ranked = [...nonReactionScenes].sort(
-      (a, b) => scoreSceneVisualConcreteness(b) - scoreSceneVisualConcreteness(a)
-    );
-    const chosen = new Set(ranked.slice(0, videoQuota).map((s) => s.index));
-    pexelsScenes = nonReactionScenes.filter((s) => chosen.has(s.index));   // pertahankan urutan asli
-    imageOnlyScenes = nonReactionScenes.filter((s) => !chosen.has(s.index));
-    console.log(`[Pexels] Seleksi semantik: ${pexelsScenes.length} scene video (paling konkret), ${imageOnlyScenes.length} scene gambar DALL-E`);
-  } else {
-    // Pola alternating klasik: scene non-reaction genap (0, 2, 4...) dapat video.
-    pexelsScenes = nonReactionScenes.filter((_, idx) => idx % 2 === 0);
-    imageOnlyScenes = nonReactionScenes.filter((_, idx) => idx % 2 !== 0);
-    console.log(`[Pexels] Pola alternating: ${pexelsScenes.length} scene video Pexels, ${imageOnlyScenes.length} scene gambar DALL-E`);
+  for (const clip of existingClips) {
+    if (!isPexelsClip(clip)) continue;
+    const slot = segmentSlot(clip.sceneIndex, clip.segmentIndex);
+    if (!pexelsBySlot.has(slot)) pexelsBySlot.set(slot, []);
+    pexelsBySlot.get(slot).push(clip);
   }
 
-  // Hitung total segmen Pexels (multi-clip per scene via visualSegments)
-  const clipJobs = [];
-  for (const scene of pexelsScenes) {
-    const segments = scene.visualSegments?.length ? scene.visualSegments : [{ visualKeywords: scene.visualKeywords }];
-    for (let segIdx = 0; segIdx < segments.length; segIdx++) {
-      const existing = clips.find((c) => Number(c.sceneIndex) === Number(scene.index) && Number(c.segmentIndex || 0) === segIdx && c.path);
-      if (existing) continue;
-      clipJobs.push({ scene, segIdx, segment: segments[segIdx] });
+  // Gambar valid yang sudah ada menang atas Pexels. Metadata stale hanya
+  // dipangkas pada slot storyboard aktif; metadata di luar rencana dipertahankan.
+  const images = [];
+  for (const image of existingImages) {
+    const slot = segmentSlot(image.sceneIndex, image.segmentIndex);
+    if (!managedSlots.has(slot)) {
+      images.push(image);
+      continue;
     }
+    if (!await mediaExists(image.path)) continue;
+    images.push(image);
+    blockingMediaBySlot.set(slot, "existing-image");
+  }
+
+  // Klip manual/non-Pexels yang file-nya masih valid juga menang. Pengecekan
+  // file mencegah metadata path yang sudah hilang memblokir regenerasi.
+  const retainedNonPexelsClips = [];
+  for (const clip of existingClips) {
+    if (isPexelsClip(clip)) continue;
+    const slot = segmentSlot(clip.sceneIndex, clip.segmentIndex);
+    if (!managedSlots.has(slot)) {
+      retainedNonPexelsClips.push(clip);
+      continue;
+    }
+    if (!await mediaExists(clip.path)) continue;
+    retainedNonPexelsClips.push(clip);
+    if (!blockingMediaBySlot.has(slot)) {
+      blockingMediaBySlot.set(slot, "existing-media");
+    }
+  }
+
+  // Pertahankan klip non-Pexels valid dan klip Pexels di luar storyboard aktif.
+  // Semua slot aktif dibangun ulang dari kandidat reusable yang tervalidasi.
+  const clips = [
+    ...retainedNonPexelsClips,
+    ...existingClips.filter((clip) => (
+      isPexelsClip(clip)
+      && !managedSlots.has(segmentSlot(clip.sceneIndex, clip.segmentIndex))
+    ))
+  ];
+  const usedPexelsIds = new Set();
+  const pendingJobs = [];
+  let audits = [];
+
+  // ID Pexels di luar storyboard terkelola tetap direservasi secara
+  // konservatif, bahkan bila file lamanya tidak ada, agar video yang sama
+  // tidak dipilih lagi untuk slot baru.
+  for (const clip of clips) {
+    if (!isPexelsClip(clip)) continue;
+    const id = pexelsIdKey(clip.pexelsId);
+    if (id !== null) usedPexelsIds.add(id);
+  }
+
+  for (const slot of allSlots) {
+    if (jobSlots.has(slot.slot)) continue;
+    const blockingReason = blockingMediaBySlot.get(slot.slot);
+    audits = upsertPexelsAudit(audits, {
+      sceneIndex: slot.sceneIndex,
+      segmentIndex: slot.segmentIndex,
+      status: "image-fallback",
+      intentHash: pexelsIntentHash(slot.segScene),
+      query: slot.query,
+      fallbackReason: blockingReason || (slot.explicitImageFallback
+        ? "explicit-image-fallback"
+        : slot.hasSearchIntent
+          ? "video-quota"
+          : "no-search-intent")
+    });
+  }
+
+  for (const job of jobs) {
+    const blockingReason = blockingMediaBySlot.get(job.slot);
+    if (blockingReason) {
+      audits = upsertPexelsAudit(audits, {
+        sceneIndex: job.sceneIndex,
+        segmentIndex: job.segmentIndex,
+        status: "image-fallback",
+        intentHash: pexelsIntentHash(job.segScene),
+        query: job.query,
+        fallbackReason: blockingReason
+      });
+      continue;
+    }
+
+    let reusable = null;
+    for (const clip of pexelsBySlot.get(job.slot) || []) {
+      if (!isReusablePexelsClip(clip, job.segScene)) continue;
+      const id = pexelsIdKey(clip.pexelsId);
+      if (id === null || usedPexelsIds.has(id)) continue;
+      if (!await mediaExists(clip.path)) continue;
+      reusable = clip;
+      break;
+    }
+    if (!reusable) {
+      pendingJobs.push(job);
+      continue;
+    }
+
+    clips.push(reusable);
+    usedPexelsIds.add(String(reusable.pexelsId));
+    audits = upsertPexelsAudit(audits, {
+      sceneIndex: job.sceneIndex,
+      segmentIndex: job.segmentIndex,
+      status: "selected",
+      intentHash: pexelsIntentHash(job.segScene),
+      query: reusable.query || job.query,
+      source: "reused"
+    });
+  }
+
+  const fetchJobs = pendingJobs;
+
+  item.assets.images = sortByScene(images);
+  item.assets.clips = sortByScene(clips);
+  item.assets.pexelsAudit = audits;
+
+  if (!pexelsEnabled) {
+    for (const job of fetchJobs) {
+      audits = upsertPexelsAudit(audits, {
+        sceneIndex: job.sceneIndex,
+        segmentIndex: job.segmentIndex,
+        status: "image-fallback",
+        intentHash: pexelsIntentHash(job.segScene),
+        query: job.query,
+        fallbackReason: "pexels-disabled"
+      });
+    }
+    item.assets.pexelsAudit = audits;
+    item.updatedAt = nowIso();
+    await persistItem(item);
+    console.log("[Pexels] Dimatikan atau API key tidak tersedia; slot tanpa klip valid memakai gambar.");
+    return;
   }
 
   let clipDone = 0;
-  const totalJobs = clipJobs.length;
+  const totalJobs = fetchJobs.length;
   reportProgress("images", "Mencari video B-roll Pexels", 0, `0/${totalJobs}`);
-  console.log(`[Pexels] Total segmen video yang dicari: ${totalJobs} (multi-clip per scene)`);
+  console.log(`[Pexels] ${jobs.length}/${allSlots.length} segmen masuk kuota; ${totalJobs} perlu dicari.`);
 
-  for (const { scene, segIdx, segment } of clipJobs) {
+  for (const job of fetchJobs) {
+    const intentHash = pexelsIntentHash(job.segScene);
+    let fetchAudit = null;
     try {
-      reportProgress("images", "Mencari video B-roll Pexels", Math.round((clipDone / totalJobs) * 100), `scene ${scene.index} seg ${segIdx + 1}`);
-      const segScene = { 
-        ...scene, 
-        visualKeywords: segment.visualKeywords || scene.visualKeywords,
-        segmentIndex: segIdx
-      };
-      const clip = await fetchPexelsClipForScene({
+      reportProgress(
+        "images",
+        "Mencari video B-roll Pexels",
+        totalJobs ? Math.round((clipDone / totalJobs) * 100) : 100,
+        `scene ${job.sceneIndex} seg ${job.segmentIndex + 1}`
+      );
+      const clip = await fetchClip({
         itemId: item.id,
-        scene: segScene,
-        topicFallback: item.input?.topic || ""
+        scene: job.segScene,
+        topicFallback: item.input?.topic || "",
+        usedPexelsIds,
+        onAudit: (audit) => {
+          fetchAudit = audit;
+        }
       });
       clipDone += 1;
-      if (clip) {
-        clip.segmentIndex = segIdx;
-        clips.push(clip);
-        item.assets.clips = sortByScene(clips);
-        item.updatedAt = nowIso();
-        await saveItem(item);
+
+      const fetchedId = pexelsIdKey(clip?.pexelsId);
+      const validClip = Boolean(clip && cleanIntentText(clip.path) && fetchedId !== null);
+      const duplicateId = validClip && usedPexelsIds.has(fetchedId);
+      const fetchedFileExists = validClip && !duplicateId
+        // Download dapat mengisi ulang path yang tadi tercatat stale, jadi
+        // validasi hasil fetch harus membaca keadaan file terbaru.
+        ? await mediaExists(clip.path, { refresh: true })
+        : false;
+      if (validClip && !duplicateId && fetchedFileExists) {
+        const selected = {
+          ...clip,
+          provider: "pexels",
+          sceneIndex: job.sceneIndex,
+          segmentIndex: job.segmentIndex,
+          selectorVersion: PEXELS_SELECTOR_VERSION,
+          intentHash
+        };
+        clips.push(selected);
+        usedPexelsIds.add(fetchedId);
+        audits = upsertPexelsAudit(audits, {
+          sceneIndex: job.sceneIndex,
+          segmentIndex: job.segmentIndex,
+          status: "selected",
+          intentHash,
+          query: selected.query || job.query,
+          source: "fetched"
+        });
+      } else {
+        let fallbackReason = fetchAudit?.fallbackReason || "no-relevant-candidate";
+        if (duplicateId) fallbackReason = "duplicate-pexels-id";
+        else if (!validClip && clip) fallbackReason = "invalid-clip";
+        else if (validClip) fallbackReason = "missing-fetched-file";
+        audits = upsertPexelsAudit(audits, {
+          sceneIndex: job.sceneIndex,
+          segmentIndex: job.segmentIndex,
+          status: "image-fallback",
+          intentHash,
+          query: fetchAudit?.query || job.query,
+          fallbackReason
+        });
       }
-      reportProgress("images", "Mencari video B-roll Pexels", Math.round((clipDone / totalJobs) * 100), `${clipDone}/${totalJobs}`);
     } catch (error) {
       clipDone += 1;
-      const message = `Pexels scene ${scene.index} seg ${segIdx} gagal: ${error.message}`;
+      const message = `Pexels scene ${job.sceneIndex} seg ${job.segmentIndex} gagal: ${error.message}`;
       warnings.push(message);
       console.warn(message);
+      audits = upsertPexelsAudit(audits, {
+        sceneIndex: job.sceneIndex,
+        segmentIndex: job.segmentIndex,
+        status: "image-fallback",
+        intentHash,
+        query: job.query,
+        fallbackReason: "fetch-error"
+      });
     }
 
-    // Rate limit: tunggu 200ms antara request ke Pexels API
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    item.assets.clips = sortByScene(clips);
+    item.assets.pexelsAudit = audits;
+    item.updatedAt = nowIso();
+    await persistItem(item);
+    reportProgress(
+      "images",
+      "Mencari video B-roll Pexels",
+      totalJobs ? Math.round((clipDone / totalJobs) * 100) : 100,
+      `${clipDone}/${totalJobs}`
+    );
+    if (delayMs > 0 && clipDone < totalJobs) await sleep(delayMs);
   }
 
   item.assets.clips = sortByScene(clips);
-  await saveItem(item);
+  item.assets.pexelsAudit = audits;
+  item.updatedAt = nowIso();
+  await persistItem(item);
 
-  const totalClips = clips.filter((c) => c.path).length;
-  const mode = config.pexels.semanticSelection ? "seleksi semantik" : "pola alternating";
-  console.log(`[Pexels] Total klip video: ${totalClips}/${totalJobs} segmen (${mode}, multi-clip)`);
+  const totalClips = clips.filter((clip) => isPexelsClip(clip) && clip.path).length;
+  const mode = semanticSelection ? "seleksi semantik" : "pola alternating";
+  console.log(`[Pexels] Total klip valid: ${totalClips}; mode ${mode}, seleksi per segmen.`);
 }
 
 export async function ensureImages(item, options = {}) {
   if (!config.openai.apiKey) throw new Error("OPENAI_API_KEY wajib diisi untuk generate gambar.");
   const warnings = options.warnings || [];
-  const images = [...(item.assets.images || [])];
+  const generateImage = options.generateImage || generateImageWithRetry;
+  const persistItem = options.persistItem || saveItem;
+  const mediaExists = createMediaExists(options.fileExists || pathExists);
+  item.assets = item.assets || {};
+  const managedSlots = new Set(flattenPexelsSegments(item).map((slot) => slot.slot));
+  const images = [];
+  const clips = [];
+  let prunedStaleMedia = false;
+
+  for (const image of item.assets.images || []) {
+    const slot = segmentSlot(image.sceneIndex, image.segmentIndex);
+    if (!managedSlots.has(slot) || await mediaExists(image.path)) {
+      images.push(image);
+    } else {
+      prunedStaleMedia = true;
+    }
+  }
+  for (const clip of item.assets.clips || []) {
+    const slot = segmentSlot(clip.sceneIndex, clip.segmentIndex);
+    if (!managedSlots.has(slot) || await mediaExists(clip.path)) {
+      clips.push(clip);
+    } else {
+      prunedStaleMedia = true;
+    }
+  }
+
+  item.assets.images = sortByScene(images);
+  item.assets.clips = sortByScene(clips);
+  if (prunedStaleMedia) {
+    item.updatedAt = nowIso();
+    await persistItem(item);
+  }
+
   const size = item.input.imageSize || LANDSCAPE_SIZE;
   const quality = item.input.imageQuality || config.openai.imageQuality;
 
   // Hanya generate gambar untuk scene yang BELUM punya klip Pexels
-  const clips = item.assets.clips || [];
   const imageScenes = item.plan.scenes.filter((s) => {
     if (s.sceneType === "reaction") return false;
     return true;
@@ -220,14 +645,14 @@ export async function ensureImages(item, options = {}) {
         imagePrompt: segment.imagePrompt || scene.imagePrompt,
         segmentIndex: segIdx
       };
-      const image = await generateImageWithRetry({ item, scene: segScene, size, quality });
+      const image = await generateImage({ item, scene: segScene, size, quality });
       image.segmentIndex = segIdx;
       imageDone += 1;
       reportProgress("images", "Membuat gambar (DALL-E multi-segment)", Math.round((imageDone / totalSegments) * 100), `${imageDone}/${totalSegments}`);
       images.push(image);
       item.assets.images = sortByScene(images);
       item.updatedAt = nowIso();
-      await saveItem(item);
+      await persistItem(item);
     } catch (error) {
       const message = `Gambar scene ${scene.index} seg ${segIdx} gagal: ${error.message}`;
       if (options.strict) throw new Error(message);
@@ -483,5 +908,8 @@ function updateTotalCost(item) {
 }
 
 function sortByScene(items) {
-  return [...items].sort((a, b) => Number(a.sceneIndex || 0) - Number(b.sceneIndex || 0));
+  return [...items].sort((a, b) => (
+    (Number(a.sceneIndex || 0) - Number(b.sceneIndex || 0))
+    || (Number(a.segmentIndex || 0) - Number(b.segmentIndex || 0))
+  ));
 }

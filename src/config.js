@@ -14,8 +14,10 @@ function clean(value) {
   return String(value || "").trim();
 }
 
-function numberEnv(name, fallback) {
-  const value = Number(process.env[name]);
+export function numberEnv(name, fallback) {
+  const raw = String(process.env[name] ?? "").trim();
+  if (!raw) return fallback;
+  const value = Number(raw);
   return Number.isFinite(value) ? value : fallback;
 }
 
@@ -136,12 +138,14 @@ export const config = {
   pexels: {
     apiKey: process.env.PEXELS_API_KEY || "",
     preferVideo: boolDefault(process.env.PEXELS_PREFER_VIDEO, true),
+    locale: clean(process.env.PEXELS_LOCALE || "en-US"),
     minDurationSec: Math.max(3, numberEnv("PEXELS_MIN_DURATION_SEC", 8)),
-    maxResultsPerScene: Math.max(1, Math.min(15, numberEnv("PEXELS_MAX_RESULTS", 5))),
+    maxResultsPerScene: Math.max(1, Math.min(80, Math.floor(numberEnv("PEXELS_MAX_RESULTS", 30)))),
+    maxQueryAttempts: Math.max(1, Math.min(2, Math.floor(numberEnv("PEXELS_MAX_QUERY_ATTEMPTS", 2)))),
     // Pilih scene penerima video berdasarkan kekonkretan keyword (semantik), bukan paritas indeks.
     semanticSelection: boolDefault(process.env.PEXELS_SEMANTIC_SELECTION, true),
-    // Minimal overlap keyword↔judul klip agar klip diterima. 0 = hanya merangking, tak menolak.
-    minRelevance: Math.max(0, numberEnv("PEXELS_MIN_RELEVANCE", 0)),
+    // Minimal cakupan token query pada slug klip (0-1); selalu nonzero agar hasil meleset ditolak.
+    minRelevance: Math.max(0.01, Math.min(1, numberEnv("PEXELS_MIN_RELEVANCE", 0.34))),
     overlayEnabled: boolDefault(process.env.PEXELS_OVERLAY_ENABLED, true),
     overlayPath: clean(process.env.PEXELS_OVERLAY_PATH || path.join(rootDir, "assets", "overlays", "fire-sparks-black.mp4")),
     overlayOpacity: Math.min(1, Math.max(0.05, numberEnv("PEXELS_OVERLAY_OPACITY", 0.55))),
