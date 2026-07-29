@@ -146,7 +146,10 @@ export const config = {
     maxQueryAttempts: Math.max(1, Math.min(2, Math.floor(numberEnv("PEXELS_MAX_QUERY_ATTEMPTS", 2)))),
     // Pilih scene penerima video berdasarkan kekonkretan keyword (semantik), bukan paritas indeks.
     semanticSelection: boolDefault(process.env.PEXELS_SEMANTIC_SELECTION, true),
-    // Minimal cakupan token query pada slug klip (0-1); selalu nonzero agar hasil meleset ditolak.
+    // Porsi maksimum segmen visual yang diisi klip video (0-1, default 70%).
+    clipRatio: Math.max(0, Math.min(1, numberEnv("PEXELS_CLIP_RATIO", 0.7))),
+    // DEPRECATED: relevansi kini murni sinyal ranking, bukan gerbang penolakan.
+    // Field dipertahankan untuk kompatibilitas audit lama.
     minRelevance: Math.max(0.01, Math.min(1, numberEnv("PEXELS_MIN_RELEVANCE", 0.34))),
     overlayEnabled: boolDefault(process.env.PEXELS_OVERLAY_ENABLED, true),
     overlayPath: clean(process.env.PEXELS_OVERLAY_PATH || path.join(rootDir, "assets", "overlays", "fire-sparks-black.mp4")),

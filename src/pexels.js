@@ -358,14 +358,11 @@ function matchedTokens(expectedTokens, actualTokens) {
  */
 export function scorePexelsCandidate(video, options = {}) {
   const queryTokens = uniqueTokens(tokenizeWords(options.query || ""));
-  const explicitMustMatchTokens = termTokens(options.mustMatchTerms);
-  // Jangan bergantung pada normalizer storyboard untuk melengkapi identitas.
-  // Jika caller hanya mengirim sebagian must-match (atau tidak sama sekali),
-  // isi hingga tiga token dari awal query. Ketiganya menjadi gerbang wajib.
-  const mustMatchTokens = uniqueTokens([
-    ...explicitMustMatchTokens,
-    ...queryTokens.filter((token) => !ABSTRACT_WORDS.has(token))
-  ]).slice(0, 3);
+  // Gerbang identitas hanya untuk istilah EKSPLISIT dari storyboard
+  // (mis. "New York", "EU"). Token query lain menjadi sinyal ranking, bukan
+  // gerbang — slug Pexels sering generik/tidak lengkap sehingga menuntut
+  // semua token query hadir membuat hampir semua kandidat valid tertolak.
+  const mustMatchTokens = termTokens(options.mustMatchTerms);
   const titleTokens = uniqueTokens(tokenizeWords(clipTitleFromVideo(video)));
   const matchedQueryTerms = matchedTokens(queryTokens, titleTokens);
   const matchedMustTerms = matchedTokens(mustMatchTokens, titleTokens);
@@ -380,11 +377,10 @@ export function scorePexelsCandidate(video, options = {}) {
     ...idSet(options.excludedPexelsIds)
   ]);
   const minDurationSec = Math.max(0, Number(options.minDurationSec) || 0);
-  const minRelevance = Math.max(0, Math.min(1, Number(options.minRelevance) || 0));
-  // mustMatchTerms adalah gerbang identitas subjek, bukan sekadar sinyal skor.
-  // Story engine membatasi field ini ke 1-3 istilah esensial, jadi semuanya
-  // wajib terlihat pada slug kandidat agar lokasi/organisasi yang mirip tidak
-  // tertukar (mis. New York dengan New Jersey).
+  // mustMatchTerms eksplisit tetap gerbang wajib agar lokasi/organisasi yang
+  // mirip tidak tertukar (mis. New York dengan New Jersey). Relevansi query
+  // TIDAK lagi menjadi gerbang (options.minRelevance diabaikan): kandidat
+  // dengan minimal satu token cocok dinilai lewat ranking skor.
   const requiredMustMatches = mustMatchTokens.length;
 
   let rejectionReason = "";
@@ -393,7 +389,6 @@ export function scorePexelsCandidate(video, options = {}) {
   else if (!file) rejectionReason = "no-landscape-mp4";
   else if (!matchedTerms.length || relevance === 0) rejectionReason = "zero-relevance";
   else if (matchedMustTerms.length < requiredMustMatches) rejectionReason = "must-match";
-  else if (relevance < minRelevance) rejectionReason = "relevance-gate";
 
   const score = (matchedMustTerms.length * 12)
     + (matchedQueryTerms.length * 3)

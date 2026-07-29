@@ -310,6 +310,16 @@ sequenceDiagram
   If grounding behavior changes, keep `test/grounding.test.js` aligned.
 - Pexels selection is heuristic and intentionally cheap. Concrete visual
   keywords get video priority; abstract scenes fall back to images.
+- Pexels candidate semantics are ranking-first: hard rejections are only
+  technical (excluded id, duration, no landscape mp4), plus zero-relevance
+  (no token overlap at all) and the explicit storyboard `mustMatchTerms`
+  identity gate (e.g. New York vs New Jersey). Query-token coverage and
+  `PEXELS_MIN_RELEVANCE` are no longer rejection gates — they only rank
+  (`PEXELS_MIN_RELEVANCE` is deprecated). Must-match terms are NOT auto-filled
+  from the query anymore; only what the storyboard sends explicitly gates.
+- Clip quota is `PEXELS_CLIP_RATIO` (default 0.7): up to 70% of eligible
+  visual segments get video clips, floor-rounded, minimum 1. The remaining
+  segments use generated images.
 - Image generation uses a 2x2 grid strategy (`IMAGE_GRID_MODE`, default on):
   each image/summary scene has exactly 4 sequential `visualSegments`, and one
   OpenAI image call produces a 2x2 photorealistic grid that

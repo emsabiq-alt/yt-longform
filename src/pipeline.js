@@ -185,9 +185,10 @@ export function buildPexelsClipJobs(item, options = {}) {
     return true;
   });
   // Satu segmen tetap mendapat satu kesempatan. Untuk lebih dari satu segmen,
-  // kuota selalu dibulatkan ke bawah agar "maksimum 50%" tidak berubah menjadi
-  // tiga video dari lima segmen.
-  const quota = slots.length === 1 ? 1 : Math.floor(slots.length / 2);
+  // kuota mengikuti rasio klip (default 70% agar video mendominasi visual;
+  // atur via PEXELS_CLIP_RATIO). Dibulatkan ke bawah agar rasio tidak terlampaui.
+  const clipRatio = Math.max(0, Math.min(1, Number(options.clipRatio ?? config.pexels.clipRatio ?? 0.7)));
+  const quota = slots.length === 1 ? 1 : Math.max(1, Math.floor(slots.length * clipRatio));
   const eligible = slots.filter((slot) => (
     slot.hasSearchIntent
     && !slot.explicitImageFallback

@@ -93,7 +93,7 @@ test("assertReadyToRender: gagal 409 jika tidak ada audio TTS sama sekali", () =
   });
 });
 
-test("buildPexelsClipJobs: lima segmen hanya mendapat maksimal dua job", () => {
+test("buildPexelsClipJobs: lima segmen mendapat maksimal tiga job (rasio 70%)", () => {
   const item = makeItem({
     scenes: [
       {
@@ -121,11 +121,16 @@ test("buildPexelsClipJobs: lima segmen hanya mendapat maksimal dua job", () => {
     ]
   });
 
+  // 5 slot pencarian (reaction dikecualikan): kuota = floor(5 * 0.7) = 3.
   const jobs = buildPexelsClipJobs(item, { semanticSelection: true });
-  assert.equal(jobs.length, 2);
+  assert.equal(jobs.length, 3);
   assert.ok(jobs.every((job) => job.scene.sceneType !== "reaction"));
   assert.ok(jobs.every((job) => job.segScene.pexelsQuery));
-  assert.equal(new Set(jobs.map((job) => job.slot)).size, 2);
+  assert.equal(new Set(jobs.map((job) => job.slot)).size, 3);
+
+  // Rasio dapat dikendalikan per pemanggilan (perilaku lama 50% tetap bisa dipilih).
+  const halfJobs = buildPexelsClipJobs(item, { semanticSelection: true, clipRatio: 0.5 });
+  assert.equal(halfJobs.length, 2);
 });
 
 test("buildPexelsClipJobs: satu segmen konkret tetap mendapat satu kesempatan", () => {
