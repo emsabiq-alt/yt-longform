@@ -110,7 +110,8 @@ export const config = {
     apiKey: process.env.DEEPSEEK_API_KEY || "",
     baseUrl: trimSlash(process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com"),
     model: clean(process.env.DEEPSEEK_MODEL || "deepseek-chat"),
-    timeoutMs: Math.max(5000, numberEnv("DEEPSEEK_TIMEOUT_MS", 60000))
+    timeoutMs: Math.max(5000, numberEnv("DEEPSEEK_TIMEOUT_MS", 60000)),
+    languagesPerRequest: Math.min(10, Math.max(1, Math.floor(numberEnv("DEEPSEEK_LANGUAGES_PER_REQUEST", 5))))
   },
   elevenlabs: {
     apiKey: process.env.ELEVENLABS_API_KEY || "",
@@ -128,7 +129,7 @@ export const config = {
     localizationEnabled: boolDefault(process.env.YOUTUBE_LOCALIZATION_ENABLED, true),
     localizationLanguages: parseLanguageList(
       process.env.YOUTUBE_LOCALIZATION_LANGUAGES,
-      ["en", "es", "pt-BR", "hi", "bn", "ar", "fr", "ja"]
+      ["en", "es", "pt-BR", "hi", "bn", "ar", "fr", "ja", "de", "tr", "ko", "zh-CN", "ru", "it", "nl", "pl", "vi", "th", "ur", "fa", "ta", "te", "mr", "gu", "pa", "ms", "fil", "uk", "ro", "sw"]
     ),
     categoryId: clean(process.env.YOUTUBE_CATEGORY_ID || "27"),
     tags: clean(process.env.YOUTUBE_TAGS || "BanyakTau,Edukasi,Pengetahuan,Sains,Sejarah,Teknologi")

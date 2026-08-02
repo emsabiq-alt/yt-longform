@@ -69,7 +69,8 @@ Token YouTube sama persis dengan akun banyaktau.
 ## Metadata multibahasa YouTube
 
 Bahasa utama selalu `id` melalui `YOUTUBE_DEFAULT_LANGUAGE=id`. Setelah upload,
-DeepSeek membuat judul dan deskripsi untuk bahasa pada
+DeepSeek membuat judul dan deskripsi untuk 30 bahasa pada
 `YOUTUBE_LOCALIZATION_LANGUAGES`, lalu YouTube Data API menyimpannya sebagai
-localizations pada video yang sama. Simpan `DEEPSEEK_API_KEY` hanya di `.env`
-lokal atau secret CI; jangan pernah commit key ke Git.
+localizations pada video yang sama. Terjemahan dibagi beberapa batch agar
+aman untuk konteks model. Simpan `DEEPSEEK_API_KEY` hanya di `.env` lokal atau
+secret CI; jangan pernah commit key ke Git.

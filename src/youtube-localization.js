@@ -113,22 +113,15 @@ export function normalizeLocalizations(localizations, sourceDescription = "") {
   return output;
 }
 
-export async function translateYoutubeMetadata({ title, description, languages } = {}) {
-  if (!config.youtube.localizationEnabled) {
-    return { ok: true, skipped: true, reason: "Lokalisasi YouTube dinonaktifkan.", localizations: {} };
+function chunk(values, size) {
+  const output = [];
+  for (let index = 0; index < values.length; index += size) {
+    output.push(values.slice(index, index + size));
   }
-  if (!config.deepseek.apiKey) {
-    return { ok: true, skipped: true, reason: "DEEPSEEK_API_KEY belum diisi.", localizations: {} };
-  }
+  return output;
+}
 
-  const requested = normalizeLanguageList(
-    languages || config.youtube.localizationLanguages,
-    config.youtube.defaultLanguage
-  );
-  if (!requested.length) {
-    return { ok: true, skipped: true, reason: "Tidak ada bahasa lokalisasi yang diminta.", localizations: {} };
-  }
-
+async function requestDeepSeekBatch({ title, description, languages }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.deepseek.timeoutMs);
   try {
@@ -148,7 +141,7 @@ export async function translateYoutubeMetadata({ title, description, languages }
             role: "system",
             content: "You are a precise multilingual YouTube metadata translator. Output valid JSON only."
           },
-          { role: "user", content: buildTranslationPrompt({ title, description, languages: requested }) }
+          { role: "user", content: buildTranslationPrompt({ title, description, languages }) }
         ]
       })
     });
@@ -160,21 +153,65 @@ export async function translateYoutubeMetadata({ title, description, languages }
       throw new Error(`DeepSeek gagal: ${detail} [HTTP ${response.status}]`);
     }
     const content = data.choices?.[0]?.message?.content || "";
-    const parsed = parseTranslationPayload(content, requested);
+    const parsed = parseTranslationPayload(content, languages);
     return {
       ok: true,
-      skipped: false,
-      model: config.deepseek.model,
-      languages: Object.keys(parsed),
       localizations: normalizeLocalizations(parsed, description)
     };
   } catch (error) {
     const message = error?.name === "AbortError"
       ? `DeepSeek timeout setelah ${config.deepseek.timeoutMs} ms.`
       : error.message;
-    return { ok: false, skipped: false, reason: message, localizations: {} };
+    return { ok: false, reason: message, localizations: {} };
   } finally {
     clearTimeout(timer);
   }
 }
 
+export async function translateYoutubeMetadata({ title, description, languages } = {}) {
+  if (!config.youtube.localizationEnabled) {
+    return { ok: true, skipped: true, reason: "Lokalisasi YouTube dinonaktifkan.", localizations: {} };
+  }
+  if (!config.deepseek.apiKey) {
+    return { ok: true, skipped: true, reason: "DEEPSEEK_API_KEY belum diisi.", localizations: {} };
+  }
+
+  const requested = normalizeLanguageList(
+    languages || config.youtube.localizationLanguages,
+    config.youtube.defaultLanguage
+  );
+  if (!requested.length) {
+    return { ok: true, skipped: true, reason: "Tidak ada bahasa lokalisasi yang diminta.", localizations: {} };
+  }
+
+  const combined = {};
+  const errors = [];
+  const batches = chunk(requested, config.deepseek.languagesPerRequest);
+  for (const batch of batches) {
+    const result = await requestDeepSeekBatch({ title, description, languages: batch });
+    if (!result.ok) {
+      errors.push(result.reason);
+      continue;
+    }
+    Object.assign(combined, result.localizations);
+  }
+
+  const languagesReturned = Object.keys(combined);
+  if (errors.length) {
+    return {
+      ok: false,
+      skipped: false,
+      model: config.deepseek.model,
+      languages: languagesReturned,
+      reason: `${errors.length}/${batches.length} batch DeepSeek gagal: ${errors.join("; ")}`,
+      localizations: combined
+    };
+  }
+  return {
+    ok: true,
+    skipped: false,
+    model: config.deepseek.model,
+    languages: languagesReturned,
+    localizations: combined
+  };
+}
