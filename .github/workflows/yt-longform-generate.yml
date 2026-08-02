@@ -85,6 +85,9 @@ jobs:
       OPENAI_TTS_MODEL: ${{ secrets.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts' }}
       OPENAI_TTS_VOICE: ${{ github.event.inputs.tts_voice || secrets.OPENAI_TTS_VOICE || 'cedar' }}
       OPENAI_TRANSCRIBE_MODEL: ${{ secrets.OPENAI_TRANSCRIBE_MODEL || 'whisper-1' }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || secrets.deepseek_api_key }}
+      DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}
+      DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL || 'deepseek-chat' }}
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
       ELEVENLABS_MODEL: ${{ secrets.ELEVENLABS_MODEL || 'eleven_multilingual_v2' }}
       ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID || 'wUrGnU2Kx934kbDdOWDo' }}
@@ -110,6 +113,9 @@ jobs:
       YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
       YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
       YOUTUBE_PRIVACY_STATUS: ${{ secrets.YOUTUBE_PRIVACY_STATUS || 'public' }}
+      YOUTUBE_DEFAULT_LANGUAGE: id
+      YOUTUBE_LOCALIZATION_ENABLED: ${{ secrets.YOUTUBE_LOCALIZATION_ENABLED || 'true' }}
+      YOUTUBE_LOCALIZATION_LANGUAGES: ${{ secrets.YOUTUBE_LOCALIZATION_LANGUAGES || 'en,es,pt-BR,hi,bn,ar,fr,ja' }}
       YOUTUBE_CATEGORY_ID: ${{ secrets.YOUTUBE_CATEGORY_ID || '27' }}
       YOUTUBE_TAGS: ${{ secrets.YOUTUBE_TAGS || 'BanyakTau,Edukasi,Pengetahuan,Sains,Sejarah,Teknologi' }}
       THUMBNAIL_GENERATION_ENABLED: ${{ secrets.THUMBNAIL_GENERATION_ENABLED || 'true' }}
