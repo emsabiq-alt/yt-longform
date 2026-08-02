@@ -4,6 +4,7 @@ import { config } from "./config.js";
 
 const tokenUrl = "https://oauth2.googleapis.com/token";
 const videoUploadUrl = "https://www.googleapis.com/upload/youtube/v3/videos";
+const videoApiUrl = "https://www.googleapis.com/youtube/v3/videos";
 const thumbnailUploadUrl = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set";
 const maxThumbnailBytes = 2 * 1024 * 1024;
 
@@ -71,6 +72,72 @@ export async function getYoutubeAccessToken() {
   return data.access_token;
 }
 
+export async function getYoutubeVideo({ videoId, accessToken }) {
+  const url = new URL(videoApiUrl);
+  url.searchParams.set("part", "snippet,localizations");
+  url.searchParams.set("id", videoId);
+  const { data } = await fetchJson(url, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  const item = data.items?.[0];
+  if (!item) throw new Error(`Video YouTube tidak ditemukan: ${videoId}`);
+  return item;
+}
+
+function normalizeLocalizations(localizations = {}) {
+  const result = {};
+  for (const [language, value] of Object.entries(localizations || {})) {
+    const title = normalizeTitle(value?.title);
+    const description = normalizeDescription(value?.description);
+    if (!language || !title || !description) continue;
+    result[language] = { title, description };
+  }
+  return result;
+}
+
+export async function updateYoutubeLocalizations({
+  videoId,
+  localizations = {},
+  accessToken,
+  snippet = {}
+}) {
+  const normalized = normalizeLocalizations(localizations);
+  if (!videoId || !Object.keys(normalized).length) {
+    return { ok: true, skipped: true, languages: [] };
+  }
+
+  const current = snippet.title && snippet.categoryId
+    ? snippet
+    : (await getYoutubeVideo({ videoId, accessToken })).snippet || {};
+  const body = {
+    id: videoId,
+    snippet: {
+      title: normalizeTitle(current.title),
+      description: normalizeDescription(current.description),
+      categoryId: clean(current.categoryId || config.youtube.categoryId),
+      defaultLanguage: clean(current.defaultLanguage || config.youtube.defaultLanguage),
+      tags: normalizeTags(current.tags || [])
+    },
+    localizations: normalized
+  };
+  const url = new URL(videoApiUrl);
+  url.searchParams.set("part", "snippet,localizations");
+  const { data } = await fetchJson(url, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json; charset=UTF-8"
+    },
+    body: JSON.stringify(body)
+  });
+  return {
+    ok: true,
+    skipped: false,
+    languages: Object.keys(data.localizations || normalized),
+    localizations: data.localizations || normalized
+  };
+}
+
 async function setYoutubeThumbnail({ videoId, thumbnailPath, accessToken }) {
   if (!videoId || !thumbnailPath) return { ok: false, skipped: true, error: "" };
   let stat;
@@ -109,7 +176,14 @@ async function setYoutubeThumbnail({ videoId, thumbnailPath, accessToken }) {
   return { ok: false, error: lastError?.message || "Upload thumbnail YouTube gagal." };
 }
 
-export async function publishToYoutube({ videoPath, title, description, tags = [], thumbnailPath }) {
+export async function publishToYoutube({
+  videoPath,
+  title,
+  description,
+  tags = [],
+  thumbnailPath,
+  localizations = {}
+}) {
   const accessToken = await getYoutubeAccessToken();
   const stat = await fsp.stat(videoPath);
   const metadata = {
@@ -117,7 +191,8 @@ export async function publishToYoutube({ videoPath, title, description, tags = [
       title: normalizeTitle(title),
       description: normalizeDescription(description),
       categoryId: config.youtube.categoryId,
-      tags: normalizeTags([...config.youtube.tags, ...tags])
+      tags: normalizeTags([...config.youtube.tags, ...tags]),
+      defaultLanguage: config.youtube.defaultLanguage
     },
     status: {
       privacyStatus: normalizePrivacyStatus(config.youtube.privacyStatus),
@@ -170,6 +245,20 @@ export async function publishToYoutube({ videoPath, title, description, tags = [
     ? await setYoutubeThumbnail({ videoId, thumbnailPath, accessToken })
     : { ok: false, skipped: true, error: "" };
 
+  let localization = { ok: true, skipped: true, languages: [], error: "" };
+  if (Object.keys(localizations).length) {
+    try {
+      localization = await updateYoutubeLocalizations({
+        videoId,
+        accessToken,
+        localizations,
+        snippet: metadata.snippet
+      });
+    } catch (error) {
+      localization = { ok: false, skipped: false, languages: [], error: error.message };
+    }
+  }
+
   return {
     ok: true,
     type: "youtube_video",
@@ -177,6 +266,9 @@ export async function publishToYoutube({ videoPath, title, description, tags = [
     url: `https://www.youtube.com/watch?v=${videoId}`,
     privacyStatus: metadata.status.privacyStatus,
     title: metadata.snippet.title,
+    defaultLanguage: metadata.snippet.defaultLanguage,
+    localizations: localization.languages,
+    localizationError: localization.ok ? "" : localization.error,
     customThumbnail: Boolean(thumbnail.ok),
     thumbnailError: thumbnail.ok || thumbnail.skipped ? "" : thumbnail.error
   };

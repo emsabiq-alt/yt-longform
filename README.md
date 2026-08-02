@@ -29,6 +29,7 @@ npm run preflight      # cek ffmpeg, key, remote
 - `npm run dev` — server + dashboard lokal di `http://localhost:3050`
 - `npm run run:once` — generate satu video panjang lalu upload + publish YouTube
 - `npm run rerender -- --id=<item-id>` — render ulang item yang sudah ada
+- `npm run localize:youtube -- --video-id=<VIDEO_ID>` — terjemahkan judul/deskripsi video YouTube yang sudah ada
 
 ### Aplikasi lokal (Python)
 ```bash
@@ -63,3 +64,11 @@ Set domain `dashboard-yt.emsa.pro` di project Vercel.
 `SFTP_REMOTE_DIR`, `OPENAI_API_KEY`, `ELEVENLABS_API_KEY` (opsional),
 `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN`.
 Token YouTube sama persis dengan akun banyaktau.
+
+## Metadata multibahasa YouTube
+
+Bahasa utama selalu `id` melalui `YOUTUBE_DEFAULT_LANGUAGE=id`. Setelah upload,
+DeepSeek membuat judul dan deskripsi untuk bahasa pada
+`YOUTUBE_LOCALIZATION_LANGUAGES`, lalu YouTube Data API menyimpannya sebagai
+localizations pada video yang sama. Simpan `DEEPSEEK_API_KEY` hanya di `.env`
+lokal atau secret CI; jangan pernah commit key ke Git.

@@ -3,6 +3,7 @@ import { buildTitle, buildDescription } from "./youtube-meta.js";
 import { getItem, saveItem, mergeMemoryItems } from "./storage.js";
 import { publishToYoutube, getYoutubeAccessToken } from "./youtube-publisher.js";
 import { addToPlaylistByCategory } from "./youtube-playlist.js";
+import { translateYoutubeMetadata } from "./youtube-localization.js";
 import { remoteEnabled, uploadGeneratedStateAndAssets, absolutizeGeneratedUrls } from "./remote.js";
 import { reportProgress } from "./progress.js";
 
@@ -36,13 +37,27 @@ if (!config.youtube.enabled) {
 
 try {
   reportProgress("publish", "Mengunggah video ke YouTube", 30, "mengirim berkas...");
+  const title = buildTitle(item);
+  const description = buildDescription(item);
+  const localization = await translateYoutubeMetadata({ title, description });
+  if (localization.skipped) {
+    console.log(`[Localization] Dilewati: ${localization.reason}`);
+  } else if (!localization.ok) {
+    console.warn(`[Localization] ${localization.reason}`);
+  } else {
+    console.log(`[Localization] Siap: ${localization.languages.join(", ")}`);
+  }
   const published = await publishToYoutube({
     videoPath: item.assets?.video?.path || "",
-    title: buildTitle(item),
-    description: buildDescription(item),
+    title,
+    description,
     tags: [item.input?.category, item.input?.topic].filter(Boolean),
-    thumbnailPath: item.assets?.thumbnail?.path || ""
+    thumbnailPath: item.assets?.thumbnail?.path || "",
+    localizations: localization.localizations
   });
+  if (published.localizationError) {
+    console.warn(`[Localization] ${published.localizationError}`);
+  }
 
   reportProgress("publish", "Menambahkan ke playlist YouTube", 80, "playlist...");
   let playlistResult = { ok: false, skipped: true, error: "" };

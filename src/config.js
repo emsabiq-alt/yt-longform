@@ -53,6 +53,22 @@ function parsePlaylistMap(value) {
   return map;
 }
 
+function parseLanguageList(value, fallback = []) {
+  const rows = clean(value).split(",").map((entry) => entry.trim()).filter(Boolean);
+  const source = rows.length ? rows : fallback;
+  const seen = new Set();
+  return source.map((entry) => {
+    const parts = String(entry).trim().split("-");
+    const language = (parts.shift() || "").toLowerCase();
+    const region = parts.join("-").toUpperCase();
+    return region ? `${language}-${region}` : language;
+  }).filter((entry) => {
+    if (!/^[a-z]{2,3}(?:-[A-Z]{2,4})?$/.test(entry) || seen.has(entry)) return false;
+    seen.add(entry);
+    return true;
+  });
+}
+
 export const paths = {
   rootDir,
   dataDir: path.join(rootDir, "data"),
@@ -90,6 +106,12 @@ export const config = {
     ttsVoice: clean(process.env.OPENAI_TTS_VOICE || process.env.TTS_VOICE || "cedar"),
     transcribeModel: clean(process.env.OPENAI_TRANSCRIBE_MODEL || "whisper-1")
   },
+  deepseek: {
+    apiKey: process.env.DEEPSEEK_API_KEY || "",
+    baseUrl: trimSlash(process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com"),
+    model: clean(process.env.DEEPSEEK_MODEL || "deepseek-chat"),
+    timeoutMs: Math.max(5000, numberEnv("DEEPSEEK_TIMEOUT_MS", 60000))
+  },
   elevenlabs: {
     apiKey: process.env.ELEVENLABS_API_KEY || "",
     model: clean(process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2"),
@@ -102,6 +124,12 @@ export const config = {
     clientSecret: process.env.YOUTUBE_CLIENT_SECRET || "",
     refreshToken: process.env.YOUTUBE_REFRESH_TOKEN || "",
     privacyStatus: clean(process.env.YOUTUBE_PRIVACY_STATUS || "public"),
+    defaultLanguage: clean(process.env.YOUTUBE_DEFAULT_LANGUAGE || "id") || "id",
+    localizationEnabled: boolDefault(process.env.YOUTUBE_LOCALIZATION_ENABLED, true),
+    localizationLanguages: parseLanguageList(
+      process.env.YOUTUBE_LOCALIZATION_LANGUAGES,
+      ["en", "es", "pt-BR", "hi", "bn", "ar", "fr", "ja"]
+    ),
     categoryId: clean(process.env.YOUTUBE_CATEGORY_ID || "27"),
     tags: clean(process.env.YOUTUBE_TAGS || "BanyakTau,Edukasi,Pengetahuan,Sains,Sejarah,Teknologi")
       .split(",").map((tag) => clean(tag)).filter(Boolean),
@@ -222,10 +250,16 @@ export function publicConfig() {
       openaiTtsModel: config.openai.ttsModel,
       openaiTtsVoice: config.openai.ttsVoice,
       openaiTranscribeModel: config.openai.transcribeModel,
+      deepseek: Boolean(config.deepseek.apiKey),
+      deepseekBaseUrl: config.deepseek.baseUrl,
+      deepseekModel: config.deepseek.model,
       elevenlabsModel: config.elevenlabs.model,
       elevenlabsVoiceId: config.elevenlabs.voiceId,
       elevenlabsSpeed: config.elevenlabs.speed,
       youtubeUploadEnabled: config.youtube.enabled,
+      youtubeDefaultLanguage: config.youtube.defaultLanguage,
+      youtubeLocalizationEnabled: config.youtube.localizationEnabled,
+      youtubeLocalizationLanguages: config.youtube.localizationLanguages,
       youtubeClientIdSet: bool(config.youtube.clientId),
       youtubeRefreshTokenSet: bool(config.youtube.refreshToken),
       pexels: Boolean(config.pexels.apiKey),
@@ -251,6 +285,9 @@ export async function updateRuntimeSettings(input = {}) {
     openaiTtsVoice: "OPENAI_TTS_VOICE",
     openaiTtsModel: "OPENAI_TTS_MODEL",
     openaiTranscribeModel: "OPENAI_TRANSCRIBE_MODEL",
+    deepseekApiKey: "DEEPSEEK_API_KEY",
+    deepseekBaseUrl: "DEEPSEEK_BASE_URL",
+    deepseekModel: "DEEPSEEK_MODEL",
     elevenlabsApiKey: "ELEVENLABS_API_KEY",
     elevenlabsModel: "ELEVENLABS_MODEL",
     elevenlabsVoiceId: "ELEVENLABS_VOICE_ID",
@@ -308,6 +345,9 @@ function applyConfigUpdates(updates) {
   if (updates.OPENAI_TTS_MODEL !== undefined) config.openai.ttsModel = updates.OPENAI_TTS_MODEL;
   if (updates.OPENAI_TTS_VOICE !== undefined) config.openai.ttsVoice = updates.OPENAI_TTS_VOICE;
   if (updates.OPENAI_TRANSCRIBE_MODEL !== undefined) config.openai.transcribeModel = updates.OPENAI_TRANSCRIBE_MODEL;
+  if (updates.DEEPSEEK_API_KEY !== undefined) config.deepseek.apiKey = updates.DEEPSEEK_API_KEY;
+  if (updates.DEEPSEEK_BASE_URL !== undefined) config.deepseek.baseUrl = trimSlash(updates.DEEPSEEK_BASE_URL);
+  if (updates.DEEPSEEK_MODEL !== undefined) config.deepseek.model = updates.DEEPSEEK_MODEL;
   if (updates.ELEVENLABS_API_KEY !== undefined) config.elevenlabs.apiKey = updates.ELEVENLABS_API_KEY;
   if (updates.ELEVENLABS_MODEL !== undefined) config.elevenlabs.model = updates.ELEVENLABS_MODEL;
   if (updates.ELEVENLABS_VOICE_ID !== undefined) config.elevenlabs.voiceId = updates.ELEVENLABS_VOICE_ID;
