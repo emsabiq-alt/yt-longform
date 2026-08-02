@@ -30,6 +30,7 @@ npm run preflight      # cek ffmpeg, key, remote
 - `npm run run:once` — generate satu video panjang lalu upload + publish YouTube
 - `npm run rerender -- --id=<item-id>` — render ulang item yang sudah ada
 - `npm run localize:youtube -- --video-id=<VIDEO_ID>` — terjemahkan judul/deskripsi video YouTube yang sudah ada
+- `npm run localize:youtube:all -- --limit=0` — terjemahkan semua video channel yang belum punya lokalisasi
 
 ### Aplikasi lokal (Python)
 ```bash
