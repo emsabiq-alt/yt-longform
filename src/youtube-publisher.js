@@ -115,7 +115,9 @@ export async function updateYoutubeLocalizations({
       title: normalizeTitle(current.title),
       description: normalizeDescription(current.description),
       categoryId: clean(current.categoryId || config.youtube.categoryId),
-      defaultLanguage: clean(current.defaultLanguage || config.youtube.defaultLanguage),
+      // The primary title/description belong to the Indonesian channel. Keep
+      // foreign-language variants only in `localizations`.
+      defaultLanguage: config.youtube.defaultLanguage,
       tags: normalizeTags(current.tags || [])
     },
     localizations: normalized

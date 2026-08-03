@@ -38,11 +38,11 @@ jobs:
       YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
       YOUTUBE_DEFAULT_LANGUAGE: id
       YOUTUBE_LOCALIZATION_ENABLED: "true"
-      YOUTUBE_LOCALIZATION_LANGUAGES: ${{ github.event.inputs.languages || 'en,es,pt-BR,hi,bn,ar,fr,ja' }}
+      YOUTUBE_LOCALIZATION_LANGUAGES: ${{ github.event.inputs.languages || 'en,es,pt-BR,hi,bn,ar,fr,ja,de,tr,ko,zh-CN,ru,it,nl,pl,vi,th,ur,fa,ta,te,mr,gu,pa,ms,fil,uk,ro,sw' }}
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || secrets.deepseek_api_key }}
       DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}
       DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL || 'deepseek-chat' }}
-      LANGUAGES: ${{ github.event.inputs.languages || 'en,es,pt-BR,hi,bn,ar,fr,ja' }}
+      LANGUAGES: ${{ github.event.inputs.languages || 'en,es,pt-BR,hi,bn,ar,fr,ja,de,tr,ko,zh-CN,ru,it,nl,pl,vi,th,ur,fa,ta,te,mr,gu,pa,ms,fil,uk,ro,sw' }}
       LIMIT: ${{ github.event.inputs.limit || '0' }}
       CONCURRENCY: ${{ github.event.inputs.concurrency || '3' }}
       FORCE: ${{ github.event.inputs.force || 'false' }}
@@ -61,4 +61,3 @@ jobs:
 
       - name: Localize all uploaded videos
         run: npm run localize:youtube:all -- --languages "$LANGUAGES" --limit "$LIMIT" --concurrency "$CONCURRENCY" --force "$FORCE"
-
