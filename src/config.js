@@ -126,6 +126,7 @@ export const config = {
     refreshToken: process.env.YOUTUBE_REFRESH_TOKEN || "",
     privacyStatus: clean(process.env.YOUTUBE_PRIVACY_STATUS || "public"),
     defaultLanguage: clean(process.env.YOUTUBE_DEFAULT_LANGUAGE || "id") || "id",
+    defaultAudioLanguage: clean(process.env.YOUTUBE_DEFAULT_AUDIO_LANGUAGE || "id") || "id",
     localizationEnabled: boolDefault(process.env.YOUTUBE_LOCALIZATION_ENABLED, true),
     localizationLanguages: parseLanguageList(
       process.env.YOUTUBE_LOCALIZATION_LANGUAGES,
@@ -259,6 +260,7 @@ export function publicConfig() {
       elevenlabsSpeed: config.elevenlabs.speed,
       youtubeUploadEnabled: config.youtube.enabled,
       youtubeDefaultLanguage: config.youtube.defaultLanguage,
+      youtubeDefaultAudioLanguage: config.youtube.defaultAudioLanguage,
       youtubeLocalizationEnabled: config.youtube.localizationEnabled,
       youtubeLocalizationLanguages: config.youtube.localizationLanguages,
       youtubeClientIdSet: bool(config.youtube.clientId),

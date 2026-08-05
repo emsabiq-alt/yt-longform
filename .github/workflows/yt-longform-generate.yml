@@ -115,6 +115,7 @@ jobs:
       YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
       YOUTUBE_PRIVACY_STATUS: ${{ secrets.YOUTUBE_PRIVACY_STATUS || 'public' }}
       YOUTUBE_DEFAULT_LANGUAGE: id
+      YOUTUBE_DEFAULT_AUDIO_LANGUAGE: id
       YOUTUBE_LOCALIZATION_ENABLED: ${{ secrets.YOUTUBE_LOCALIZATION_ENABLED || 'true' }}
       YOUTUBE_LOCALIZATION_LANGUAGES: ${{ secrets.YOUTUBE_LOCALIZATION_LANGUAGES || 'en,es,pt-BR,hi,bn,ar,fr,ja,de,tr,ko,zh-CN,ru,it,nl,pl,vi,th,ur,fa,ta,te,mr,gu,pa,ms,fil,uk,ro,sw' }}
       YOUTUBE_CATEGORY_ID: ${{ secrets.YOUTUBE_CATEGORY_ID || '27' }}

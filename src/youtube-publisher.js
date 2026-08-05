@@ -118,6 +118,7 @@ export async function updateYoutubeLocalizations({
       // The primary title/description belong to the Indonesian channel. Keep
       // foreign-language variants only in `localizations`.
       defaultLanguage: config.youtube.defaultLanguage,
+      defaultAudioLanguage: config.youtube.defaultAudioLanguage,
       tags: normalizeTags(current.tags || [])
     },
     localizations: normalized
@@ -194,7 +195,8 @@ export async function publishToYoutube({
       description: normalizeDescription(description),
       categoryId: config.youtube.categoryId,
       tags: normalizeTags([...config.youtube.tags, ...tags]),
-      defaultLanguage: config.youtube.defaultLanguage
+      defaultLanguage: config.youtube.defaultLanguage,
+      defaultAudioLanguage: config.youtube.defaultAudioLanguage
     },
     status: {
       privacyStatus: normalizePrivacyStatus(config.youtube.privacyStatus),
