@@ -250,27 +250,41 @@ export async function generateOpenAiSpeech({ itemId, text, voice, instructions, 
   assertOpenAi();
   await fs.mkdir(paths.audioDir, { recursive: true });
 
-  const selectedVoice = voice || config.openai.ttsVoice;
+  let selectedVoice = voice || config.openai.ttsVoice;
   const filename = `${itemId}-${safeFilename(filenameSuffix)}-narration.mp3`;
   const outputPath = path.join(paths.audioDir, filename);
-  const payload = {
-    model: config.openai.ttsModel,
-    voice: selectedVoice,
-    input: text,
-    response_format: "mp3"
+  const speechInstructions = instructions || "Bacakan sepenuhnya dalam Bahasa Indonesia. Gaya suara: Sangat energik (high-energy), bersemangat (upbeat), dan penuh dorongan (encouraging), memproyeksikan antusiasme dan motivasi tinggi. Tanda baca & Jeda: Kalimat pendek dan bertenaga (punchy) dengan jeda strategis untuk menjaga keseruan. Penyampaian: Cepat dan dinamis (fast-paced & dynamic), dengan intonasi naik untuk membangun momentum. Gaya bahasa: Berorientasi tindakan (action-oriented). Nada suara: Positif dan memberdayakan (empowering).";
+
+  const requestSpeech = async (voiceName) => {
+    const response = await fetch(`${config.openai.baseUrl}/audio/speech`, {
+      method: "POST",
+      headers: headersJson(),
+      body: JSON.stringify({
+        model: config.openai.ttsModel,
+        voice: voiceName,
+        input: text,
+        response_format: "mp3",
+        instructions: speechInstructions
+      })
+    });
+    return {
+      response,
+      detail: response.ok ? "" : await response.text()
+    };
   };
-    payload.instructions = instructions || "Bacakan sepenuhnya dalam Bahasa Indonesia. Gaya suara: Sangat energik (high-energy), bersemangat (upbeat), dan penuh dorongan (encouraging), memproyeksikan antusiasme dan motivasi tinggi. Tanda baca & Jeda: Kalimat pendek dan bertenaga (punchy) dengan jeda strategis untuk menjaga keseruan. Penyampaian: Cepat dan dinamis (fast-paced & dynamic), dengan intonasi naik untuk membangun momentum. Gaya bahasa: Berorientasi tindakan (action-oriented). Nada suara: Positif dan memberdayakan (empowering).";
-  const response = await fetch(`${config.openai.baseUrl}/audio/speech`, {
-    method: "POST",
-    headers: headersJson(),
-    body: JSON.stringify(payload)
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`OpenAI TTS gagal HTTP ${response.status}: ${detail.slice(0, 500)}`);
+
+  let result = await requestSpeech(selectedVoice);
+  const invalidVoice = /invalid value.*supported values|["']param["']\s*:\s*["']voice["']/i.test(result.detail);
+  if (!result.response.ok && invalidVoice && selectedVoice !== "cedar") {
+    console.warn(`[TTS] Voice OpenAI "${selectedVoice}" tidak valid, fallback ke voice "cedar".`);
+    selectedVoice = "cedar";
+    result = await requestSpeech(selectedVoice);
+  }
+  if (!result.response.ok) {
+    throw new Error(`OpenAI TTS gagal HTTP ${result.response.status}: ${result.detail.slice(0, 500)}`);
   }
 
-  await fs.writeFile(outputPath, Buffer.from(await response.arrayBuffer()));
+  await fs.writeFile(outputPath, Buffer.from(await result.response.arrayBuffer()));
   return {
     provider: providerName(),
     model: config.openai.ttsModel,
