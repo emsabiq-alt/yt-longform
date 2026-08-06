@@ -3,8 +3,7 @@
  * Judul dibuat AI berdasarkan deskripsi/inti video, bukan sekadar diambil dari topik.
  */
 
-import { config } from "./config.js";
-import { requestKnowledgeJson } from "./openai.js";
+import { requestKnowledgeJsonWithFallback } from "./deepseek.js";
 import { cleanText } from "./util.js";
 import { simplifyForLayAudience } from "./story-language.js";
 
@@ -77,6 +76,23 @@ function pickBestTitle(titles, currentTitle) {
   return preferred;
 }
 
+function fallbackTitle(plan, input = {}) {
+  const candidates = [
+    plan?.title,
+    input?.topic,
+    String(plan?.summary || "").split(/[.!?]/)[0]
+  ]
+    .map((value) => simplifyForLayAudience(stripEmoji(cleanText(value, 100)), 80))
+    .filter((value) => value.length >= 10 && !/^\(?tanpa judul\)?$/i.test(value));
+
+  const usable = candidates.find((value) => !VAGUE_TITLE_PATTERNS.test(value)) || candidates[0];
+  if (usable) return usable;
+  if (String(input?.category || "").toLowerCase() === "luar angkasa") {
+    return "Kenapa Luar Angkasa Masih Menyimpan Banyak Misteri";
+  }
+  return "Fakta Menarik yang Jarang Diketahui";
+}
+
 function buildTitlePrompt(digest, currentTitle, category, subject) {
   return [
     "Kamu spesialis judul YouTube edukasi berbahasa Indonesia.",
@@ -122,22 +138,26 @@ function buildTitlePrompt(digest, currentTitle, category, subject) {
  * @returns {Promise<string>} Judul terpilih, atau string kosong jika gagal.
  */
 export async function generateViralTitle(plan, input = {}) {
-  if (!config.openai.apiKey) return "";
   const currentTitle = simplifyForLayAudience(plan?.title || input?.topic || "", 100);
   const subject = simplifyForLayAudience(input?.topic || plan?.title || "", 120);
   const digest = buildContentDigest(plan);
-  if (!digest.trim()) return currentTitle;
+  const safeFallback = fallbackTitle(plan, input);
+  if (!digest.trim()) return currentTitle || safeFallback;
 
   try {
     const promptText = buildTitlePrompt(digest, currentTitle, input?.category, subject);
-    const result = await requestKnowledgeJson(promptText);
+    const aiResult = await requestKnowledgeJsonWithFallback(promptText);
+    const result = aiResult.data;
     const best = pickBestTitle(result?.titles, currentTitle);
     if (best) {
-      console.log(`[Title Engine] Judul viral digenerate: "${best}"`);
+      console.log(`[Title Engine] Judul viral digenerate via ${aiResult.provider}: "${best}"`);
       return best;
     }
+    console.warn("[Title Engine] Provider AI tidak memberi kandidat judul valid; memakai fallback lokal.");
   } catch (error) {
-    console.warn(`[Title Engine] Gagal generate judul viral: ${error.message}`);
+    console.warn(`[Title Engine] Gagal generate judul viral: ${error.message}; memakai fallback lokal.`);
   }
-  return currentTitle;
+  return safeFallback || currentTitle || "Fakta Menarik yang Jarang Diketahui";
 }
+
+export { fallbackTitle, pickBestTitle };

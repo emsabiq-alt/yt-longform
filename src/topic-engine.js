@@ -6,7 +6,8 @@
  * sudut pandang, dan formatType. Tidak lagi default ke satu topik tertentu.
  */
 
-import { requestIdeaJson } from "./openai.js";
+import { config } from "./config.js";
+import { requestIdeaJsonWithFallback } from "./deepseek.js";
 import { cleanText } from "./util.js";
 import { FORMAT_TYPES, pickFormatType } from "./format-engine.js";
 import { loadHistory, checkFreshness, pickFreshIdeaFromBatch } from "./continuity-engine.js";
@@ -22,6 +23,8 @@ export const TOPIC_CATEGORIES = [
   "ekonomi dan bisnis", "psikologi", "hewan dan tumbuhan", "luar angkasa",
   "arsitektur", "transportasi", "energi", "matematika sehari-hari", "misteri sejarah"
 ];
+
+const SPACE_CATEGORY = "luar angkasa";
 
 /**
  * Banyak sudut pandang per kategori agar cerita tidak itu-itu saja.
@@ -179,7 +182,13 @@ const CATEGORY_ANGLES = {
     "teknologi luar angkasa yang dipakai di bumi",
     "planet/bulan yang lebih aneh dari fiksi",
     "perlombaan luar angkasa: rahasia dan kebohongan",
-    "misi gagal yang memberi pelajaran berharga"
+    "misi gagal yang memberi pelajaran berharga",
+    "fisika aneh di sekitar lubang hitam dan bintang neutron",
+    "sinyal misterius yang datang dari ruang antarbintang",
+    "bagaimana ilmuwan mengukur sesuatu yang tak bisa didatangi",
+    "perubahan iklim dan cuaca ekstrem di planet lain",
+    "benda langit yang mengancam bumi dan cara mendeteksinya",
+    "misteri materi gelap dan energi gelap"
   ],
   arsitektur: [
     "struktur kuno yang defy teknologi zamannya",
@@ -289,6 +298,14 @@ function buildIdeaPrompt(history, category, angle, formatType, viralAngle, trend
   const trendingBlock = simplifyForLayAudience(formatTrendingForPrompt(trendingContext), 2000);
   const viralBlock = simplifyForLayAudience(viralAngleSummary(viralAngle), 1400);
   const viralList = simplifyForLayAudience(viralAnglePromptList(), 2000);
+  const spaceFocus = category === SPACE_CATEGORY
+    ? [
+      "MODE LUAR ANGKASA: topik wajib benar-benar membahas astronomi atau antariksa,",
+      "bukan sekadar teknologi umum. Variasikan objek dan skala: planet, bulan, bintang,",
+      "lubang hitam, galaksi, kosmologi, astronot, teleskop, satelit, dan misi antariksa.",
+      "Jangan mengulang subjek atau pertanyaan yang sudah ada di riwayat."
+    ].join(" ")
+    : "";
 
   return [
     "Kamu produser konten edukasi YouTube berbahasa Indonesia.",
@@ -303,6 +320,7 @@ function buildIdeaPrompt(history, category, angle, formatType, viralAngle, trend
     "terikat pada kota, daerah, tokoh, atau kejadian lokal Indonesia (mis. 'kenapa Bandung macet').",
     "Tempat spesifik boleh disebut HANYA jika terkenal secara global (mis. Piramida Giza, Tembok Besar,",
     "Segitiga Bermuda). Bahasa penyampaian tetap Indonesia, tapi subjeknya mendunia.",
+    spaceFocus,
     `Fokus kategori: ${category}. Sudut pandang yang diutamakan: ${simplifyForLayAudience(angle, 140)}.`,
     `Format video yang wajib digunakan: ${label}. ${description}`,
     `Kemasan viral utama yang wajib dipakai:\n${viralBlock}`,
@@ -347,15 +365,48 @@ const OFFLINE_SEEDS = [
   "Mengapa baterai ponsel tidak bisa 100% awet bertahun-tahun"
 ];
 
-function offlinePick(history) {
-  const fresh = OFFLINE_SEEDS.filter((seed) => !isDuplicate(seed, history, 0.6));
+const SPACE_OFFLINE_SEEDS = [
+  "Kenapa Lubang Hitam Tidak Menyedot Semua Benda di Sekitarnya",
+  "Bagaimana Bintang Bisa Lahir dari Awan Gas yang Sangat Dingin",
+  "Mengapa Venus Lebih Panas daripada Merkurius",
+  "Apa yang Terjadi pada Tubuh Astronot Tanpa Gravitasi",
+  "Bagaimana Teleskop Bisa Melihat Masa Lalu Alam Semesta",
+  "Kenapa Bulan Selalu Menunjukkan Sisi yang Sama ke Bumi",
+  "Bagaimana Satelit Tetap Mengorbit Bumi dan Tidak Jatuh",
+  "Kenapa Mars Kehilangan Air dan Atmosfernya",
+  "Bagaimana Jejak Kaki di Bulan Bisa Bertahan Sangat Lama",
+  "Apa yang Dicari Ilmuwan di Lautan Bawah Es Europa",
+  "Kenapa Bintang Neutron Bisa Lebih Padat daripada Bumi",
+  "Bagaimana Pesawat Voyager Masih Bisa Mengirim Sinyal ke Bumi"
+];
+
+function offlinePick(history, category) {
+  const seeds = category === SPACE_CATEGORY ? SPACE_OFFLINE_SEEDS : OFFLINE_SEEDS;
+  const fresh = seeds.filter((seed) => !isDuplicate(seed, history, 0.6));
   return fresh.length ? pick(fresh) : "";
 }
 
+/**
+ * Menentukan apakah video berikutnya perlu mengisi kuota luar angkasa.
+ * Kuota dihitung dari riwayat rolling supaya rasio tidak bergantung pada
+ * jumlah seluruh arsip dan tetap bisa mengejar target setelah periode lama.
+ */
+export function isSpaceQuotaDue(history = []) {
+  const target = config.topic?.spaceTargetRatio ?? 0.7;
+  if (target <= 0) return false;
+  const windowSize = config.topic?.categoryHistoryWindow || 30;
+  const recent = history.slice(0, windowSize);
+  const spaceCount = recent.filter((item) => item.category === SPACE_CATEGORY).length;
+  return spaceCount < Math.ceil((recent.length + 1) * target);
+}
+
 export function pickBalancedCategory(history = []) {
+  if (isSpaceQuotaDue(history)) return SPACE_CATEGORY;
+
+  const categoryWindow = config.topic?.categoryHistoryWindow || 30;
   const recent = new Set(history.slice(0, 3).map((item) => item.category).filter(Boolean));
   const counts = new Map(TOPIC_CATEGORIES.map((category) => [category, 0]));
-  for (const item of history.slice(0, 30)) {
+  for (const item of history.slice(0, categoryWindow)) {
     if (counts.has(item.category)) counts.set(item.category, counts.get(item.category) + 1);
   }
   const candidates = TOPIC_CATEGORIES.filter((category) => !recent.has(category));
@@ -412,7 +463,10 @@ export async function pickFreshTopic(options = {}) {
     const viralAngle = pickViralAngle(history);
 
     try {
-      const data = await requestIdeaJson(buildIdeaPrompt(history, category, angle, formatType, viralAngle, trendingContext));
+      const aiResult = await requestIdeaJsonWithFallback(
+        buildIdeaPrompt(history, category, angle, formatType, viralAngle, trendingContext)
+      );
+      const data = aiResult.data;
       const ideas = Array.isArray(data?.ideas) ? data.ideas : [];
       // Pilih ide paling berpotensi viral lebih dulu (skor tinggi → urutan awal),
       // lalu pickFreshIdeaFromBatch menjamin tetap lolos anti-duplikat.
@@ -427,12 +481,14 @@ export async function pickFreshTopic(options = {}) {
       if (chosen) {
         return {
           topic: chosen.topic,
-          category: chosen.category,
+          // Saat kuota space aktif, label kategori harus tetap space agar
+          // perhitungan berikutnya tidak menganggap topik ini kategori lain.
+          category: category === SPACE_CATEGORY ? SPACE_CATEGORY : chosen.category,
           angle: simplifyForLayAudience(chosen.angle || angle, 140),
           formatType,
           viralAngleId: viralAngle.id,
           viralAngleLabel: simplifyForLayAudience(viralAngle.label, 80),
-          source: "openai",
+          source: aiResult.provider,
           trendingScore: trendingContext?.trendingScore || 0,
           trendingKeywords: trendingContext?.topKeywords || []
         };
@@ -445,7 +501,7 @@ export async function pickFreshTopic(options = {}) {
   }
 
   // Fallback: offline seed dengan formatType baru
-  const offlineTopic = offlinePick(history);
+  const offlineTopic = offlinePick(history, category);
   if (!offlineTopic) {
     throw new Error("Tidak ada topik offline yang benar-benar baru. Hentikan run agar tidak mengulang topik lama.");
   }
@@ -453,7 +509,9 @@ export async function pickFreshTopic(options = {}) {
   const viralAngle = pickViralAngle(history);
   // Koheren dgn seed: kategori ditebak dari topik & angle netral, BUKAN kategori acak —
   // mencegah cerita/judul melenceng dari topik aslinya (mis. topik kucing → judul transportasi).
-  const offlineCategory = inferEverydayCategory(offlineTopic);
+  const offlineCategory = category === SPACE_CATEGORY
+    ? SPACE_CATEGORY
+    : inferEverydayCategory(offlineTopic);
   return {
     topic: offlineTopic,
     category: offlineCategory,

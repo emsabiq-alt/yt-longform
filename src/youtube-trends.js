@@ -8,7 +8,7 @@
  */
 
 import { config } from "./config.js";
-import { requestIdeaJson } from "./openai.js";
+import { requestTrendJsonWithFallback } from "./deepseek.js";
 import { cleanText } from "./util.js";
 
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
@@ -206,7 +206,8 @@ export async function fetchMultiCategoryTrending(regionCode = "ID") {
 }
 
 /**
- * Gunakan GPT untuk mengekstrak tema abstrak dari judul-judul trending.
+ * Gunakan DeepSeek (OpenAI sebagai fallback) untuk mengekstrak tema abstrak
+ * dari judul-judul trending.
  * Fokus pada tema yang RELEVAN untuk channel edukasi BanyakTau.
  */
 export async function extractTrendingThemes(videos) {
@@ -215,9 +216,13 @@ export async function extractTrendingThemes(videos) {
   const titlesBlock = videos
     .slice(0, 25)
     .map((v, i) => {
-      const views = v.viewCount ? `${formatViewCount(v.viewCount)} views` : "baru";
+      const metrics = [
+        v.viewCount ? `${formatViewCount(v.viewCount)} views` : "baru",
+        v.likeCount ? `${formatViewCount(v.likeCount)} likes` : "",
+        v.commentCount ? `${formatViewCount(v.commentCount)} comments` : ""
+      ].filter(Boolean).join(", ");
       const source = v.searchQuery ? `[search: ${v.searchQuery}]` : "[trending]";
-      return `${i + 1}. ${source} "${v.title}" (${views})`;
+      return `${i + 1}. ${source} "${v.title}" (${metrics})`;
     })
     .join("\n");
 
@@ -248,20 +253,23 @@ export async function extractTrendingThemes(videos) {
     "   menjadi 'kenapa kota-kota besar dunia kesulitan mengendalikan banjir', bukan tema tentang Jakarta.",
     "4. Beri sudut pandang spesifik yang menarik untuk video 6-10 menit.",
     "5. Skor relevansi: 80-100 sangat cocok, 60-79 cukup cocok, <60 skip.",
-    "6. Berikan keywords trending bahasa Indonesia untuk SEO.",
+    "6. Gunakan views, likes, dan comments sebagai sinyal ketertarikan. Bedakan tema yang banyak ditonton dari tema yang engagement-nya kuat.",
+    "7. Berikan keywords trending bahasa Indonesia untuk SEO.",
     "",
     "Kembalikan JSON valid:",
     '{ "themes": [{ "theme": "string", "relevance": 0-100, "angle": "sudut edukasi spesifik", "category": "kategori BanyakTau yang cocok" }], "topKeywords": ["string"], "overallScore": 0-100 }'
   ].filter(Boolean).join("\n");
 
   try {
-    const result = await requestIdeaJson(prompt);
+    const aiResult = await requestTrendJsonWithFallback(prompt);
+    const result = aiResult.data;
     return {
       themes: Array.isArray(result?.themes)
         ? result.themes.filter((t) => t?.theme && t.relevance >= 50).sort((a, b) => b.relevance - a.relevance)
         : [],
       topKeywords: Array.isArray(result?.topKeywords) ? result.topKeywords.slice(0, 15) : [],
-      trendingScore: Number(result?.overallScore) || 0
+      trendingScore: Number(result?.overallScore) || 0,
+      aiProvider: aiResult.provider
     };
   } catch (error) {
     console.warn(`[Trends] Ekstraksi tema gagal: ${error.message}`);

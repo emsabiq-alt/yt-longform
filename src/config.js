@@ -111,6 +111,7 @@ export const config = {
     baseUrl: trimSlash(process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com"),
     model: clean(process.env.DEEPSEEK_MODEL || "deepseek-chat"),
     timeoutMs: Math.max(5000, numberEnv("DEEPSEEK_TIMEOUT_MS", 60000)),
+    ideaTimeoutMs: Math.max(5000, numberEnv("DEEPSEEK_IDEA_TIMEOUT_MS", 30000)),
     languagesPerRequest: Math.min(10, Math.max(1, Math.floor(numberEnv("DEEPSEEK_LANGUAGES_PER_REQUEST", 5))))
   },
   elevenlabs: {
@@ -166,6 +167,14 @@ export const config = {
     strictRemote: bool(process.env.YT_STRICT_REMOTE),
     viralTitleEnabled: boolDefault(process.env.YT_VIRAL_TITLE_ENABLED, true),
     coldOpenEnabled: boolDefault(process.env.YT_COLD_OPEN_ENABLED, true)
+  },
+  topic: {
+    // Target porsi topik luar angkasa pada riwayat rolling agar channel tetap
+    // bervariasi, tetapi konsisten dengan fokus baru channel.
+    spaceTargetRatio: Math.max(0, Math.min(1, numberEnv("YT_SPACE_TOPIC_RATIO", 0.7))),
+    categoryHistoryWindow: Math.max(10, Math.min(80,
+      Math.floor(numberEnv("YT_TOPIC_CATEGORY_WINDOW", 30))
+    ))
   },
   pexels: {
     apiKey: process.env.PEXELS_API_KEY || "",

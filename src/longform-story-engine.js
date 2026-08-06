@@ -174,8 +174,9 @@ export async function createLongformDraft(rawInput) {
 
   let normalized = normalizePlan(plan, input);
 
-  // Generate judul viral dari ringkasan konten jika diaktifkan.
-  if (config.automation.viralTitleEnabled && config.openai.apiKey) {
+  // Generate judul viral dari ringkasan konten jika diaktifkan. Title Engine
+  // memilih DeepSeek lebih dulu, lalu OpenAI, lalu fallback lokal deterministik.
+  if (config.automation.viralTitleEnabled) {
     try {
       const viralTitle = await generateViralTitle(normalized, input);
       if (viralTitle) {
@@ -186,6 +187,7 @@ export async function createLongformDraft(rawInput) {
     }
   }
 
+  const selectedTitle = normalized.title;
   const minimumNarrationWords = Math.round(input.durationSec * 1.75);
   if (config.openai.apiKey && narrationWordCount(normalized) < minimumNarrationWords) {
     try {
@@ -199,6 +201,9 @@ export async function createLongformDraft(rawInput) {
         `Pertahankan tepat jumlah scene dan pola format ${input.formatType}, dengan scene terakhir summary.`
       ].join("\n"));
       normalized = normalizePlan(expandedPlan, input);
+      // Revisi panjang naskah tidak boleh menghapus judul yang sudah dipilih
+      // Title Engine saat respons revisi AI tidak menyertakan title.
+      normalized.title = selectedTitle || normalized.title;
     } catch (error) {
       console.warn(`[Story Longform] Revisi panjang naskah gagal: ${error.message}`);
     }
@@ -212,6 +217,7 @@ export async function createLongformDraft(rawInput) {
   }
 
   normalized = finalizeNormalizedPlan(normalized, input);
+  normalized.title = cleanText(normalized.title || input.topic || "Fakta Menarik yang Jarang Diketahui", 100);
 
   const narrationText = normalized.scenes
     .filter((scene) => scene.sceneType !== "reaction")
