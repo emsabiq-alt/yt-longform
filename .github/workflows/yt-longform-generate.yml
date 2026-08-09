@@ -44,8 +44,9 @@ on:
         required: false
         default: "false"
   schedule:
-    # 09:15 WIB / Asia-Bangkok (UTC+7). GitHub cron pakai UTC.
-    - cron: "15 2 * * *"
+    # Mulai 04:15 WIB (21:15 UTC); render ~2j45m membuat upload tiba sekitar
+    # 20:00 US Eastern saat DST / 19:00 saat standard time (prime time malam US).
+    - cron: "15 21 * * *"
 
 concurrency:
   group: yt-longform-generate
@@ -101,7 +102,7 @@ jobs:
       RENDER_MONO_FONT: JetBrains Mono
       YT_TTS_PROVIDER: ${{ secrets.YT_TTS_PROVIDER || 'elevenlabs' }}
       YT_TTS_VOICE: ${{ secrets.YT_TTS_VOICE || secrets.ELEVENLABS_VOICE_ID || 'wUrGnU2Kx934kbDdOWDo' }}
-      YT_TIME_ZONE: ${{ secrets.YT_TIME_ZONE || 'Asia/Bangkok' }}
+      YT_TIME_ZONE: America/New_York
       YT_DAILY_GENERATE_LIMIT: ${{ secrets.YT_DAILY_GENERATE_LIMIT || '1' }}
       YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '360' }}
       YT_SCENE_COUNT: ${{ github.event.inputs.scenes || secrets.YT_SCENE_COUNT || '14' }}
@@ -114,11 +115,15 @@ jobs:
       YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
       YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
       YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-      YOUTUBE_PRIVACY_STATUS: ${{ secrets.YOUTUBE_PRIVACY_STATUS || 'public' }}
+      YOUTUBE_PRIVACY_STATUS: private
+      YOUTUBE_SCHEDULED_PUBLISH_ENABLED: "true"
+      YOUTUBE_SCHEDULED_PUBLISH_TIME: "20:30"
+      YOUTUBE_SCHEDULED_PUBLISH_TIME_ZONE: America/New_York
+      YOUTUBE_SCHEDULED_PUBLISH_LEAD_MINUTES: "30"
       YOUTUBE_DEFAULT_LANGUAGE: id
       YOUTUBE_DEFAULT_AUDIO_LANGUAGE: id
       YOUTUBE_LOCALIZATION_ENABLED: ${{ secrets.YOUTUBE_LOCALIZATION_ENABLED || 'true' }}
-      YOUTUBE_LOCALIZATION_LANGUAGES: ${{ secrets.YOUTUBE_LOCALIZATION_LANGUAGES || 'en,es,pt-BR,hi,bn,ar,fr,ja,de,tr,ko,zh-CN,ru,it,nl,pl,vi,th,ur,fa,ta,te,mr,gu,pa,ms,fil,uk,ro,sw' }}
+      YOUTUBE_LOCALIZATION_LANGUAGES: en,es,pt-BR,hi,ar,fr,de,ja,ko,zh-CN,ru,it,tr,vi,th
       YOUTUBE_CATEGORY_ID: ${{ secrets.YOUTUBE_CATEGORY_ID || '27' }}
       YOUTUBE_TAGS: ${{ secrets.YOUTUBE_TAGS || 'BanyakTau,Edukasi,Pengetahuan,Sains,Sejarah,Teknologi' }}
       THUMBNAIL_GENERATION_ENABLED: ${{ secrets.THUMBNAIL_GENERATION_ENABLED || 'true' }}
@@ -137,8 +142,8 @@ jobs:
 
       YOUTUBE_DATA_API_KEY: ${{ secrets.YOUTUBE_DATA_API_KEY }}
       YOUTUBE_TRENDING_ENABLED: ${{ secrets.YOUTUBE_TRENDING_ENABLED || 'true' }}
-      YOUTUBE_TRENDING_REGION: ${{ secrets.YOUTUBE_TRENDING_REGION || 'ID' }}
-      YT_SPACE_TOPIC_RATIO: ${{ secrets.YT_SPACE_TOPIC_RATIO || '0.7' }}
+      YOUTUBE_TRENDING_REGION: US
+      YT_SPACE_TOPIC_RATIO: "0.15"
       YT_TOPIC_CATEGORY_WINDOW: ${{ secrets.YT_TOPIC_CATEGORY_WINDOW || '30' }}
 
     steps:

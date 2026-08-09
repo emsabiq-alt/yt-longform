@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { config } from "../src/config.js";
 import { parseDeepSeekJson } from "../src/deepseek.js";
-import { fallbackTitle, generateViralTitle } from "../src/title-engine.js";
+import { fallbackTitle, generateViralTitle, pickBestTitle } from "../src/title-engine.js";
 import { isSpaceQuotaDue } from "../src/topic-engine.js";
 
 const space = () => ({ category: "luar angkasa" });
@@ -53,4 +53,12 @@ test("generateViralTitle: fallback lokal tetap tersedia tanpa provider AI", asyn
     config.openai.apiKey = previousOpenAiKey;
     config.deepseek.apiKey = previousDeepSeekKey;
   }
+});
+
+test("pickBestTitle: memakai qualityScore dari kandidat DeepSeek", () => {
+  const title = pickBestTitle([
+    { title: "Kenapa Madu Tidak Pernah Basi", qualityScore: 93 },
+    { title: "Bagaimana Kompas Menunjuk Utara", qualityScore: 71 }
+  ]);
+  assert.equal(title, "Kenapa Madu Tidak Pernah Basi");
 });

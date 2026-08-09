@@ -126,12 +126,18 @@ export const config = {
     clientSecret: process.env.YOUTUBE_CLIENT_SECRET || "",
     refreshToken: process.env.YOUTUBE_REFRESH_TOKEN || "",
     privacyStatus: clean(process.env.YOUTUBE_PRIVACY_STATUS || "public"),
+    scheduledPublishEnabled: boolDefault(process.env.YOUTUBE_SCHEDULED_PUBLISH_ENABLED, true),
+    scheduledPublishTime: clean(process.env.YOUTUBE_SCHEDULED_PUBLISH_TIME || "20:30"),
+    scheduledPublishTimeZone: clean(process.env.YOUTUBE_SCHEDULED_PUBLISH_TIME_ZONE || "America/New_York"),
+    scheduledPublishLeadMinutes: Math.max(5, Math.min(180,
+      Math.floor(numberEnv("YOUTUBE_SCHEDULED_PUBLISH_LEAD_MINUTES", 30))
+    )),
     defaultLanguage: clean(process.env.YOUTUBE_DEFAULT_LANGUAGE || "id") || "id",
     defaultAudioLanguage: clean(process.env.YOUTUBE_DEFAULT_AUDIO_LANGUAGE || "id") || "id",
     localizationEnabled: boolDefault(process.env.YOUTUBE_LOCALIZATION_ENABLED, true),
     localizationLanguages: parseLanguageList(
       process.env.YOUTUBE_LOCALIZATION_LANGUAGES,
-      ["en", "es", "pt-BR", "hi", "bn", "ar", "fr", "ja", "de", "tr", "ko", "zh-CN", "ru", "it", "nl", "pl", "vi", "th", "ur", "fa", "ta", "te", "mr", "gu", "pa", "ms", "fil", "uk", "ro", "sw"]
+      ["en", "es", "pt-BR", "hi", "ar", "fr", "de", "ja", "ko", "zh-CN", "ru", "it", "tr", "vi", "th"]
     ),
     categoryId: clean(process.env.YOUTUBE_CATEGORY_ID || "27"),
     tags: clean(process.env.YOUTUBE_TAGS || "BanyakTau,Edukasi,Pengetahuan,Sains,Sejarah,Teknologi")
@@ -143,7 +149,7 @@ export const config = {
     playlists: parsePlaylistMap(process.env.YOUTUBE_PLAYLISTS || ""),
     dataApiKey: process.env.YOUTUBE_DATA_API_KEY || "",
     trendingEnabled: boolDefault(process.env.YOUTUBE_TRENDING_ENABLED, true),
-    trendingRegion: clean(process.env.YOUTUBE_TRENDING_REGION || "ID")
+    trendingRegion: clean(process.env.YOUTUBE_TRENDING_REGION || "US")
   },
   pricing: {
     storyInputUsdPer1MTokens: numberEnv("STORY_INPUT_USD_PER_1M_TOKENS", 0.4),
@@ -169,9 +175,8 @@ export const config = {
     coldOpenEnabled: boolDefault(process.env.YT_COLD_OPEN_ENABLED, true)
   },
   topic: {
-    // Target porsi topik luar angkasa pada riwayat rolling agar channel tetap
-    // bervariasi, tetapi konsisten dengan fokus baru channel.
-    spaceTargetRatio: Math.max(0, Math.min(1, numberEnv("YT_SPACE_TOPIC_RATIO", 0.7))),
+    // Luar angkasa tetap ada sebagai variasi, bukan menjadi mayoritas kanal.
+    spaceTargetRatio: Math.max(0, Math.min(1, numberEnv("YT_SPACE_TOPIC_RATIO", 0.15))),
     categoryHistoryWindow: Math.max(10, Math.min(80,
       Math.floor(numberEnv("YT_TOPIC_CATEGORY_WINDOW", 30))
     ))
@@ -223,7 +228,7 @@ export const config = {
     requestDelayMs: Math.max(0, numberEnv("WIKIMEDIA_REQUEST_DELAY_MS", 150))
   },
   thumbnail: {
-    enabled: boolDefault(process.env.THUMBNAIL_GENERATION_ENABLED, false),
+    enabled: boolDefault(process.env.THUMBNAIL_GENERATION_ENABLED, true),
     style: clean(process.env.THUMBNAIL_STYLE || "cinematic") // cinematic | vector
   },
   wikipedia: {

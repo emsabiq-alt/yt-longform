@@ -14,7 +14,7 @@
     "localize:youtube:all": "node scripts/localize-youtube-all.js",
     "cleanup": "node src/sftp-cleanup.js",
     "rerender": "node src/rerender.js",
-    "test": "node --test test/api-utils.test.js test/util.test.js test/pipeline.test.js test/grounding.test.js test/pexels.test.js test/wikimedia.test.js test/story-language.test.js test/longform-story-engine.test.js test/grid-image.test.js test/segment-sync.test.js test/youtube-localization.test.js test/topic-engine.test.js",
+    "test": "node --test test/api-utils.test.js test/util.test.js test/pipeline.test.js test/grounding.test.js test/pexels.test.js test/wikimedia.test.js test/story-language.test.js test/longform-story-engine.test.js test/grid-image.test.js test/segment-sync.test.js test/youtube-localization.test.js test/topic-engine.test.js test/thumbnail.test.js test/youtube-publisher.test.js",
     "test:continuity": "node scripts/test-continuity.js",
     "test:overlay": "node scripts/test-pexels-overlay.js",
     "patch:pureimage": "node scripts/patch-pureimage.js",

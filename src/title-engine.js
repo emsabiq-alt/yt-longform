@@ -65,15 +65,36 @@ function stripEmoji(value) {
 function pickBestTitle(titles, currentTitle) {
   const candidates = Array.isArray(titles) ? titles : [titles];
   const valid = candidates
-    .map((t) => simplifyForLayAudience(stripEmoji(t), 80))
-    .filter((t) => t.length >= 10 && t.length <= 80 && /[a-zA-Z\u00C0-\u024F]/.test(t));
+    .map((candidate, index) => {
+      const rawTitle = typeof candidate === "object" ? candidate?.title : candidate;
+      const title = simplifyForLayAudience(stripEmoji(rawTitle), 80);
+      const qualityScore = Number(typeof candidate === "object" ? candidate?.qualityScore : 0);
+      return {
+        title,
+        qualityScore: Number.isFinite(qualityScore) ? Math.max(0, Math.min(100, qualityScore)) : 0,
+        index
+      };
+    })
+    .filter((candidate) => (
+      candidate.title.length >= 10
+      && candidate.title.length <= 80
+      && /[a-zA-Z\u00C0-\u024F]/.test(candidate.title)
+    ));
   if (!valid.length) return "";
   // Buang judul yang masih memakai frasa kabur (tanpa subjek konkret).
-  const concrete = valid.filter((t) => !VAGUE_TITLE_PATTERNS.test(t) && !STIFF_TITLE_PATTERNS.test(t));
+  const concrete = valid.filter((candidate) => (
+    !VAGUE_TITLE_PATTERNS.test(candidate.title) && !STIFF_TITLE_PATTERNS.test(candidate.title)
+  ));
   const pool = concrete.length ? concrete : valid;
-  // Pilih yang paling singkat namun tetap informatif, maksimal 60 karakter.
-  const preferred = pool.find((t) => t.length <= 60) || pool[0];
-  return preferred;
+  // DeepSeek memberi skor kualitas. Jika skornya setara/tidak ada, pilih judul
+  // yang paling ringkas tetapi masih cukup deskriptif untuk tampilan mobile.
+  const preferred = [...pool].sort((a, b) => (
+    b.qualityScore - a.qualityScore
+    || Number(a.title.length < 42 || a.title.length > 68) - Number(b.title.length < 42 || b.title.length > 68)
+    || a.title.length - b.title.length
+    || a.index - b.index
+  ))[0];
+  return preferred?.title || "";
 }
 
 function fallbackTitle(plan, input = {}) {
@@ -95,8 +116,8 @@ function fallbackTitle(plan, input = {}) {
 
 function buildTitlePrompt(digest, currentTitle, category, subject) {
   return [
-    "Kamu spesialis judul YouTube edukasi berbahasa Indonesia.",
-    "Tugas: buat 5 judul video yang membuat orang PENASARAN dan mau membuka video.",
+    "Kamu spesialis judul YouTube edukasi berbahasa Indonesia untuk topik yang relevan secara global.",
+    "Tugas: riset secara internal dari bahan yang diberikan, lalu buat 10 kandidat judul video berkualitas tinggi yang membuat orang penasaran dan mau membuka video.",
     "Bahan dasar (ringkasan konten video):",
     "---",
     digest,
@@ -106,7 +127,7 @@ function buildTitlePrompt(digest, currentTitle, category, subject) {
     `Kategori: ${category || "umum"}`,
     "",
     "ATURAN JUDUL:",
-    "- Maksimal 60 karakter.",
+    "- Idealnya 42-68 karakter, maksimal 80 karakter.",
     "- Bahasa Indonesia natural, singkat, padat.",
     "- Tidak pakai emoji dan tidak pakai tanda seru berlebihan.",
     "- WAJIB diawali kata penasaran: 'Bagaimana', 'Kenapa', atau 'Mengapa'.",
@@ -122,12 +143,14 @@ function buildTitlePrompt(digest, currentTitle, category, subject) {
     "- DILARANG pakai istilah kaku yang terlalu konseptual. Pilih kata sehari-hari yang langsung kebayang.",
     "- DILARANG gaya listicle ('5 Fakta...', '3 Hal...') atau gaya tips/tutorial.",
     "- Judul harus akurat sesuai konten; jangan clickbait yang menipu.",
+    "- Utamakan subjek/pertanyaan yang bisa dipahami penonton internasional; jangan bergantung pada konteks lokal Indonesia.",
+    "- Beri qualityScore 0-100 untuk tiap kandidat. Nilai dari kejelasan subjek, rasa penasaran yang jujur, kekuatan untuk CTR, dan kesesuaian penuh dengan isi video.",
     "",
     "Contoh pola yang HARUS diikuti (perhatikan: subjek selalu disebut jelas, variasikan diksinya):",
     ...DEFAULT_TITLE_PATTERNS.map((p) => `- ${p}`),
     "",
     "Kembalikan JSON valid saja dengan format:",
-    '{ "titles": ["judul 1", "judul 2", "judul 3", "judul 4", "judul 5"] }'
+    '{ "titles": [{ "title": "judul 1", "qualityScore": 0, "reason": "alasan singkat" }] }'
   ].join("\n");
 }
 

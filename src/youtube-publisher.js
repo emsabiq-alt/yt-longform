@@ -34,6 +34,99 @@ function normalizePrivacyStatus(value) {
   return ["public", "unlisted", "private"].includes(privacy) ? privacy : "public";
 }
 
+function parseScheduledTime(value) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(clean(value));
+  const hour = Number(match?.[1]);
+  const minute = Number(match?.[2]);
+  if (!match || hour > 23 || minute > 59) {
+    throw new Error("YOUTUBE_SCHEDULED_PUBLISH_TIME harus berformat HH:MM, misalnya 20:30.");
+  }
+  return { hour, minute };
+}
+
+function zonedParts(date, timeZone) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23"
+    }).formatToParts(date);
+    const get = (type) => Number(parts.find((part) => part.type === type)?.value);
+    return {
+      year: get("year"),
+      month: get("month"),
+      day: get("day"),
+      hour: get("hour"),
+      minute: get("minute"),
+      second: get("second")
+    };
+  } catch {
+    throw new Error(`Timezone publikasi tidak valid: ${timeZone}`);
+  }
+}
+
+function dateAtZone({ year, month, day, hour, minute }, timeZone) {
+  const assumedUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const localAtAssumedUtc = zonedParts(new Date(assumedUtc), timeZone);
+  const offsetMs = Date.UTC(
+    localAtAssumedUtc.year,
+    localAtAssumedUtc.month - 1,
+    localAtAssumedUtc.day,
+    localAtAssumedUtc.hour,
+    localAtAssumedUtc.minute,
+    localAtAssumedUtc.second
+  ) - assumedUtc;
+  return new Date(assumedUtc - offsetMs);
+}
+
+/**
+ * Tentukan prime time berikutnya di zona target. Upload selesai tetap private;
+ * YouTube yang akan mempublikasikannya pada waktu ini tanpa worker menunggu.
+ */
+export function nextScheduledPublishAt({
+  now = new Date(),
+  time = config.youtube.scheduledPublishTime,
+  timeZone = config.youtube.scheduledPublishTimeZone,
+  leadMinutes = config.youtube.scheduledPublishLeadMinutes
+} = {}) {
+  const { hour, minute } = parseScheduledTime(time);
+  const minimum = new Date(now.getTime() + Math.max(0, Number(leadMinutes) || 0) * 60_000);
+  const base = zonedParts(minimum, timeZone);
+
+  for (let offset = 0; offset <= 2; offset += 1) {
+    const date = new Date(Date.UTC(base.year, base.month - 1, base.day + offset));
+    const candidate = dateAtZone({
+      year: date.getUTCFullYear(),
+      month: date.getUTCMonth() + 1,
+      day: date.getUTCDate(),
+      hour,
+      minute
+    }, timeZone);
+    if (candidate.getTime() > minimum.getTime()) return candidate.toISOString();
+  }
+  throw new Error("Gagal menentukan jadwal publikasi YouTube berikutnya.");
+}
+
+export function buildVideoStatus(now = new Date()) {
+  if (config.youtube.scheduledPublishEnabled) {
+    return {
+      // YouTube hanya menerima publishAt saat status awal video private.
+      privacyStatus: "private",
+      publishAt: nextScheduledPublishAt({ now }),
+      selfDeclaredMadeForKids: false
+    };
+  }
+  return {
+    privacyStatus: normalizePrivacyStatus(config.youtube.privacyStatus),
+    selfDeclaredMadeForKids: false
+  };
+}
+
 function normalizeTags(tags = []) {
   const rows = Array.isArray(tags) ? tags : String(tags || "").split(",");
   return [...new Set(rows.map((tag) => clean(tag)).filter(Boolean))].slice(0, 20);
@@ -198,10 +291,7 @@ export async function publishToYoutube({
       defaultLanguage: config.youtube.defaultLanguage,
       defaultAudioLanguage: config.youtube.defaultAudioLanguage
     },
-    status: {
-      privacyStatus: normalizePrivacyStatus(config.youtube.privacyStatus),
-      selfDeclaredMadeForKids: false
-    }
+    status: buildVideoStatus()
   };
 
   const startUrl = new URL(videoUploadUrl);
@@ -269,6 +359,7 @@ export async function publishToYoutube({
     videoId,
     url: `https://www.youtube.com/watch?v=${videoId}`,
     privacyStatus: metadata.status.privacyStatus,
+    scheduledPublishAt: metadata.status.publishAt || "",
     title: metadata.snippet.title,
     defaultLanguage: metadata.snippet.defaultLanguage,
     localizations: localization.languages,
