@@ -189,6 +189,10 @@ jobs:
         run: npm run check
 
       - name: Run unit tests
+        env:
+          # Unit test memverifikasi default aplikasi; thumbnail tetap aktif
+          # pada tahap generate melalui environment level job di atas.
+          THUMBNAIL_GENERATION_ENABLED: "false"
         run: npm test
 
       - name: Preflight
