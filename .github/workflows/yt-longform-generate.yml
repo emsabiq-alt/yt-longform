@@ -59,7 +59,7 @@ permissions:
 jobs:
   generate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 240
     env:
       PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
       AUTO_DASHBOARD_PIN: ${{ secrets.AUTO_DASHBOARD_PIN || '123456' }}
