@@ -6,9 +6,9 @@ export default async function handler(req, res) {
 
   try {
     const body = await readBody(req);
-    const ttsProvider = clean(body.ttsProvider || "elevenlabs").toLowerCase() === "openai"
-      ? "openai"
-      : "elevenlabs";
+    const ttsProvider = clean(body.ttsProvider || "openai").toLowerCase() === "elevenlabs"
+      ? "elevenlabs"
+      : "openai";
     const defaultTtsVoice = ttsProvider === "elevenlabs"
       ? process.env.ELEVENLABS_VOICE_ID || "wUrGnU2Kx934kbDdOWDo"
       : process.env.OPENAI_TTS_VOICE || "cedar";

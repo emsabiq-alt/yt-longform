@@ -459,7 +459,7 @@ export async function pickFreshTopic(options = {}) {
   // Coba hingga 5 kali untuk menemukan kombinasi yang benar-benar segar
   for (let attempt = 1; attempt <= 5; attempt++) {
     const angle = simplifyForLayAudience(pick(categoryAngles(category)), 140);
-    const formatType = pickFormatType();
+    const formatType = pickFormatType(history);
     const viralAngle = pickViralAngle(history);
 
     try {
@@ -505,7 +505,7 @@ export async function pickFreshTopic(options = {}) {
   if (!offlineTopic) {
     throw new Error("Tidak ada topik offline yang benar-benar baru. Hentikan run agar tidak mengulang topik lama.");
   }
-  const formatType = pickFormatType();
+  const formatType = pickFormatType(history);
   const viralAngle = pickViralAngle(history);
   // Koheren dgn seed: kategori ditebak dari topik & angle netral, BUKAN kategori acak —
   // mencegah cerita/judul melenceng dari topik aslinya (mis. topik kucing → judul transportasi).

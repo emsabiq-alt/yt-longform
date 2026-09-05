@@ -22,11 +22,11 @@ on:
       tts_provider:
         description: openai or elevenlabs
         required: false
-        default: elevenlabs
+        default: openai
       tts_voice:
         description: TTS voice
         required: false
-        default: wUrGnU2Kx934kbDdOWDo
+        default: cedar
       image_quality:
         description: low, medium, high
         required: false
@@ -100,8 +100,8 @@ jobs:
       RENDER_TITLE_FONT: Bebas Neue
       RENDER_BODY_FONT: Noto Sans
       RENDER_MONO_FONT: JetBrains Mono
-      YT_TTS_PROVIDER: ${{ secrets.YT_TTS_PROVIDER || 'elevenlabs' }}
-      YT_TTS_VOICE: ${{ secrets.YT_TTS_VOICE || secrets.ELEVENLABS_VOICE_ID || 'wUrGnU2Kx934kbDdOWDo' }}
+      YT_TTS_PROVIDER: ${{ secrets.YT_TTS_PROVIDER || 'openai' }}
+      YT_TTS_VOICE: ${{ secrets.YT_TTS_VOICE || secrets.OPENAI_TTS_VOICE || 'cedar' }}
       YT_TIME_ZONE: America/New_York
       YT_DAILY_GENERATE_LIMIT: ${{ secrets.YT_DAILY_GENERATE_LIMIT || '1' }}
       YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '360' }}
@@ -189,10 +189,6 @@ jobs:
         run: npm run check
 
       - name: Run unit tests
-        env:
-          # Unit test memverifikasi default aplikasi; thumbnail tetap aktif
-          # pada tahap generate melalui environment level job di atas.
-          THUMBNAIL_GENERATION_ENABLED: "false"
         run: npm test
 
       - name: Preflight

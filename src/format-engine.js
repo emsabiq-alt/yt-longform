@@ -85,9 +85,21 @@ export const FORMAT_TYPES = {
   }
 };
 
-export function pickFormatType() {
+/**
+ * Pilih formatType acak, tapi hindari yang dipakai beberapa video terakhir
+ * supaya struktur storyboard tidak terasa berulang. Pola sama dengan pickViralAngle().
+ */
+export function pickFormatType(history = []) {
   const keys = Object.keys(FORMAT_TYPES);
-  return keys[Math.floor(Math.random() * keys.length)];
+  const recent = new Set(
+    history
+      .slice(0, 5)
+      .map((item) => item?.formatType || item?.input?.formatType || "")
+      .filter(Boolean)
+  );
+  const candidates = keys.filter((key) => !recent.has(key));
+  const pool = candidates.length ? candidates : keys;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 export function formatTypeDescription(formatType) {

@@ -81,7 +81,7 @@ test("buildQueueItem: sceneCount di-clamp ke atas 60, nilai falsy (0) → defaul
 test("buildQueueItem: ttsProvider hanya 'openai' atau 'elevenlabs'", () => {
   assert.equal(buildQueueItem({ ttsProvider: "openai" }).ttsProvider, "openai");
   assert.equal(buildQueueItem({ ttsProvider: "elevenlabs" }).ttsProvider, "elevenlabs");
-  assert.equal(buildQueueItem({ ttsProvider: "tidak-dikenal" }).ttsProvider, "elevenlabs"); // default
+  assert.equal(buildQueueItem({ ttsProvider: "tidak-dikenal" }).ttsProvider, "openai"); // default
 });
 
 test("buildQueueItem: trim topik, hormati id yang diberikan, auto-id kalau kosong", () => {

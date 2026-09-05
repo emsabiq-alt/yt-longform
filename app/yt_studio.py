@@ -649,10 +649,10 @@ class YTStudioApp(ctk.CTk):
                                             ["10", "12", "14", "16", "18"], default="14")
         # Get defaults based on .env
         env_vars = parse_env()
-        default_tts = env_vars.get("YT_TTS_PROVIDER", "elevenlabs")
+        default_tts = env_vars.get("YT_TTS_PROVIDER", "openai")
         default_voice = env_vars.get("ELEVENLABS_VOICE_ID", "wUrGnU2Kx934kbDdOWDo") if default_tts == "elevenlabs" else env_vars.get("OPENAI_TTS_VOICE", "cedar")
 
-        self.f_tts = self._labeled_combo(body, "TTS provider", 2, 0, ["elevenlabs", "openai"], default=default_tts, command=self.on_tts_change)
+        self.f_tts = self._labeled_combo(body, "TTS provider", 2, 0, ["openai", "elevenlabs"], default=default_tts, command=self.on_tts_change)
         
         voice_choices = [default_voice] if default_tts == "elevenlabs" else ["cedar", "ash", "ballad", "shimmer", "verse"]
         self.f_voice = self._labeled_combo(body, "TTS voice", 2, 1, voice_choices, default=default_voice)

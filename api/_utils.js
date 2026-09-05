@@ -308,7 +308,7 @@ export function configSummary() {
     youtubePrivacy: clean(process.env.YOUTUBE_PRIVACY_STATUS || "public"),
     ttsModel: clean(process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts"),
     ttsVoice: clean(process.env.OPENAI_TTS_VOICE || "cedar"),
-    ttsProvider: clean(process.env.YT_TTS_PROVIDER || "elevenlabs"),
+    ttsProvider: clean(process.env.YT_TTS_PROVIDER || "openai"),
     resolution: clean(process.env.YT_RESOLUTION || "720p"),
     elevenlabsVoiceId: clean(process.env.ELEVENLABS_VOICE_ID || "wUrGnU2Kx934kbDdOWDo"),
     elevenlabsSpeed: Math.min(1.2, Math.max(0.7, numberEnv("ELEVENLABS_SPEED", 1.08))),
@@ -378,9 +378,9 @@ export async function dispatchWorkflow(inputs) {
 // ---------------- Queue helpers ----------------
 export function buildQueueItem(input) {
   const now = new Date().toISOString();
-  const ttsProvider = clean(input.ttsProvider || "elevenlabs").toLowerCase() === "openai"
-    ? "openai"
-    : "elevenlabs";
+  const ttsProvider = clean(input.ttsProvider || "openai").toLowerCase() === "elevenlabs"
+    ? "elevenlabs"
+    : "openai";
   const defaultTtsVoice = ttsProvider === "elevenlabs"
     ? process.env.ELEVENLABS_VOICE_ID || "wUrGnU2Kx934kbDdOWDo"
     : process.env.OPENAI_TTS_VOICE || "cedar";

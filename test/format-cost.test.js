@@ -1,0 +1,41 @@
+// Unit test format-engine + cost: variasi storyboard (ban-list) dan estimasi harga gambar.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { FORMAT_TYPES, pickFormatType } from "../src/format-engine.js";
+import { estimateImageUsd } from "../src/cost.js";
+
+test("pickFormatType: menghindari formatType dari 5 video terakhir", () => {
+  const keys = Object.keys(FORMAT_TYPES);
+  const banned = keys.slice(0, 5);
+  const history = banned.map((formatType) => ({ formatType }));
+  for (let i = 0; i < 200; i += 1) {
+    assert.ok(!banned.includes(pickFormatType(history)), `terpilih formatType yang di-ban pada iterasi ${i}`);
+  }
+});
+
+test("pickFormatType: membaca formatType dari history.input juga", () => {
+  const keys = Object.keys(FORMAT_TYPES);
+  const history = keys.slice(0, 5).map((formatType) => ({ input: { formatType } }));
+  for (let i = 0; i < 100; i += 1) {
+    assert.ok(!keys.slice(0, 5).includes(pickFormatType(history)));
+  }
+});
+
+test("pickFormatType: kembali ke semua kunci saat history menghabiskan pool", () => {
+  const keys = Object.keys(FORMAT_TYPES);
+  const history = keys.map((formatType) => ({ formatType }));
+  // Hanya 5 teratas yang dilihat, tapi cek juga kasus ekstrem lookback penuh.
+  assert.ok(keys.includes(pickFormatType(history)));
+  const allBanned = keys.slice(0, 5).map((formatType) => ({ formatType }));
+  assert.ok(keys.includes(pickFormatType(allBanned)));
+  assert.ok(keys.includes(pickFormatType()));
+});
+
+test("estimateImageUsd: harga mengikuti IMAGE_MODEL, bukan hanya ukuran", () => {
+  assert.equal(estimateImageUsd("1536x1024", "low", "gpt-image-1-mini"), 0.006);
+  assert.equal(estimateImageUsd("1536x1024", "low", "gpt-image-1"), 0.016);
+  assert.equal(estimateImageUsd("1024x1024", "high", "gpt-image-1"), 0.167);
+  // Model/ukuran/kualitas tak dikenal → jatuh ke mini / 1024x1536 / low.
+  assert.equal(estimateImageUsd("1536x1024", "standard", "model-hantu"), 0.006);
+  assert.equal(estimateImageUsd("9999x9999", "low"), 0.006);
+});

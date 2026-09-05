@@ -27,8 +27,10 @@ function makeItem({ scenes, clips = [], images = [], sceneAudio = [] }) {
   };
 }
 
-test("config: pembuatan thumbnail otomatis nonaktif", () => {
-  assert.equal(config.thumbnail.enabled, false);
+test("config: thumbnail otomatis aktif dan memakai gambar storyboard (tanpa biaya API)", () => {
+  // Sejak thumbnail.js ditulis ulang (rankStoryboardImages + ffmpeg), pembuatan
+  // thumbnail tidak lagi memanggil API gambar, jadi default-nya aktif.
+  assert.equal(config.thumbnail.enabled, true);
 });
 
 test("assertReadyToRender: lolos saat tiap scene punya gambar + ada audio", () => {

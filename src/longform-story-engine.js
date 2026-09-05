@@ -6,6 +6,7 @@ import { requestKnowledgeJson } from "./openai.js";
 import { fetchWikipediaFacts } from "./wikipedia.js";
 import { clamp, cleanText, createId, nowIso } from "./util.js";
 import { pickFreshTopic } from "./topic-engine.js";
+import { loadHistory } from "./continuity-engine.js";
 import { generateViralTitle } from "./title-engine.js";
 import { buildScenePattern, formatTypeDescription, formatTypeNarrativeCue, pickFormatType, resolveSceneType } from "./format-engine.js";
 import { getViralAngleById, pickViralAngle, viralAngleSummary } from "./viral-angle-library.js";
@@ -132,11 +133,16 @@ export async function createLongformDraft(rawInput) {
     console.log(`[Topic Engine] Topik otomatis (${fresh.source}): "${fresh.topic}" [${fresh.category}] [${fresh.formatType}] [${seed.viralAngleLabel || "angle acak"}]`);
   } else {
     if (!seed.angle) seed.angle = "asal-usul yang jarang diketahui";
-    if (!seed.formatType) seed.formatType = pickFormatType();
-    if (!seed.viralAngleId) {
-      const viralAngle = pickViralAngle();
-      seed.viralAngleId = viralAngle.id;
-      seed.viralAngleLabel = simplifyForLayAudience(viralAngle.label, 80);
+    if (!seed.formatType || !seed.viralAngleId) {
+      // Topik manual: history tetap dibaca supaya formatType/angle tidak mengulang
+      // beberapa video terakhir. Jalur auto-topic sudah melakukannya di pickFreshTopic().
+      const history = await loadHistory(80);
+      if (!seed.formatType) seed.formatType = pickFormatType(history);
+      if (!seed.viralAngleId) {
+        const viralAngle = pickViralAngle(history);
+        seed.viralAngleId = viralAngle.id;
+        seed.viralAngleLabel = simplifyForLayAudience(viralAngle.label, 80);
+      }
     }
   }
   const input = normalizeInput(seed);
@@ -231,6 +237,7 @@ export async function createLongformDraft(rawInput) {
     sceneCount: normalized.scenes.length,
     imageSize: "1536x1024", // Landscape DALL-E 3 size
     imageQuality: input.imageQuality,
+    imageModel: config.openai.imageModel,
     narrationChars: narrationText.length,
     ttsProvider: input.ttsProvider,
     pricing: config.pricing
@@ -273,7 +280,7 @@ function normalizeInput(input) {
     tone: cleanText(input.tone || "narrator, serius tapi menarik, informatif, mendalam, seperti video dokumenter Vox atau Lemmino", 180),
     durationSec,
     sceneCount,
-    ttsProvider: String(input.ttsProvider || "elevenlabs").toLowerCase() === "openai" ? "openai" : "elevenlabs",
+    ttsProvider: String(input.ttsProvider || "openai").toLowerCase() === "elevenlabs" ? "elevenlabs" : "openai",
     imageSize: "1536x1024", // Default landscape
     imageQuality: cleanText(input.imageQuality || "standard", 20)
   };
@@ -625,7 +632,11 @@ export function normalizeVisualSegments(rawSegments, sceneImagePrompt, sceneVisu
       segments.push({
         ...base,
         imagePrompt: cleanText(`${base.imagePrompt}, ${angle[0]}`, 500),
-        mustMatchTerms: [...(base.mustMatchTerms || [])]
+        mustMatchTerms: [...(base.mustMatchTerms || [])],
+        // narrativeContext TIDAK diwarisi: frasa yang sama pada dua segmen membuat
+        // computeSegmentDurations() menemukan batas waktu identik (non-monoton),
+        // lalu seluruh scene jatuh ke pembagian rata dan sinkron audio-visual hilang.
+        narrativeContext: ""
       });
     }
     return segments;

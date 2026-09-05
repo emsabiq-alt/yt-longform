@@ -245,6 +245,26 @@ test("normalizeVisualSegments: hasil AI 2 segmen dipad menjadi 4 untuk grid", ()
   assert.deepEqual(segments[2].mustMatchTerms, segments[1].mustMatchTerms);
 });
 
+test("normalizeVisualSegments: segmen padding tidak mewarisi narrativeContext", () => {
+  const segments = normalizeVisualSegments(
+    [
+      { imagePrompt: "a", narrativeContext: "pembuka cerita" },
+      { imagePrompt: "b", narrativeContext: "inti cerita" }
+    ],
+    "scene prompt",
+    "",
+    "topik",
+    0
+  );
+  assert.equal(segments.length, VISUAL_SEGMENT_COUNT);
+  // Frasa duplikat membuat batas waktu computeSegmentDurations() identik →
+  // non-monoton → seluruh scene jatuh ke pembagian rata.
+  assert.equal(segments[2].narrativeContext, "");
+  assert.equal(segments[3].narrativeContext, "");
+  const phrases = segments.map((seg) => seg.narrativeContext).filter(Boolean);
+  assert.equal(new Set(phrases).size, phrases.length);
+});
+
 test("normalizeVisualSegments: hasil AI 4 segmen dipertahankan apa adanya", () => {
   const raw = [1, 2, 3, 4].map((n) => ({
     imagePrompt: `panel ${n} prompt`,

@@ -948,7 +948,7 @@ export async function ensureImages(item, options = {}) {
  */
 export async function ensureLongformSceneAudio(item, options = {}) {
   const warnings = options.warnings || [];
-  const provider = String(options.provider || item.input.ttsProvider || "elevenlabs").toLowerCase() === "elevenlabs"
+  const provider = String(options.provider || item.input.ttsProvider || "openai").toLowerCase() === "elevenlabs"
     ? "elevenlabs"
     : "openai";
   const scenes = item.plan?.scenes || [];
@@ -1050,7 +1050,7 @@ export async function ensureHookAudio(item, options = {}) {
   const hookText = normalizeTtsText(item.plan?.hook || "");
   if (!hookText) return;
 
-  const provider = String(options.provider || item.input.ttsProvider || "elevenlabs").toLowerCase() === "elevenlabs"
+  const provider = String(options.provider || item.input.ttsProvider || "openai").toLowerCase() === "elevenlabs"
     ? "elevenlabs"
     : "openai";
   reportProgress("audio", "Membuat suara hook (cold open)", 0, "");
