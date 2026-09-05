@@ -4,9 +4,17 @@ import { spawn } from "node:child_process";
 import { config, paths } from "./config.js";
 import { safeFilename } from "./util.js";
 
+// Batas waktu per jenis panggilan (pola konstanta modul sama dengan pexels.js).
+const CHAT_TIMEOUT_MS = 120_000;
+const IMAGE_TIMEOUT_MS = 180_000;
+const TTS_TIMEOUT_MS = 120_000;
+const TRANSCRIBE_TIMEOUT_MS = 180_000;
+const DOWNLOAD_TIMEOUT_MS = 60_000;
+const RETRY_ATTEMPTS = 3;
+
 export async function requestKnowledgeJson(promptText) {
   assertOpenAi();
-  const response = await fetch(`${config.openai.baseUrl}/chat/completions`, {
+  const response = await openAiFetch(`${config.openai.baseUrl}/chat/completions`, CHAT_TIMEOUT_MS, {
     method: "POST",
     headers: headersJson(),
     body: JSON.stringify({
@@ -29,7 +37,7 @@ export async function requestKnowledgeJson(promptText) {
 
 export async function requestIdeaJson(promptText) {
   assertOpenAi();
-  const response = await fetch(`${config.openai.baseUrl}/chat/completions`, {
+  const response = await openAiFetch(`${config.openai.baseUrl}/chat/completions`, CHAT_TIMEOUT_MS, {
     method: "POST",
     headers: headersJson(),
     body: JSON.stringify({
@@ -55,7 +63,7 @@ export async function generateSceneImage({ itemId, scene, size, quality }) {
   await fs.mkdir(paths.imageDir, { recursive: true });
 
   const prompt = sanitizeImagePrompt(scene.imagePrompt, size);
-  const response = await fetch(`${config.openai.baseUrl}/images/generations`, {
+  const response = await openAiFetch(`${config.openai.baseUrl}/images/generations`, IMAGE_TIMEOUT_MS, {
     method: "POST",
     headers: headersJson(),
     body: JSON.stringify({
@@ -80,7 +88,7 @@ export async function generateSceneImage({ itemId, scene, size, quality }) {
   if (item.b64_json) {
     await fs.writeFile(rawPath, Buffer.from(item.b64_json, "base64"));
   } else if (item.url) {
-    const image = await fetch(item.url);
+    const image = await fetch(item.url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
     if (!image.ok) throw new Error(`Gagal download image: HTTP ${image.status}`);
     await fs.writeFile(rawPath, Buffer.from(await image.arrayBuffer()));
   } else {
@@ -120,7 +128,7 @@ export async function generateSceneGridImage({ itemId, scene, segments, size, qu
   await fs.mkdir(paths.workDir, { recursive: true });
 
   const prompt = buildGridPrompt(segments);
-  const response = await fetch(`${config.openai.baseUrl}/images/generations`, {
+  const response = await openAiFetch(`${config.openai.baseUrl}/images/generations`, IMAGE_TIMEOUT_MS, {
     method: "POST",
     headers: headersJson(),
     body: JSON.stringify({
@@ -140,7 +148,7 @@ export async function generateSceneGridImage({ itemId, scene, segments, size, qu
   if (item.b64_json) {
     await fs.writeFile(rawPath, Buffer.from(item.b64_json, "base64"));
   } else if (item.url) {
-    const image = await fetch(item.url);
+    const image = await fetch(item.url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
     if (!image.ok) throw new Error(`Gagal download image grid: HTTP ${image.status}`);
     await fs.writeFile(rawPath, Buffer.from(await image.arrayBuffer()));
   } else {
@@ -256,7 +264,7 @@ export async function generateOpenAiSpeech({ itemId, text, voice, instructions, 
   const speechInstructions = instructions || "Bacakan sepenuhnya dalam Bahasa Indonesia. Gaya suara: Sangat energik (high-energy), bersemangat (upbeat), dan penuh dorongan (encouraging), memproyeksikan antusiasme dan motivasi tinggi. Tanda baca & Jeda: Kalimat pendek dan bertenaga (punchy) dengan jeda strategis untuk menjaga keseruan. Penyampaian: Cepat dan dinamis (fast-paced & dynamic), dengan intonasi naik untuk membangun momentum. Gaya bahasa: Berorientasi tindakan (action-oriented). Nada suara: Positif dan memberdayakan (empowering).";
 
   const requestSpeech = async (voiceName) => {
-    const response = await fetch(`${config.openai.baseUrl}/audio/speech`, {
+    const response = await openAiFetch(`${config.openai.baseUrl}/audio/speech`, TTS_TIMEOUT_MS, {
       method: "POST",
       headers: headersJson(),
       body: JSON.stringify({
@@ -319,7 +327,7 @@ async function transcribeSpeechSegmentsWithModel(audioPath, model, options = {})
     form.append("prompt", String(options.prompt).slice(0, 220));
   }
 
-  const response = await fetch(`${config.openai.baseUrl}/audio/transcriptions`, {
+  const response = await openAiFetch(`${config.openai.baseUrl}/audio/transcriptions`, TRANSCRIBE_TIMEOUT_MS, {
     method: "POST",
     headers: { Authorization: `Bearer ${config.openai.apiKey}` },
     body: form
@@ -386,4 +394,55 @@ async function parseOpenAiResponse(response) {
     throw new Error(message);
   }
   return data;
+}
+
+/**
+ * fetch ke OpenAI dengan timeout + retry untuk error transien (429 dan 5xx).
+ * Tanpa ini, satu 429 di scene ke-18 membatalkan seluruh run dan menghanguskan
+ * 17 gambar yang sudah dibayar.
+ *
+ * Timeout sengaja TIDAK di-retry: request gambar yang sudah diproses server tetap
+ * ditagih, jadi mengulangnya berarti bayar dua kali. Lebih baik gagal dengan pesan jelas.
+ */
+async function openAiFetch(url, timeoutMs, init) {
+  for (let attempt = 1; ; attempt += 1) {
+    const lastAttempt = attempt >= RETRY_ATTEMPTS;
+    let response;
+    try {
+      response = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    } catch (error) {
+      if (error?.name === "TimeoutError" || error?.name === "AbortError") {
+        throw new Error(`OpenAI tidak merespons dalam ${Math.round(timeoutMs / 1000)}s: ${endpointName(url)}`);
+      }
+      if (lastAttempt) throw error;
+      console.warn(`[OpenAI] ${endpointName(url)} gagal (${error.message}), retry ${attempt + 1}/${RETRY_ATTEMPTS}.`);
+      await sleep(retryDelayMs(attempt, null));
+      continue;
+    }
+
+    if (lastAttempt || (response.status !== 429 && response.status < 500)) return response;
+
+    const delayMs = retryDelayMs(attempt, response.headers.get("retry-after"));
+    // Buang body supaya koneksi bebas sebelum menunggu.
+    await response.body?.cancel().catch(() => {});
+    console.warn(`[OpenAI] ${endpointName(url)} HTTP ${response.status}, retry ${attempt + 1}/${RETRY_ATTEMPTS} dalam ${delayMs}ms.`);
+    await sleep(delayMs);
+  }
+}
+
+function retryDelayMs(attempt, retryAfterHeader) {
+  // Retry-After bisa berupa detik atau HTTP-date; hanya bentuk detik yang dipakai.
+  const seconds = Number(retryAfterHeader);
+  if (retryAfterHeader !== null && Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(30_000, seconds * 1000);
+  }
+  return attempt * 3000;
+}
+
+function endpointName(url) {
+  return String(url).split("/").pop() || "openai";
+}
+
+function sleep(ms) {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
 }
