@@ -143,6 +143,8 @@ export const config = {
     tags: clean(process.env.YOUTUBE_TAGS || "BanyakTau,Edukasi,Pengetahuan,Sains,Sejarah,Teknologi")
       .split(",").map((tag) => clean(tag)).filter(Boolean),
     customThumbnailEnabled: boolDefault(process.env.YOUTUBE_CUSTOM_THUMBNAIL_ENABLED, true),
+    // Unggah satu track subtitle bahasa sumber; YouTube menerjemahkannya otomatis.
+    captionUploadEnabled: boolDefault(process.env.YOUTUBE_CAPTION_UPLOAD_ENABLED, true),
     thumbnailUploadAttempts: Math.min(3, Math.max(1, numberEnv("YOUTUBE_THUMBNAIL_UPLOAD_ATTEMPTS", 1))),
     dailyUploadLimit: Math.max(0, numberEnv("YOUTUBE_DAILY_UPLOAD_LIMIT", 2)),
     defaultPlaylistId: clean(process.env.YOUTUBE_DEFAULT_PLAYLIST_ID),

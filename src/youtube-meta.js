@@ -171,12 +171,11 @@ export function buildMediaAttributionBlock(item) {
   ].filter(Boolean).join("\n");
 }
 
-/** Timestamp bab perkiraan dari durasi scene (kalau ada). */
+/** Timestamp bab dari timeline render (kalau ada). */
 function buildChapters(item) {
-  const scenes = item.plan?.scenes || [];
   const render = Array.isArray(item.assets?.video?.chapters) ? item.assets.video.chapters : null;
   // Tanpa data timing per scene yang pasti, lewati agar tidak menyesatkan.
-  if (!render) return "";
+  if (!render?.length) return "";
   return render.map((c) => `${c.time} ${c.label}`).join("\n");
 }
 

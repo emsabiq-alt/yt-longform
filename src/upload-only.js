@@ -53,10 +53,14 @@ try {
     description,
     tags: [item.input?.category, item.input?.topic].filter(Boolean),
     thumbnailPath: item.assets?.thumbnail?.path || "",
+    srtPath: item.assets?.video?.srtPath || "",
     localizations: localization.localizations
   });
   if (published.localizationError) {
     console.warn(`[Localization] ${published.localizationError}`);
+  }
+  if (published.captionError) {
+    console.warn(`[Caption] ${published.captionError}`);
   }
 
   reportProgress("publish", "Menambahkan ke playlist YouTube", 80, "playlist...");

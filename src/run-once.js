@@ -22,7 +22,7 @@ function boolValue(value, fallback = false) {
 
 ensureProjectDirs();
 
-const ttsProvider = argValue("--tts-provider", process.env.YT_TTS_PROVIDER || "elevenlabs");
+const ttsProvider = argValue("--tts-provider", process.env.YT_TTS_PROVIDER || "openai");
 const defaultTtsVoice = String(ttsProvider).toLowerCase() === "elevenlabs"
   ? config.elevenlabs.voiceId
   : config.openai.ttsVoice;
@@ -184,11 +184,18 @@ async function publishYoutubeIfEnabled(result) {
       description,
       tags: [item.input?.category, item.input?.topic].filter(Boolean),
       thumbnailPath: item.assets?.thumbnail?.path || "",
+      srtPath: item.assets?.video?.srtPath || "",
       localizations: localization.localizations
     });
     if (published.localizationError) {
       result.warnings.push(`Lokalisasi YouTube gagal: ${published.localizationError}`);
       console.warn(`[Localization] ${published.localizationError}`);
+    }
+    if (published.captionError) {
+      result.warnings.push(`Upload subtitle gagal: ${published.captionError}`);
+      console.warn(`[Caption] ${published.captionError}`);
+    } else if (published.caption) {
+      console.log("[Caption] Track subtitle terunggah; terjemahan otomatis YouTube aktif.");
     }
 
     reportProgress("publish", "Menambahkan ke playlist YouTube", 80, "playlist...");

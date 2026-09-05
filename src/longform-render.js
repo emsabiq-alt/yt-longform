@@ -541,9 +541,21 @@ export async function renderLongformVideo(item) {
   reportProgress("render", "Menggabungkan video final", 95, "");console.log(`Concatenating ${coreParts.length} parts into final video${coldOpenPath ? " (with cold open)" : ""}...`);
   await concatSegments(coreParts, outputPath);
 
+  // Sidecar .srt + daftar bab. Keduanya memakai timeline final (setelah bagian
+  // pembuka), jadi harus dihitung sesudah pola opening dipilih.
+  const srtFilename = `${path.parse(filename).name}.srt`;
+  const srtPath = await writeSrtFile(
+    path.join(paths.videoDir, srtFilename),
+    sceneCaptionSegments(renderScenes),
+    frontDuration
+  );
+  const chapters = buildChapterList(renderScenes, frontDuration, totalDuration);
+
   return {
     path: outputPath,
     url: `/generated/videos/${filename}`,
+    srtPath,
+    chapters,
     provider,
     durationSec: totalDuration,
     scenes: renderScenes.length,
@@ -1481,9 +1493,12 @@ function polishOverlayLine(value) {
   return text ? `${text[0].toUpperCase()}${text.slice(1)}` : "";
 }
 
-function sceneCaptionSegments(scenes) {
+/**
+ * Segmen subtitle untuk seluruh narasi yang terdengar (semua tipe scene).
+ * Dipakai untuk sidecar .srt, bukan untuk dibakar ke gambar.
+ */
+export function sceneCaptionSegments(scenes) {
   return scenes
-    .filter((scene) => scene.sceneType !== "reaction" && scene.sceneType !== "summary")
     .flatMap((scene) => {
       // Gunakan timestamp transkripsi asli per scene bila tersedia (mode TTS per scene).
       const captions = Array.isArray(scene.sceneCaptions) ? scene.sceneCaptions : [];
@@ -1589,6 +1604,85 @@ function sceneTitleOverlay(value) {
 
 function dialogue(start, end, style, text) {
   return `Dialogue: 0,${assTime(start)},${assTime(end)},${style},,0,0,0,,${text}`;
+}
+
+/**
+ * Sidecar .srt berisi narasi bahasa sumber. Dengan satu track ini YouTube bisa
+ * menerjemahkan subtitle otomatis ke semua bahasa, jadi penonton luar tidak
+ * lagi menonton tanpa teks. Timing memakai hasil transkripsi Whisper; kalau
+ * transkripsi tidak andal, teks tetap benar dengan timing perkiraan.
+ *
+ * ponytail: hanya mencakup scene konten. Hook cold-open sudah punya teks
+ * terbakar di layar, dan intro/outro presenter tidak punya naskah di pipeline
+ * sehingga tidak bisa dijadikan caption. Upgrade: transkripsi kedua aset itu
+ * sekali lalu simpan naskahnya di samping filenya.
+ */
+async function writeSrtFile(outputPath, segments, offsetSec) {
+  const body = buildSrtBody(segments, offsetSec);
+  if (!body) return "";
+  await fs.writeFile(outputPath, body, "utf8");
+  return outputPath;
+}
+
+export function buildSrtBody(segments, offsetSec = 0) {
+  const usable = segments.filter((segment) => segment.text && segment.end > segment.start);
+  return usable
+    .map((segment, index) => {
+      // Cue yang tumpang tindih bisa membuat YouTube menolak seluruh track,
+      // jadi akhir cue dipotong tepat sebelum cue berikutnya mulai.
+      const next = usable[index + 1];
+      const end = next ? Math.min(segment.end, next.start) : segment.end;
+      return [
+        String(index + 1),
+        `${srtTime(offsetSec + segment.start)} --> ${srtTime(offsetSec + Math.max(segment.start + 0.05, end))}`,
+        segment.text.replace(/\\N/g, "\n"),
+        ""
+      ].join("\n");
+    })
+    .join("\n");
+}
+
+export function srtTime(seconds) {
+  const value = Math.max(0, Number(seconds || 0));
+  const h = Math.floor(value / 3600);
+  const m = Math.floor((value % 3600) / 60);
+  const s = Math.floor(value % 60);
+  const ms = Math.floor((value - Math.floor(value)) * 1000);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
+}
+
+/**
+ * Daftar bab untuk deskripsi YouTube. Aturan YouTube: bab pertama wajib 00:00,
+ * minimal 3 bab, dan tiap bab minimal 10 detik. Kalau tidak lolos → kosong
+ * supaya deskripsi tidak berisi timestamp yang diabaikan YouTube.
+ */
+export function buildChapterList(scenes, frontDuration, totalDuration) {
+  const groups = [];
+  for (const scene of scenes) {
+    const label = polishOverlayLine(scene.chapter || "");
+    if (!label || groups.at(-1)?.label === label) continue;
+    groups.push({ label, startSec: Number(frontDuration || 0) + Number(scene.startSec || 0) });
+  }
+  if (!groups.length) return [];
+  groups[0].startSec = 0;
+
+  const merged = [];
+  for (const group of groups) {
+    const previous = merged.at(-1);
+    if (previous && group.startSec - previous.startSec < 10) continue;
+    merged.push(group);
+  }
+  if (merged.length < 3 || Number(totalDuration || 0) - merged.at(-1).startSec < 10) return [];
+  return merged.map((group) => ({ time: chapterTimecode(group.startSec), label: group.label }));
+}
+
+function chapterTimecode(seconds) {
+  const value = Math.max(0, Math.floor(Number(seconds || 0)));
+  const h = Math.floor(value / 3600);
+  const m = Math.floor((value % 3600) / 60);
+  const s = value % 60;
+  const mm = h ? String(m).padStart(2, "0") : String(m);
+  return `${h ? `${h}:` : ""}${mm}:${String(s).padStart(2, "0")}`;
 }
 
 function assTime(seconds) {

@@ -6,6 +6,7 @@ const tokenUrl = "https://oauth2.googleapis.com/token";
 const videoUploadUrl = "https://www.googleapis.com/upload/youtube/v3/videos";
 const videoApiUrl = "https://www.googleapis.com/youtube/v3/videos";
 const thumbnailUploadUrl = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set";
+const captionUploadUrl = "https://www.googleapis.com/upload/youtube/v3/captions";
 const maxThumbnailBytes = 2 * 1024 * 1024;
 
 function clean(value) {
@@ -272,12 +273,75 @@ async function setYoutubeThumbnail({ videoId, thumbnailPath, accessToken }) {
   return { ok: false, error: lastError?.message || "Upload thumbnail YouTube gagal." };
 }
 
+/**
+ * Unggah satu track subtitle bahasa sumber (.srt). YouTube bisa menerjemahkan
+ * track ini otomatis ke bahasa lain, sehingga penonton internasional dapat
+ * teks tanpa perlu membuat track per bahasa. Kegagalan di sini tidak boleh
+ * membatalkan publikasi video, jadi hasilnya dikembalikan sebagai status.
+ */
+export async function uploadYoutubeCaption({ videoId, srtPath, accessToken, language }) {
+  if (!videoId || !srtPath) return { ok: false, skipped: true, error: "" };
+  let body;
+  try {
+    body = await fsp.readFile(srtPath, "utf8");
+  } catch (error) {
+    return { ok: false, error: `Subtitle tidak ditemukan: ${error.message}` };
+  }
+  if (!body.trim()) return { ok: false, skipped: true, error: "" };
+
+  const metadata = {
+    snippet: {
+      videoId,
+      language: clean(language) || config.youtube.defaultLanguage,
+      name: "",
+      isDraft: false
+    }
+  };
+  const boundary = `caption-${Date.now()}`;
+  const multipart = [
+    `--${boundary}`,
+    "Content-Type: application/json; charset=UTF-8",
+    "",
+    JSON.stringify(metadata),
+    `--${boundary}`,
+    "Content-Type: application/octet-stream",
+    "",
+    body,
+    `--${boundary}--`,
+    ""
+  ].join("\r\n");
+
+  const url = new URL(captionUploadUrl);
+  url.searchParams.set("part", "snippet");
+  let lastError = null;
+  // Video kadang masih diproses YouTube beberapa detik setelah upload selesai,
+  // sehingga percobaan pertama bisa ditolak. Pola retry sama dengan thumbnail.
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await fetchJson(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": `multipart/related; boundary=${boundary}`
+        },
+        body: multipart
+      });
+      return { ok: true, error: "" };
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 5000));
+    }
+  }
+  return { ok: false, error: lastError?.message || "Upload subtitle YouTube gagal." };
+}
+
 export async function publishToYoutube({
   videoPath,
   title,
   description,
   tags = [],
   thumbnailPath,
+  srtPath = "",
   localizations = {}
 }) {
   const accessToken = await getYoutubeAccessToken();
@@ -339,6 +403,15 @@ export async function publishToYoutube({
     ? await setYoutubeThumbnail({ videoId, thumbnailPath, accessToken })
     : { ok: false, skipped: true, error: "" };
 
+  const caption = config.youtube.captionUploadEnabled
+    ? await uploadYoutubeCaption({
+        videoId,
+        srtPath,
+        accessToken,
+        language: metadata.snippet.defaultLanguage
+      })
+    : { ok: false, skipped: true, error: "" };
+
   let localization = { ok: true, skipped: true, languages: [], error: "" };
   if (Object.keys(localizations).length) {
     try {
@@ -365,6 +438,8 @@ export async function publishToYoutube({
     localizations: localization.languages,
     localizationError: localization.ok ? "" : localization.error,
     customThumbnail: Boolean(thumbnail.ok),
-    thumbnailError: thumbnail.ok || thumbnail.skipped ? "" : thumbnail.error
+    thumbnailError: thumbnail.ok || thumbnail.skipped ? "" : thumbnail.error,
+    caption: Boolean(caption.ok),
+    captionError: caption.ok || caption.skipped ? "" : caption.error
   };
 }
