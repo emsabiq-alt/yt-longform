@@ -106,6 +106,10 @@ export function polishPlanForLayAudience(plan, input = {}) {
   const sceneCount = Array.isArray(plan?.scenes) ? plan.scenes.length : 0;
   const usedScreen = new Set();
   const usedPurpose = new Set();
+  // Judul bab = screenText scene pertama di tiap bagian, supaya daftar bab
+  // YouTube berisi frasa konkret, bukan label generik "Awal Masalah".
+  const chapterTitles = new Map();
+  const usedChapter = new Set();
 
   const polished = {
     ...plan,
@@ -129,7 +133,23 @@ export function polishPlanForLayAudience(plan, input = {}) {
     next.screenText = sceneType === "summary"
       ? "Ringkasan Inti"
       : uniqueScreenText(next, index, input, usedScreen);
-    next.chapter = audienceChapterName(index, sceneCount, sceneType);
+    // Bucket posisi menjamin bab kontigu; labelnya diambil dari scene pembuka
+    // bucket itu — pakai chapter dari AI bila spesifik, kalau tidak screenText.
+    const section = audienceChapterName(index, sceneCount);
+    if (!chapterTitles.has(section)) {
+      // Kegenerikan diperiksa pada teks mentah: simplifyForLayAudience mengubah
+      // "Analisis utama" menjadi "penjelasan utama" yang lolos dari filter.
+      const raw = cleanText(scene?.chapter || "", 74).replace(/[.!?]+$/g, "").trim();
+      const fromAi = isGenericStoryboardText(raw) ? "" : simplifyForLayAudience(raw, 74);
+      // screenText scene reaction/summary bukan judul bab yang bermakna
+      // ("Ringkasan Inti"), jadi bucket-nya memakai nama bagian.
+      const own = sceneType === "image" ? next.screenText : section;
+      const label = [fromAi, own, `${section} ${index + 1}`]
+        .find((value) => value && !usedChapter.has(textKey(value)));
+      usedChapter.add(textKey(label));
+      chapterTitles.set(section, label);
+    }
+    next.chapter = chapterTitles.get(section);
     next.beatPurpose = uniqueBeatPurpose(index, sceneCount, sceneType, next, usedPurpose);
 
     if (Array.isArray(scene?.visualSegments)) {
@@ -145,9 +165,12 @@ export function polishPlanForLayAudience(plan, input = {}) {
   return polished;
 }
 
-export function audienceChapterName(index, total, sceneType = "image") {
-  if (sceneType === "summary") return "Penutup";
-  if (sceneType === "reaction") return "Jeda Penasaran";
+/**
+ * Bab murni dari posisi scene, jadi urutannya selalu kontigu (maksimal 5 bab).
+ * Reaction dan summary sengaja TIDAK dikecualikan: label khusus untuk keduanya
+ * memecah satu bab menjadi beberapa entri berlabel sama di daftar bab YouTube.
+ */
+export function audienceChapterName(index, total) {
   const position = (index + 1) / Math.max(1, total);
   if (position <= 0.16) return CHAPTERS[0];
   if (position <= 0.42) return CHAPTERS[1];

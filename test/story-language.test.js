@@ -72,3 +72,27 @@ test("polishPlanForLayAudience membuat screenText non-summary unik dan lebih kon
   assert.ok(screenTexts.every((text) => !isGenericStoryboardText(text)));
   assert.doesNotMatch(JSON.stringify(polished), /efek domino|implikasi|mekanisme|Analisis utama/i);
 });
+test("polishPlanForLayAudience membuat bab kontigu dan berlabel konkret", () => {
+  // 8 scene: reaction di tengah tidak boleh memecah bab menjadi label berulang.
+  const scenes = Array.from({ length: 8 }, (_, index) => ({
+    index: index + 1,
+    sceneType: index === 7 ? "summary" : (index === 3 ? "reaction" : "image"),
+    narration: `Fakta nomor ${index + 1} soal kapal besi yang tetap mengapung di air laut.`,
+    screenText: `Bukti Nomor ${index + 1}`,
+    chapter: "Analisis utama"
+  }));
+
+  const chapters = polishPlanForLayAudience({ scenes }, { topic: "kapal besi" })
+    .scenes.map((scene) => scene.chapter);
+
+  // Sekali sebuah bab ditinggalkan, labelnya tidak boleh muncul lagi.
+  chapters.forEach((label, index) => {
+    if (index > 0 && label !== chapters[index - 1]) {
+      assert.ok(!chapters.slice(0, index).includes(label), `bab "${label}" terputus lalu muncul lagi`);
+    }
+  });
+  // Label generik dari AI ("Analisis utama") maupun bawaan tidak boleh jadi nama bab.
+  assert.ok(!chapters.some((label) => isGenericStoryboardText(label)));
+  assert.doesNotMatch(chapters.join(" | "), /analisis utama|penjelasan utama/i);
+});
+
