@@ -380,6 +380,8 @@ export async function renderLongformVideo(item) {
     contentSegmentPaths.push(segmentPath);
   }
 
+  logSegmentSyncStats();
+
   // Concatenate all content visual segments
   const contentVisualPath = path.join(workDir, "content-visual.mp4");
   await concatSegments(contentSegmentPaths, contentVisualPath);
@@ -766,6 +768,27 @@ function findPhraseTime(wordTimeline, phraseTokens) {
   return best;
 }
 
+// Instrumentasi sinkronisasi visual↔suara. Tanpa angka ini, tidak ada cara tahu
+// seberapa sering pencocokan frasa gagal dan render jatuh ke pembagian rata.
+const syncStats = { scenes: 0, evenScenes: 0, boundaries: 0, matched: 0 };
+
+/**
+ * Cetak satu baris ringkasan hasil pencocokan segmen, lalu reset counter.
+ * Dipakai sekali per render supaya rasio fallback terlihat di log CI.
+ */
+export function logSegmentSyncStats() {
+  if (!syncStats.scenes) return null;
+  const stats = { ...syncStats };
+  const evenPct = Math.round((stats.evenScenes / stats.scenes) * 100);
+  const matchPct = stats.boundaries ? Math.round((stats.matched / stats.boundaries) * 100) : 0;
+  console.log(`[Sync] ${stats.scenes} scene multi-segmen | fallback rata: ${stats.evenScenes} (${evenPct}%) | batas cocok frasa: ${stats.matched}/${stats.boundaries} (${matchPct}%)`);
+  syncStats.scenes = 0;
+  syncStats.evenScenes = 0;
+  syncStats.boundaries = 0;
+  syncStats.matched = 0;
+  return stats;
+}
+
 /**
  * Hitung durasi tiap sub-segmen visual berdasarkan timestamp kata TTS.
  * Pergantian gambar diselaraskan dengan momen frasa `narrativeContext`
@@ -776,7 +799,11 @@ function findPhraseTime(wordTimeline, phraseTokens) {
 export function computeSegmentDurations(scene, segmentCount) {
   const total = Number(scene.durationSec || 0);
   if (segmentCount <= 1 || total <= 0) return [Math.max(total, 0)];
-  const equalSplit = () => Array.from({ length: segmentCount }, () => Number((total / segmentCount).toFixed(3)));
+  syncStats.scenes += 1;
+  const equalSplit = () => {
+    syncStats.evenScenes += 1;
+    return Array.from({ length: segmentCount }, () => Number((total / segmentCount).toFixed(3)));
+  };
 
   const captions = (Array.isArray(scene.sceneCaptions) ? scene.sceneCaptions : [])
     .filter((cap) => cap && Number(cap.end) > Number(cap.start));
@@ -803,9 +830,13 @@ export function computeSegmentDurations(scene, segmentCount) {
   for (let i = 1; i < segmentCount; i += 1) {
     const phraseTokens = tokenizeMatchText(segments[i]?.narrativeContext || "");
     let time = (total * i) / segmentCount;
+    syncStats.boundaries += 1;
     if (phraseTokens.length) {
       const match = findPhraseTime(wordTimeline, phraseTokens);
-      if (match && match.score >= 0.5) time = match.time;
+      if (match && match.score >= 0.5) {
+        time = match.time;
+        syncStats.matched += 1;
+      }
     }
     boundaries.push(time);
   }
