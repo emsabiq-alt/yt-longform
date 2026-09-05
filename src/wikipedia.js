@@ -129,6 +129,42 @@ async function fetchSummary(title, ctx) {
 }
 
 /**
+ * Isi artikel penuh (bukan hanya paragraf pembuka).
+ *
+ * `/page/summary/` hanya mengembalikan lead paragraph, sementara naskah diminta
+ * berisi angka, tahun, dan nama di 10+ scene — bagian padat data ("Efek Osmotik",
+ * "Metilglioksal") tidak pernah sampai ke prompt. Endpoint summary TETAP dipakai
+ * untuk judul kanonik, URL, dan penyaring disambiguasi; extracts hanya menambah
+ * badan teks. Judul section dipertahankan sebagai label pendek supaya model tahu
+ * fakta itu berasal dari bagian mana.
+ */
+/**
+ * Rapikan teks `prop=extracts`: heading wiki jadi label pendek, section
+ * administratif dibuang. Diekspor untuk unit test tanpa jaringan.
+ */
+export function cleanExtractText(raw, maxChars = 4000) {
+  return cleanText(
+    String(raw || "")
+      // "== Efek Osmotik ==" → "Efek Osmotik:"; subsection (===) jadi kalimat biasa.
+      .replace(/^={3,}\s*(.+?)\s*={3,}$/gm, "$1.")
+      .replace(/^==\s*(.+?)\s*==$/gm, "\n$1:")
+      // Section administratif tidak memuat fakta yang bisa dinarasikan.
+      .replace(/\n(Lihat pula|Referensi|Pranala luar|Bacaan lanjutan|Catatan|Daftar isi|See also|References|External links|Further reading|Notes):[\s\S]*$/i, ""),
+    maxChars
+  );
+}
+
+async function fetchExtract(title, ctx, maxChars) {
+  const url = `${ctx.host}/w/api.php?action=query&format=json&prop=extracts&explaintext=1`
+    + `&redirects=1&titles=${encodeURIComponent(title)}`;
+  const data = await wikiFetch(url, ctx.userAgent, ctx.timeoutMs);
+  const pages = data?.query?.pages || {};
+  const page = Object.values(pages)[0];
+  if (!page || page.missing !== undefined) return "";
+  return cleanExtractText(page.extract, maxChars);
+}
+
+/**
  * Kumpulkan kandidat judul lalu saring berdasar relevansi ke SUBJEK topik.
  * Subjek = kata-kata inti terdepan. Opensearch difokuskan ke subjek (cocok judul),
  * full-text sebagai cadangan. Judul hanya lolos bila mengandung kata-subjek
@@ -201,6 +237,13 @@ export async function fetchWikipediaFacts(topic, options = {}) {
     const titles = await relevantTitles(query, topicWords, ctx);
     if (!titles.length) return null;
 
+    // Anggaran dibagi rata hanya sebanyak artikel yang benar-benar tersedia,
+    // supaya topik dengan satu artikel relevan tidak dipotong separuh.
+    const perArticleChars = Math.max(
+      600,
+      Math.floor(maxChars / Math.min(maxArticles, titles.length)) - 40
+    );
+
     const sources = [];
     const blocks = [];
     for (const title of titles) {
@@ -215,7 +258,15 @@ export async function fetchWikipediaFacts(topic, options = {}) {
       // Pastikan ringkasan tetap relevan (judul kanonik bisa berbeda dari kandidat).
       if (overlapScore(summary.title, topicWords) === 0
         && overlapScore(summary.extract, topicWords) === 0) continue;
-      blocks.push(`• ${summary.title}: ${summary.extract}`);
+      // Badan artikel bersifat tambahan: kegagalan extracts tidak boleh
+      // menghilangkan grounding yang sudah didapat dari summary.
+      let body = "";
+      try {
+        body = await fetchExtract(summary.title, ctx, perArticleChars);
+      } catch {
+        body = "";
+      }
+      blocks.push(`• ${summary.title}: ${body.length > summary.extract.length ? body : summary.extract}`);
       sources.push({ title: summary.title, url: summary.url });
     }
     if (!blocks.length) return null;

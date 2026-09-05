@@ -3,7 +3,7 @@
 // - buildSourcesBlock & buildDescription: atribusi sumber CC BY-SA.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildSearchQuery } from "../src/wikipedia.js";
+import { buildSearchQuery, cleanExtractText } from "../src/wikipedia.js";
 import {
   buildSourcesBlock,
   buildDescription,
@@ -22,6 +22,39 @@ test("buildSearchQuery: kuat terhadap input kosong/aneh", () => {
   assert.equal(buildSearchQuery("   apa   "), "apa");
   // Frasa dengan kata non-tanya tetap dipertahankan.
   assert.equal(buildSearchQuery("Apa itu fotosintesis"), "itu fotosintesis");
+});
+
+test("cleanExtractText: heading jadi label, section administratif dibuang", () => {
+  const raw = [
+    "Madu adalah cairan manis yang dihasilkan lebah.",
+    "",
+    "== Pembentukan Madu ==",
+    "Lebah mengumpulkan nektar lalu menguapkan airnya hingga kadar air di bawah dua puluh persen.",
+    "",
+    "=== Efek Osmotik ===",
+    "Kadar gula tinggi menarik air keluar dari sel mikroba.",
+    "",
+    "== Referensi ==",
+    "Daftar pustaka panjang yang tidak berguna untuk narasi."
+  ].join("\n");
+
+  const cleaned = cleanExtractText(raw, 4000);
+  // Bagian padat data harus lolos, bukan hanya paragraf pembuka.
+  assert.match(cleaned, /Pembentukan Madu:/);
+  assert.match(cleaned, /dua puluh persen/);
+  // Subsection tetap ada isinya, tapi tanda "=" hilang seluruhnya.
+  assert.match(cleaned, /Efek Osmotik\./);
+  assert.doesNotMatch(cleaned, /=/);
+  // Section administratif dipotong.
+  assert.doesNotMatch(cleaned, /Daftar pustaka/);
+  // Lebih panjang dari kalimat pembuka saja — inti dari perbaikan grounding ini.
+  assert.ok(cleaned.length > 120, `panjang hasil: ${cleaned.length}`);
+});
+
+test("cleanExtractText: aman untuk input kosong dan memotong sesuai maxChars", () => {
+  assert.equal(cleanExtractText(""), "");
+  assert.equal(cleanExtractText(null), "");
+  assert.ok(cleanExtractText("kata ".repeat(500), 100).length <= 100);
 });
 
 test("buildSourcesBlock: menyusun atribusi saat ada sumber", () => {

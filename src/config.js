@@ -240,7 +240,9 @@ export const config = {
     userAgent: clean(process.env.WIKIPEDIA_USER_AGENT
       || "yt-longform-studio/1.0 (+https://yt.emsa.pro; kontak: admin@emsa.pro)"),
     maxArticles: Math.max(1, Math.min(4, numberEnv("WIKIPEDIA_MAX_ARTICLES", 2))),
-    maxChars: Math.max(400, Math.min(4000, numberEnv("WIKIPEDIA_MAX_CHARS", 1800))),
+    // 4000 char ≈ 1000 token input ≈ $0.0004 per naskah. Lead paragraph saja
+    // (1800) tidak memuat bagian padat angka yang diminta prompt.
+    maxChars: Math.max(400, Math.min(12000, numberEnv("WIKIPEDIA_MAX_CHARS", 4000))),
     timeoutMs: Math.max(2000, numberEnv("WIKIPEDIA_TIMEOUT_MS", 8000))
   }
 };

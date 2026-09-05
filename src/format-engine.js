@@ -265,6 +265,39 @@ export function buildScenePattern(sceneCount, formatType = "dokumenter_klasik") 
 }
 
 /**
+ * Rentang kata per scene yang BISA dicapai pola format ini.
+ *
+ * Angka tetap "48-65 kata" tidak pernah bisa memenuhi target durasi pada format
+ * dengan banyak scene reaction (reaction tidak dibacakan TTS): mitos_vs_fakta dan
+ * countdown di 600-900 detik mentok jauh di bawah ambang revisi durationSec*1.75,
+ * jadi setiap naskah memicu satu panggilan tulis-ulang penuh lalu gagal lagi
+ * karena batas kata yang sama diulang. Rentangnya karena itu diturunkan dari
+ * jumlah scene yang benar-benar dibacakan.
+ *
+ * @param {number} sceneCount
+ * @param {string} formatType
+ * @param {number} durationSec
+ * @returns {{ narratedScenes: number, imageMin: number, imageMax: number, summaryMin: number, summaryMax: number }}
+ */
+export function sceneWordRange(sceneCount, formatType, durationSec) {
+  const narratedScenes = buildScenePattern(sceneCount, formatType)
+    .filter((type) => type !== "reaction").length || 1;
+  const seconds = Math.max(60, Number(durationSec) || 300);
+  // 1.95 kata/detik: cukup di atas ambang revisi (1.75) agar naskah yang menuruti
+  // instruksi tetap lolos meski dedupe lintas scene memangkas beberapa kalimat;
+  // 2.4 memberi ruang di atas target 2.1.
+  const imageMin = Math.max(35, Math.ceil((seconds * 1.95) / narratedScenes));
+  const imageMax = Math.max(imageMin + 14, Math.ceil((seconds * 2.4) / narratedScenes));
+  return {
+    narratedScenes,
+    imageMin,
+    imageMax,
+    summaryMin: imageMin + 7,
+    summaryMax: imageMax + 10
+  };
+}
+
+/**
  * Ambil sceneType untuk index tertentu. Kalau AI sudah mengirimkan sceneType yang valid,
  * gunakan itu. Kalau tidak, pakai pola dari formatType.
  */

@@ -1,7 +1,7 @@
 // Unit test format-engine + cost: variasi storyboard (ban-list) dan estimasi harga gambar.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { FORMAT_TYPES, pickFormatType } from "../src/format-engine.js";
+import { FORMAT_TYPES, pickFormatType, sceneWordRange } from "../src/format-engine.js";
 import { estimateImageUsd } from "../src/cost.js";
 
 test("pickFormatType: menghindari formatType dari 5 video terakhir", () => {
@@ -29,6 +29,32 @@ test("pickFormatType: kembali ke semua kunci saat history menghabiskan pool", ()
   const allBanned = keys.slice(0, 5).map((formatType) => ({ formatType }));
   assert.ok(keys.includes(pickFormatType(allBanned)));
   assert.ok(keys.includes(pickFormatType()));
+});
+
+test("sceneWordRange: semua format bisa mencapai ambang revisi durationSec*1.75", () => {
+  // Batas kata tetap "48-65" membuat mitos_vs_fakta & countdown selalu gagal di
+  // durasi panjang, memicu satu tulis-ulang penuh yang gagal lagi.
+  for (const formatType of Object.keys(FORMAT_TYPES)) {
+    for (const durationSec of [300, 420, 600, 900]) {
+      const sceneCount = Math.max(10, Math.min(28, Math.round(durationSec / 18)));
+      const range = sceneWordRange(sceneCount, formatType, durationSec);
+      const reachable = range.narratedScenes * range.imageMax;
+      const threshold = Math.round(durationSec * 1.75);
+      assert.ok(
+        reachable >= threshold,
+        `${formatType} @${durationSec}s: maksimal ${reachable} kata < ambang ${threshold}`
+      );
+      assert.ok(range.imageMax > range.imageMin, `${formatType}: rentang harus punya lebar`);
+      assert.ok(range.summaryMin > range.imageMin);
+    }
+  }
+});
+
+test("sceneWordRange: aman untuk input tidak wajar", () => {
+  const range = sceneWordRange(0, "format-hantu", 0);
+  assert.ok(range.narratedScenes >= 1);
+  assert.ok(range.imageMin >= 35);
+  assert.ok(range.imageMax > range.imageMin);
 });
 
 test("estimateImageUsd: harga mengikuti IMAGE_MODEL, bukan hanya ukuran", () => {

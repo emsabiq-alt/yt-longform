@@ -8,7 +8,7 @@ import { clamp, cleanText, createId, nowIso } from "./util.js";
 import { pickFreshTopic } from "./topic-engine.js";
 import { loadHistory } from "./continuity-engine.js";
 import { generateViralTitle } from "./title-engine.js";
-import { buildScenePattern, formatTypeDescription, formatTypeNarrativeCue, pickFormatType, resolveSceneType } from "./format-engine.js";
+import { buildScenePattern, formatTypeDescription, formatTypeNarrativeCue, pickFormatType, resolveSceneType, sceneWordRange } from "./format-engine.js";
 import { getViralAngleById, pickViralAngle, viralAngleSummary } from "./viral-angle-library.js";
 import { polishPlanForLayAudience, simplifyForLayAudience } from "./story-language.js";
 
@@ -195,6 +195,7 @@ export async function createLongformDraft(rawInput) {
 
   const selectedTitle = normalized.title;
   const minimumNarrationWords = Math.round(input.durationSec * 1.75);
+  const words = sceneWordRange(input.sceneCount, input.formatType, input.durationSec);
   if (config.openai.apiKey && narrationWordCount(normalized) < minimumNarrationWords) {
     try {
       const expandedPlan = await requestKnowledgeJson([
@@ -202,8 +203,8 @@ export async function createLongformDraft(rawInput) {
         "",
         "REVISI WAJIB:",
         `Naskah sebelumnya terlalu pendek. Tulis ulang dengan minimal ${minimumNarrationWords} kata narasi yang benar-benar dibacakan TTS.`,
-        "Hitung hanya scene image dan summary. Scene reaction tidak dibacakan TTS.",
-        "Setiap scene image harus 48-65 kata. Scene summary harus 55-75 kata.",
+        `Hitung hanya scene image dan summary — ada ${words.narratedScenes} scene seperti itu. Scene reaction tidak dibacakan TTS.`,
+        `Karena itu setiap scene image HARUS ${words.imageMin}-${words.imageMax} kata dan scene summary ${words.summaryMin}-${words.summaryMax} kata. Jangan menulis lebih pendek dari batas bawah itu.`,
         `Pertahankan tepat jumlah scene dan pola format ${input.formatType}, dengan scene terakhir summary.`
       ].join("\n"));
       normalized = normalizePlan(expandedPlan, input);
@@ -292,6 +293,7 @@ function buildPrompt(input, wiki = null) {
   const formatDesc = simplifyForLayAudience(formatTypeDescription(input.formatType), 500);
   const formatCue = simplifyForLayAudience(formatTypeNarrativeCue(input.formatType), 500);
   const scenePattern = buildScenePattern(input.sceneCount, input.formatType).join(", ");
+  const words = sceneWordRange(input.sceneCount, input.formatType, input.durationSec);
   const viralAngle = getViralAngleById(input.viralAngleId);
   const viralBlock = simplifyForLayAudience(
     viralAngleSummary(viralAngle) || `${input.viralAngleLabel || "angle viral"}: Gunakan kemasan yang membuat topik terasa punya konflik, misteri, taruhan, atau akibat yang jelas.`,
@@ -320,13 +322,18 @@ function buildPrompt(input, wiki = null) {
     "  - HINDARI istilah akademis, sosiologis, atau teoritis yang berbelit-belit dan terkesan klise. Pakai benda, kejadian, angka, dan contoh yang konkret.",
     "  - Penonton ingin tahu fakta unik dan jawabannya secara langsung, sederhana, dan konkret.",
     "  - Buat narasi yang to-the-point, jelas, dan fokus pada fakta unik/informasi 'daging' yang memancing rasa penasaran penonton.",
+    "  - Tulis seperti sedang bercerita ke teman yang penasaran: kalimat pendek-sedang (rata-rata di bawah 20 kata), aktif, dan hangat. Sapa penonton dengan 'kamu' bila perlu, jangan 'Anda'.",
+    "  - Setiap fakta rumit WAJIB langsung disusul satu perbandingan sehari-hari yang bisa dibayangkan (ukuran, berat, waktu, harga, jarak) — misal 'setebal rambut manusia', 'selama satu episode sinetron', 'seberat dua ekor gajah'.",
+    "  - Variasikan panjang dan bentuk kalimat antar scene. Jangan setiap scene dibuka dengan pola yang sama; kalimat seragam membuat penonton bosan meski isinya benar.",
+    "  - Kata asing atau istilah teknis boleh dipakai maksimal sekali per scene, dan wajib dijelaskan dalam kalimat yang sama dengan bahasa sehari-hari.",
+    "  - DILARANG memakai kata: implikasi, mekanisme, signifikan, fundamental, kompleksitas, eksponensial, korelasi, paradigma, esensial, krusial, dinamika, konteks sosial. Ganti dengan padanan sehari-hari.",
     "Hindari gaya bahasa lebay atau pembuka Shorts yang berisik. Penonton video panjang mencari detail faktual ('isinya daging semua').",
     "Struktur cerita harus punya pembuka yang kuat, isi yang maju langkah demi langkah, bagian paling penting yang terasa jelas, dan penutup yang mudah diingat.",
     "Setiap scene harus berisi narasi yang dibacakan oleh TTS dan teks layar (screenText) yang sinkron. Tulis narasi agar mudah dibaca TTS: angka dan satuan ditulis dengan kata-kata (misal 'tiga puluh derajat Celcius', 'seribu kilometer per jam'), hindari singkatan dan simbol seperti %, Rp, AI, 3D, &, kecuali sangat umum.",
     "PENTING UNTUK TTS: Tulis narasi sebagai kalimat-kalimat yang MENGALIR KONTINU. HINDARI titik koma (;), titik tiga (...), tanda kurung, dan tanda kutip karena memicu jeda panjang saat dibacakan. Gunakan koma atau kata sambung ('dan', 'lalu', 'sementara', 'karena') untuk menghubungkan klausa. Satu kalimat = satu napas bicara yang mulus.",
     "Scene reaction adalah jembatan singkat berupa pertanyaan atau pernyataan penasaran 8-16 kata. Jangan menjelaskan jawaban pada scene reaction; jawabannya dilanjutkan pada scene image berikutnya.",
     "Narasi scene reaction tidak akan dibacakan TTS. Teksnya hanya muncul di layar sebagai jeda hening singkat.",
-    "Setiap scene image wajib memiliki 48-65 kata narasi. Scene summary wajib memiliki 55-75 kata narasi.",
+    `Setiap scene image wajib memiliki ${words.imageMin}-${words.imageMax} kata narasi. Scene summary wajib memiliki ${words.summaryMin}-${words.summaryMax} kata narasi.`,
     "Scene reaction tidak memerlukan visualKeywords atau imagePrompt. Isi reactionCue dengan ekspresi yang cocok: heran, kaget, skeptis, menemukan petunjuk, atau setuju.",
     "Scene terakhir wajib bertipe summary dengan screenText 'Ringkasan Inti' dan narasi kesimpulan yang tidak kosong.",
     "Buat storyboard longform yang komprehensif: banyak beat kecil, punya fungsi naratif jelas, dan tidak terasa seperti storyboard Shorts.",
@@ -410,6 +417,7 @@ function buildPrompt(input, wiki = null) {
     "Setiap sub-visual juga WAJIB punya pexelsQuery dan mustMatchTerms untuk pencarian stock video:",
     "  - pexelsQuery: satu frasa pencarian stock dalam bahasa Inggris, konkret, idealnya 3-7 kata.",
     "  - mustMatchTerms: array berisi 1-3 istilah subjek bahasa Inggris yang wajib tampak relevan pada hasil.",
+    "  - mustMatchTerms WAJIB berupa terjemahan Inggris dari benda/pelaku yang BENAR-BENAR disebut di narrativeContext sub-visual itu. Kalau frasanya berbunyi 'rongga udara di dalam lambung', mustMatchTerms-nya ['ship', 'hull'], bukan ['ocean'].",
     "  - Jangan isi pexelsQuery dengan konsep abstrak atau kata generik seperti 'documentary footage'.",
     "Contoh scene tentang 'cermin lift untuk aksesibilitas' (perhatikan progresi + kontinuitas subjek lift; narrativeContext di contoh ini adalah frasa yang memang muncul verbatim di narration scene-nya):",
     "  visualSegments: [",

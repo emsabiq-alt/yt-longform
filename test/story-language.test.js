@@ -1,20 +1,45 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  alignNarrativeContext,
   dedupeSentences,
   isGenericStoryboardText,
   polishPlanForLayAudience,
   simplifyForLayAudience
 } from "../src/story-language.js";
+import { computeSegmentDurations } from "../src/longform-render.js";
 
 test("simplifyForLayAudience mengganti istilah kaku menjadi bahasa awam", () => {
   const text = simplifyForLayAudience("Efek domino ini punya implikasi dan mekanisme yang kompleks.");
   assert.equal(text, "rangkaian akibat ini punya arti dan cara kerja yang rumit.");
 });
 
+test("simplifyForLayAudience tidak merusak nama diri", () => {
+  // Istilah yang diikuti kata berkapital adalah bagian dari nama; menggantinya
+  // menghasilkan "hal yang terlihat bertentangan Fermi" di judul video.
+  assert.equal(simplifyForLayAudience("Paradoks Fermi"), "Paradoks Fermi");
+  assert.equal(simplifyForLayAudience("Sintesis Protein di dalam sel"), "Sintesis Protein di dalam sel");
+  assert.equal(simplifyForLayAudience("Transisi Demografi Indonesia"), "Transisi Demografi Indonesia");
+  // Pemakaian sebagai kata biasa tetap disederhanakan.
+  assert.equal(simplifyForLayAudience("paradoks yang aneh"), "hal yang terlihat bertentangan yang aneh");
+  assert.equal(simplifyForLayAudience("transisi bertahap"), "perubahan bertahap bertahap");
+});
+
 test("dedupeSentences membuang kalimat yang sama atau terlalu mirip", () => {
   const text = dedupeSentences("Madu bisa awet lama. Madu bisa awet lama. Itulah sebabnya madu sering ditemukan masih layak.");
   assert.equal(text, "Madu bisa awet lama. Itulah sebabnya madu sering ditemukan masih layak.");
+});
+
+test("dedupeSentences berbagi sidik jari antar pemanggilan lewat argumen seen", () => {
+  const seen = [];
+  const first = dedupeSentences("Kadar air madu sangat rendah sehingga mikroba tidak bisa hidup.", 1600, seen);
+  const second = dedupeSentences("Mikroba tidak bisa hidup karena kadar air madu sangat rendah.", 1600, seen);
+  assert.ok(first.length > 0);
+  // Kalimat kedua adalah fakta yang sama dengan urutan kata berbeda.
+  // Narasi tidak boleh kosong, jadi satu kalimat tetap dipertahankan.
+  assert.ok(second.length > 0);
+  const third = dedupeSentences("Lebah menambahkan enzim glukosa oksidase yang menghasilkan hidrogen peroksida.", 1600, seen);
+  assert.match(third, /enzim/);
 });
 
 test("isGenericStoryboardText mengenali label storyboard yang terlalu umum", () => {
@@ -94,5 +119,80 @@ test("polishPlanForLayAudience membuat bab kontigu dan berlabel konkret", () => 
   // Label generik dari AI ("Analisis utama") maupun bawaan tidak boleh jadi nama bab.
   assert.ok(!chapters.some((label) => isGenericStoryboardText(label)));
   assert.doesNotMatch(chapters.join(" | "), /analisis utama|penjelasan utama/i);
+});
+
+
+test("alignNarrativeContext memakai frasa AI yang benar-benar ada di narasi", () => {
+  const narration = "Kapal besi pertama diluncurkan pada tahun delapan belas empat puluh tiga. "
+    + "Hukum Archimedes menjelaskan gaya angkat yang bekerja pada lambung. "
+    + "Rongga udara di dalam lambung membuat kepadatan rata-rata turun. "
+    + "Kapal modern kini mengangkut ribuan kontainer melintasi samudra.";
+  const segments = alignNarrativeContext([
+    { narrativeContext: "Kapal besi pertama diluncurkan" },
+    { narrativeContext: "Hukum Archimedes menjelaskan gaya angkat" },
+    { narrativeContext: "Rongga udara di dalam lambung" },
+    { narrativeContext: "mengangkut ribuan kontainer melintasi samudra" }
+  ], narration);
+
+  assert.equal(segments.length, 4);
+  assert.equal(segments[0].narrativeContext, "Kapal besi pertama diluncurkan");
+  assert.equal(segments[3].narrativeContext, "mengangkut ribuan kontainer melintasi samudra");
+});
+
+test("alignNarrativeContext mengganti frasa parafrase dengan potongan verbatim narasi", () => {
+  const narration = "Kadar air madu hanya sekitar tujuh belas persen sehingga bakteri tidak bisa berkembang. "
+    + "Lebah juga menambahkan enzim yang menghasilkan hidrogen peroksida dalam jumlah kecil. "
+    + "Karena itu madu di makam Mesir kuno masih layak dimakan setelah ribuan tahun.";
+  const segments = alignNarrativeContext([
+    { narrativeContext: "kelembapan sangat minim" },              // parafrase, tidak ada di narasi
+    { narrativeContext: "zat antibakteri buatan lebah" },          // parafrase
+    { narrativeContext: "madu di makam Mesir kuno" }               // verbatim
+  ], narration);
+
+  const lower = narration.toLowerCase();
+  segments.forEach((segment, i) => {
+    assert.ok(segment.narrativeContext, `segmen ${i} tidak boleh kosong`);
+    assert.ok(
+      lower.includes(segment.narrativeContext.toLowerCase()),
+      `segmen ${i} harus verbatim dari narasi: "${segment.narrativeContext}"`
+    );
+  });
+  // Frasa verbatim milik AI tetap dipakai apa adanya.
+  assert.equal(segments[2].narrativeContext, "madu di makam Mesir kuno");
+  // Tidak ada dua segmen yang menunjuk momen yang sama.
+  assert.equal(new Set(segments.map((s) => s.narrativeContext)).size, segments.length);
+});
+
+test("alignNarrativeContext membuat pergantian gambar benar-benar tersinkron", () => {
+  // Uji end-to-end kecil: frasa hasil align harus bisa dicocokkan oleh
+  // computeSegmentDurations, bukan jatuh ke pembagian rata.
+  const narration = "Kapal besi pertama diluncurkan dan banyak orang yakin benda itu tenggelam. "
+    + "Hukum Archimedes menjelaskan gaya angkat yang bekerja pada benda di air. "
+    + "Kuncinya ada pada rongga udara di dalam lambung yang menurunkan kepadatan. "
+    + "Berkat prinsip itu kapal modern mengangkut ribuan kontainer melintasi samudra.";
+  const sentences = narration.match(/[^.]+\./g).map((s) => s.trim());
+  const scene = {
+    durationSec: 20,
+    // Semua narrativeContext salah/parafrase: tanpa align, sinkronisasi gagal.
+    visualSegments: alignNarrativeContext(
+      [
+        { narrativeContext: "zeppelin quantum" },
+        { narrativeContext: "zeppelin quantum" },
+        { narrativeContext: "zeppelin quantum" },
+        { narrativeContext: "zeppelin quantum" }
+      ],
+      narration
+    ),
+    sceneCaptions: sentences.map((text, i) => ({ start: i * 5, end: (i + 1) * 5, text }))
+  };
+
+  const durations = computeSegmentDurations(scene, 4);
+  assert.equal(durations.length, 4);
+  const total = durations.reduce((sum, d) => sum + d, 0);
+  assert.ok(Math.abs(total - 20) < 0.05, `total harus ~20, dapat ${total}`);
+  // Frasa diambil dari posisi proporsional narasi, jadi batas segmen bergerak
+  // mengikuti ucapan; hasil persis 5/5/5/5 berarti fallback rata yang dipakai.
+  assert.notDeepEqual(durations, [5, 5, 5, 5]);
+  assert.ok(durations.every((d) => d > 0.5), `durasi wajar: ${durations}`);
 });
 
