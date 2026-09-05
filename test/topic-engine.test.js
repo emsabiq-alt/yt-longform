@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { config } from "../src/config.js";
 import { parseDeepSeekJson } from "../src/deepseek.js";
-import { fallbackTitle, generateViralTitle, pickBestTitle } from "../src/title-engine.js";
+import { fallbackTitle, generateViralTitle, pickBestTitle, titleBonus, DEFAULT_TITLE_PATTERNS } from "../src/title-engine.js";
 import { isSpaceQuotaDue } from "../src/topic-engine.js";
 
 const space = () => ({ category: "luar angkasa" });
@@ -61,4 +61,39 @@ test("pickBestTitle: memakai qualityScore dari kandidat DeepSeek", () => {
     { title: "Bagaimana Kompas Menunjuk Utara", qualityScore: 71 }
   ]);
   assert.equal(title, "Kenapa Madu Tidak Pernah Basi");
+});
+
+test("DEFAULT_TITLE_PATTERNS: contoh di prompt patuh pada aturan yang diminta ke AI", () => {
+  for (const example of DEFAULT_TITLE_PATTERNS) {
+    assert.ok(example.length <= 65, `contoh "${example}" (${example.length} char) melebihi batas potong YouTube`);
+  }
+  const questionOpeners = DEFAULT_TITLE_PATTERNS
+    .filter((example) => /^(kenapa|mengapa|bagaimana)\b/i.test(example));
+  assert.ok(
+    questionOpeners.length <= DEFAULT_TITLE_PATTERNS.length / 2,
+    `contoh judul masih didominasi pertanyaan (${questionOpeners.length}/${DEFAULT_TITLE_PATTERNS.length})`
+  );
+});
+
+test("titleBonus: judul dengan angka, ketegangan, dan subjek dinilai lebih tinggi", () => {
+  const rich = titleBonus("Madu Berumur Tiga Ribu Tahun yang Ternyata Masih Aman", ["madu"], new Set());
+  const bland = titleBonus("Penjelasan Lengkap Soal Pengawetan Alami", ["madu"], new Set());
+  assert.ok(rich > bland, `bonus judul berdetail (${rich}) harus di atas judul kabur (${bland})`);
+});
+
+test("pickBestTitle: detail terukur mengalahkan skor AI yang lebih tinggi tapi kabur", () => {
+  const title = pickBestTitle([
+    { title: "Alasan Madu Bertahan Sangat Lama di Dalam Wadah Tertutup", qualityScore: 88 },
+    { title: "Madu Berumur Tiga Ribu Tahun yang Ternyata Masih Aman Dimakan", qualityScore: 80 }
+  ], { subject: "madu" });
+  assert.equal(title, "Madu Berumur Tiga Ribu Tahun yang Ternyata Masih Aman Dimakan");
+});
+
+test("pickBestTitle: pembuka yang sama dengan video terakhir dihindari", () => {
+  const recentOpeners = new Set(["kenapa madu"]);
+  const title = pickBestTitle([
+    { title: "Kenapa Madu Tidak Pernah Basi Meski Disimpan Ribuan Tahun", qualityScore: 90 },
+    { title: "Madu Berumur Tiga Ribu Tahun yang Ternyata Masih Aman Dimakan", qualityScore: 82 }
+  ], { subject: "madu", recentOpeners });
+  assert.equal(title, "Madu Berumur Tiga Ribu Tahun yang Ternyata Masih Aman Dimakan");
 });

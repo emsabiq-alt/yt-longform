@@ -13,7 +13,7 @@ export const VIRAL_ANGLES = [
     premise: "Bingkai topik sebagai akibat besar yang ternyata digerakkan oleh penyebab kecil atau jarang dibahas.",
     titlePatterns: [
       "Kenapa Penyebab Asli {topic} Tersembunyi Begitu Lama",
-      "Bagaimana Hal Kecil Ini Mengubah {topic}",
+      "Satu Detail Kecil yang Mengubah Seluruh {topic}",
       "Mengapa yang Diam-diam Membentuk {topic} Jarang Diketahui"
     ],
     hookMoves: [
@@ -82,7 +82,7 @@ export const VIRAL_ANGLES = [
     label: "rahasia industri",
     premise: "Bingkai topik sebagai mekanisme tersembunyi di balik produk, pasar, teknologi, atau kebiasaan massal.",
     titlePatterns: [
-      "Kenapa Industri Menyembunyikan Hal Ini dari Kita",
+      "Kenapa Industri Menyembunyikan Bagian Ini dari Pembeli",
       "Bagaimana {topic} Diam-diam Mengubah Kebiasaan Kita",
       "Mengapa Mekanisme di Balik {topic} Jarang Diungkap"
     ],
