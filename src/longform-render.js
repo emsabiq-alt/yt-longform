@@ -4,6 +4,8 @@ import { spawn } from "node:child_process";
 import { config, paths } from "./config.js";
 import { clamp, normalizeTtsText, safeFilename, splitLines } from "./util.js";
 import { reportProgress } from "./progress.js";
+import { buildWordTimeline, findPhraseTime, tokenizeMatchText } from "./word-timeline.js";
+import { planSceneSpotlights, spotlightDialogueLines, spotlightStyles, logSpotlightStats } from "./spotlight.js";
 
 const fps = 30;
 const minLongformDurationSec = 300;
@@ -735,51 +737,6 @@ async function makeContentAudioFromScenes({ scenes, musicPath, outputPath, durat
   ]);
 }
 
-function normalizeMatchToken(value) {
-  return String(value || "")
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]/g, "");
-}
-
-function tokenizeMatchText(value) {
-  return String(value || "")
-    .split(/\s+/)
-    .map(normalizeMatchToken)
-    .filter((token) => token.length > 1);
-}
-
-/**
- * Cari posisi frasa (narrativeContext) di timeline kata caption scene.
- * Sliding window dengan skor overlap token (urutan bebas di dalam window).
- * @returns {{ time: number, score: number } | null}
- */
-function findPhraseTime(wordTimeline, phraseTokens) {
-  if (!phraseTokens.length || !wordTimeline.length) return null;
-  const windowSize = Math.min(phraseTokens.length + 2, wordTimeline.length);
-  const phraseSet = new Set(phraseTokens);
-  let best = null;
-  for (let start = 0; start + 1 <= wordTimeline.length; start += 1) {
-    const end = Math.min(start + windowSize, wordTimeline.length);
-    let matched = 0;
-    const seen = new Set();
-    for (let i = start; i < end; i += 1) {
-      const token = wordTimeline[i].token;
-      if (phraseSet.has(token) && !seen.has(token)) {
-        matched += 1;
-        seen.add(token);
-      }
-    }
-    const score = matched / phraseTokens.length;
-    if (!best || score > best.score) {
-      best = { time: wordTimeline[start].time, score };
-      if (score === 1) break;
-    }
-  }
-  return best;
-}
-
 // Instrumentasi sinkronisasi visual↔suara. Tanpa angka ini, tidak ada cara tahu
 // seberapa sering pencocokan frasa gagal dan render jatuh ke pembagian rata.
 const syncStats = { scenes: 0, evenScenes: 0, boundaries: 0, matched: 0 };
@@ -822,18 +779,7 @@ export function computeSegmentDurations(scene, segmentCount) {
   const segments = Array.isArray(scene.visualSegments) ? scene.visualSegments : [];
   if (!captions.length || segments.length !== segmentCount) return equalSplit();
 
-  // Bangun timeline kata: waktu tiap kata diinterpolasi linear di dalam caption-nya.
-  const wordTimeline = [];
-  for (const cap of captions) {
-    const capWords = String(cap.text || "").split(/\s+/).filter(Boolean);
-    if (!capWords.length) continue;
-    const start = Number(cap.start);
-    const span = Number(cap.end) - start;
-    capWords.forEach((word, i) => {
-      const token = normalizeMatchToken(word);
-      if (token) wordTimeline.push({ token, time: start + span * (i / capWords.length) });
-    });
-  }
+  const wordTimeline = buildWordTimeline(captions);
   if (wordTimeline.length < segmentCount) return equalSplit();
 
   // Batas segmen 1..n-1: waktu frasa narrativeContext diucapkan.
@@ -1292,6 +1238,10 @@ async function writeContentCaptionAss({ outputPath, item, scenes, contentDuratio
     }
   }
 
+  // Kartu Spotlight: hanya muncul di titik yang lolos pencocokan frasa.
+  events.push(...spotlightDialogueLines(planSceneSpotlights(scenes), dialogue, assEscape));
+  logSpotlightStats();
+
   const ass = [
     "[Script Info]",
     "ScriptType: v4.00+",
@@ -1310,6 +1260,7 @@ async function writeContentCaptionAss({ outputPath, item, scenes, contentDuratio
     `Style: SummaryText,${config.render.fontBody},29,&H00FFFFFF,&H000000FF,&H9011171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.5,0,8,120,120,170,1`,
     `Style: SummaryPoints,${config.render.fontBody},27,&H00F7F2DC,&H000000FF,&H9011171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.5,0,8,140,140,330,1`,
     `Style: Point,${config.render.fontBody},44,&H00FFFFFF,&H000000FF,&H8F11171B,&HCC11171B,-1,0,0,0,100,100,0,0,3,10,0,5,80,80,0,1`,
+    ...spotlightStyles(),
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",

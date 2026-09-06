@@ -11,6 +11,7 @@ import { generateViralTitle } from "./title-engine.js";
 import { buildScenePattern, formatTypeDescription, formatTypeNarrativeCue, pickFormatType, resolveSceneType, sceneWordRange } from "./format-engine.js";
 import { getViralAngleById, pickViralAngle, viralAngleSummary } from "./viral-angle-library.js";
 import { polishPlanForLayAudience, simplifyForLayAudience } from "./story-language.js";
+import { normalizeSpotlight } from "./spotlight.js";
 
 const categories = [
   "sains",
@@ -356,12 +357,20 @@ function buildPrompt(input, wiki = null) {
     "- Scene PERTAMA dari setiap chapter baru (field chapter berubah) WAJIB membuka dengan pertanyaan atau ajakan menebak di 1-2 kalimat pertama narasinya (misal 'Coba tebak berapa lama waktu yang dibutuhkan...' atau 'Pertanyaannya, kenapa hal itu bisa terjadi?').",
     "- Jawaban pertanyaan pembuka bab TIDAK boleh langsung diberikan di kalimat berikutnya; ungkap secara bertahap sepanjang bab itu.",
     "- Scene reaction yang berada di batas bab difungsikan sebagai checkpoint tebakan: pertanyaan singkat yang jawabannya dibuka di scene sesudahnya.",
+    "",
+    "SPOTLIGHT (OPSIONAL, maksimal 4 scene per naskah):",
+    "- Untuk scene yang punya satu fakta paling layak diingat (angka, tahun, nama tokoh, atau istilah kunci), tambahkan field spotlight.",
+    "- Format: spotlight: { type:'keypoint'|'figure', label, sublabel, phrase }.",
+    "- label = fakta itu sendiri, maksimal 5 kata (misal '1.200 kilometer per jam' atau 'Ibnu Sina'). sublabel = penjelas singkat maksimal 6 kata, boleh kosong.",
+    "- type 'figure' hanya jika label adalah nama orang; selain itu 'keypoint'.",
+    "- phrase = potongan 4-8 kata yang DISALIN PERSIS dari narration scene itu, tepat pada bagian saat fakta tersebut diucapkan. Jangan parafrase; kalau tidak bisa menyalin persis, hilangkan field spotlight untuk scene itu.",
+    "- Jangan memberi spotlight pada scene reaction atau summary.",
     `CATATAN KATEGORI (${input.category}): ${categoryNote}`,
     `VARIASI CERITA UNTUK NASKAH INI: ${variation}`,
     `KEMASAN VIRAL UTAMA:\n${viralBlock}`,
     "Gunakan kemasan viral ini sebagai tulang punggung judul, hook 30 detik pertama, dan transisi antar babak. Jangan hanya menempelkannya di judul.",
     "Kembalikan JSON valid saja dengan format:",
-    "{ title, hook, summary, importantPoints:[string], factCheckNote, scenes:[{ index, sceneType:'image'|'reaction'|'summary', durationSec, narration, screenText, visualKeywords, imagePrompt, visualSegments:[{ imagePrompt, visualKeywords, pexelsQuery, mustMatchTerms:[string], narrativeContext }], chapter, beatPurpose, reactionCue }] }",
+    "{ title, hook, summary, importantPoints:[string], factCheckNote, scenes:[{ index, sceneType:'image'|'reaction'|'summary', durationSec, narration, screenText, visualKeywords, imagePrompt, visualSegments:[{ imagePrompt, visualKeywords, pexelsQuery, mustMatchTerms:[string], narrativeContext }], chapter, beatPurpose, reactionCue, spotlight }] }",
     "",
     "JUDUL (cadangan): Buat judul singkat (maksimal 60 karakter), spesifik dengan subjek konkret yang jelas, dan memancing rasa penasaran tanpa terasa template. Judul final akan disempurnakan terpisah, jadi cukup sediakan satu judul layak pakai.",
     "",
@@ -711,7 +720,9 @@ function normalizePlan(plan, input) {
       ),
       chapter: cleanText(scene?.chapter || chapterName(index, input.sceneCount), 80),
       beatPurpose: cleanText(scene?.beatPurpose || beatPurpose(index, input.sceneCount), 180),
-      reactionCue: cleanText(scene?.reactionCue || reactionCue(index), 120)
+      reactionCue: cleanText(scene?.reactionCue || reactionCue(index), 120),
+      // Opsional; render akan membuang kartu yang frasanya tidak ketemu di audio.
+      spotlight: sceneType === "image" ? normalizeSpotlight(scene?.spotlight) : null
     };
   });
 

@@ -322,6 +322,13 @@ async function transcribeSpeechSegmentsWithModel(audioPath, model, options = {})
   form.append("language", options.language || "id");
   form.append("response_format", "verbose_json");
   form.append("temperature", String(options.temperature ?? 0));
+  // Timestamp per kata dipakai untuk menyelaraskan pergantian visual dan popup
+  // dengan momen kata itu benar-benar diucapkan. Harganya sama dengan
+  // verbose_json biasa; hanya field responsnya yang bertambah.
+  if (options.wordTimestamps !== false) {
+    form.append("timestamp_granularities[]", "segment");
+    form.append("timestamp_granularities[]", "word");
+  }
 
   if (options.prompt) {
     form.append("prompt", String(options.prompt).slice(0, 220));
@@ -333,9 +340,18 @@ async function transcribeSpeechSegmentsWithModel(audioPath, model, options = {})
     body: form
   });
   const data = await parseOpenAiResponse(response);
+  const words = Array.isArray(data.words)
+    ? data.words
+      .map((word) => ({
+        word: String(word?.word || "").trim(),
+        start: Number(word?.start ?? 0),
+        end: Number(word?.end ?? 0)
+      }))
+      .filter((word) => word.word && word.end >= word.start)
+    : [];
   const segments = Array.isArray(data.segments) ? data.segments : [];
   if (segments.length) {
-    return segments
+    const mapped = segments
       .map((segment) => ({
         start: Number(segment.start || 0),
         end: Number(segment.end || 0),
@@ -344,10 +360,26 @@ async function transcribeSpeechSegmentsWithModel(audioPath, model, options = {})
         noSpeechProb: Number(segment.no_speech_prob ?? 0)
       }))
       .filter((segment) => segment.text && segment.end > segment.start);
+    // Kata ditempelkan pada segmen yang memuatnya supaya konsumen bisa memakai
+    // waktu asli tiap kata tanpa mengubah bentuk data segmen yang sudah dipakai.
+    if (words.length && mapped.length) {
+      for (const segment of mapped) {
+        segment.words = words.filter((word) => word.start >= segment.start - 0.05 && word.start < segment.end + 0.05);
+      }
+    }
+    return mapped;
   }
 
   const text = String(data.text || "").replace(/\s+/g, " ").trim();
-  return text ? [{ start: 0, end: 0, text, avgLogprob: 0, noSpeechProb: 0 }] : [];
+  if (!text) return [];
+  return [{
+    start: words.length ? words[0].start : 0,
+    end: words.length ? words.at(-1).end : 0,
+    text,
+    avgLogprob: 0,
+    noSpeechProb: 0,
+    words
+  }];
 }
 
 function providerName() {

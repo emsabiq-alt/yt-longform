@@ -82,7 +82,10 @@ export function alignCaptionsToSource(sourceText, segments) {
       end: Number(seg.end),
       text: slice.join(" "),
       avgLogprob: Number(seg.avgLogprob ?? 0),
-      noSpeechProb: Number(seg.noSpeechProb ?? 0)
+      noSpeechProb: Number(seg.noSpeechProb ?? 0),
+      // Timestamp kata asli dari Whisper diteruskan apa adanya: teksnya boleh
+      // diganti naskah sumber, tapi waktunya tidak boleh ikut ditebak ulang.
+      words: Array.isArray(seg.words) ? seg.words : []
     });
   }
   return aligned;

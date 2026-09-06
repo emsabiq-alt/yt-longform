@@ -212,6 +212,16 @@ export function polishPlanForLayAudience(plan, input = {}) {
       next.visualSegments = alignNarrativeContext(scene.visualSegments, next.narration);
     }
 
+    // Spotlight ikut aturan yang sama dengan narrativeContext: kalau frasa
+    // pemicunya tidak ada lagi di narasi final (diparafrase AI atau kalimatnya
+    // dibuang dedupe), kartunya dibuang. Lebih baik tanpa kartu daripada kartu
+    // yang muncul di detik yang salah.
+    if (next.spotlight) {
+      const tokens = matchTokens(next.spotlight.phrase);
+      const match = bestPhraseMatch(matchTokens(next.narration), tokens);
+      if (tokens.length < 2 || match.score < PHRASE_MIN_SCORE) next.spotlight = null;
+    }
+
     return next;
   });
 
