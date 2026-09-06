@@ -14,6 +14,8 @@ import {
   fetchWikimediaMediaForScene,
   WIKIMEDIA_SELECTOR_VERSION
 } from "./wikimedia.js";
+import { fetchOpenverseImageForScene } from "./openverse.js";
+import { findPersonImage } from "./wikidata.js";
 import { renderLongformVideo } from "./longform-render.js";
 import { generateThumbnail } from "./thumbnail.js";
 import { saveItem, listContextItems } from "./storage.js";
@@ -40,13 +42,16 @@ export async function ensureVisualAssets(item, options = {}) {
   const warnings = options.warnings || [];
   const pexelsRunner = options.pexelsRunner || ensurePexelsClips;
   const wikimediaRunner = options.wikimediaRunner || ensureWikimediaMedia;
+  const openverseRunner = options.openverseRunner || ensureOpenverseImages;
   const imageRunner = options.imageRunner || ensureImages;
   const pexelsOptions = options.pexelsOptions || {};
   const wikimediaOptions = options.wikimediaOptions || {};
+  const openverseOptions = options.openverseOptions || {};
   const imageOptions = options.imageOptions || {};
 
   await pexelsRunner(item, { ...pexelsOptions, warnings });
   await wikimediaRunner(item, { ...wikimediaOptions, warnings });
+  await openverseRunner(item, { ...openverseOptions, warnings });
   await imageRunner(item, {
     ...imageOptions,
     warnings,
@@ -798,6 +803,96 @@ export async function ensureWikimediaMedia(item, options = {}) {
   )).length;
   console.log(`[Wikimedia] Total media Commons valid: ${selectedCount}/${maxAssets}.`);
 }
+
+/**
+ * Lapisan terakhir sebelum gambar berbayar: Openverse (ratusan juta gambar CC
+ * dari Flickr, museum, NASA, Smithsonian) dengan foto tokoh Wikidata P18 lebih
+ * dulu bila scene menyebut nama orang.
+ *
+ * Slot yang sudah terisi Pexels/Commons tidak disentuh; ini murni pengisi
+ * kekosongan. Gagal apa pun → slot dibiarkan kosong dan ensureImages yang
+ * menanganinya, jadi tidak ada jalur yang bisa membuat render batal.
+ */
+export async function ensureOpenverseImages(item, options = {}) {
+  const warnings = options.warnings || [];
+  const fetchImage = options.fetchImage || fetchOpenverseImageForScene;
+  const persistItem = options.persistItem || saveItem;
+  const mediaExists = createMediaExists(options.fileExists || pathExists);
+  const sleep = options.sleep || ((delay) => new Promise((resolve) => setTimeout(resolve, delay)));
+  const delayMs = Math.max(0, Number(options.delayMs ?? config.openverse.requestDelayMs) || 0);
+  const maxAssets = Math.max(0, Math.floor(Number(
+    options.maxAssets ?? config.openverse.maxAssetsPerVideo
+  ) || 0));
+
+  item.assets = item.assets || {};
+  const slots = flattenPexelsSegments(item);
+  const managedSlots = new Set(slots.map((slot) => slot.slot));
+  const images = [...(item.assets.images || [])];
+  const occupiedSlots = new Set();
+  for (const asset of [...images, ...(item.assets.clips || [])]) {
+    const slot = segmentSlot(asset.sceneIndex, asset.segmentIndex);
+    if (managedSlots.has(slot) && await mediaExists(asset.path)) occupiedSlots.add(slot);
+  }
+
+  if (!config.openverse.enabled || maxAssets === 0) return;
+
+  const usedPageIds = new Set(
+    images.map((asset) => asset.openversePageId).filter(Boolean).map(String)
+  );
+  const jobs = slots
+    .filter((slot) => (
+      !occupiedSlots.has(slot.slot)
+      && slot.hasSearchIntent
+      && !slot.explicitImageFallback
+    ))
+    .sort((a, b) => (b.selectionScore - a.selectionScore) || (a.flatIndex - b.flatIndex))
+    .slice(0, maxAssets);
+
+  if (!jobs.length) {
+    console.log("[Openverse] Tidak ada slot kosong yang perlu diisi.");
+    return;
+  }
+
+  let done = 0;
+  console.log(`[Openverse] Mencari maksimal ${jobs.length} gambar berlisensi terbuka.`);
+  for (const job of jobs) {
+    try {
+      const media = await fetchImage({
+        itemId: item.id,
+        scene: job.segScene,
+        topicFallback: item.input?.topic || "",
+        usedPageIds: [...usedPageIds],
+        personImage: config.openverse.personLookup ? findPersonImage : null
+      });
+      const pageId = media?.openversePageId ? String(media.openversePageId) : "";
+      if (media?.path && pageId && !usedPageIds.has(pageId)
+        && await mediaExists(media.path, { refresh: true })) {
+        images.push({
+          ...media,
+          sceneIndex: job.sceneIndex,
+          segmentIndex: job.segmentIndex,
+          intentHash: pexelsIntentHash(job.segScene)
+        });
+        usedPageIds.add(pageId);
+        done += 1;
+        item.assets.images = sortByScene(images);
+        item.updatedAt = nowIso();
+        await persistItem(item);
+      }
+    } catch (error) {
+      const message = `Openverse scene ${job.sceneIndex} seg ${job.segmentIndex} gagal: ${error.message}`;
+      warnings.push(message);
+      console.warn(`[Openverse] ${message}`);
+    }
+    if (delayMs > 0) await sleep(delayMs);
+  }
+
+  item.assets.images = sortByScene(images);
+  item.updatedAt = nowIso();
+  await persistItem(item);
+  console.log(`[Openverse] Total gambar terisi: ${done}/${jobs.length}.`);
+}
+
 
 export async function ensureImages(item, options = {}) {
   if (!config.openai.apiKey) throw new Error("OPENAI_API_KEY wajib diisi untuk generate gambar.");

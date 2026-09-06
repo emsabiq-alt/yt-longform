@@ -229,6 +229,30 @@ export const config = {
     downloadTimeoutMs: Math.max(5000, numberEnv("WIKIMEDIA_DOWNLOAD_TIMEOUT_MS", 120000)),
     requestDelayMs: Math.max(0, numberEnv("WIKIMEDIA_REQUEST_DELAY_MS", 150))
   },
+  openverse: {
+    // Openverse mengindeks ratusan juta gambar CC dari Flickr, museum, NASA,
+    // Smithsonian, dan Commons. Gratis, tanpa API key. Dipakai untuk slot yang
+    // tidak terisi Pexels maupun Commons, sebelum jatuh ke gambar berbayar.
+    enabled: boolDefault(process.env.OPENVERSE_ENABLED, true),
+    // Foto tokoh via Wikidata P18: dicoba lebih dulu saat scene menyebut nama
+    // orang, karena pemetaan entitas→foto jauh lebih akurat daripada cari teks.
+    personLookup: boolDefault(process.env.OPENVERSE_PERSON_LOOKUP, true),
+    maxAssetsPerVideo: Math.max(0, Math.min(12,
+      Math.floor(numberEnv("OPENVERSE_MAX_ASSETS_PER_VIDEO", 6))
+    )),
+    maxResults: Math.max(1, Math.min(20,
+      Math.floor(numberEnv("OPENVERSE_MAX_RESULTS", 12))
+    )),
+    maxQueryAttempts: Math.max(1, Math.min(2,
+      Math.floor(numberEnv("OPENVERSE_MAX_QUERY_ATTEMPTS", 2))
+    )),
+    minRelevance: Math.max(0.1, Math.min(1, numberEnv("OPENVERSE_MIN_RELEVANCE", 0.34))),
+    // Sengaja pendek: query dingin di Openverse bisa menggantung ~60 detik.
+    // Lebih baik menyerah cepat dan pakai gambar OpenAI daripada menahan render.
+    timeoutMs: Math.max(3000, numberEnv("OPENVERSE_TIMEOUT_MS", 10000)),
+    downloadTimeoutMs: Math.max(5000, numberEnv("OPENVERSE_DOWNLOAD_TIMEOUT_MS", 60000)),
+    requestDelayMs: Math.max(0, numberEnv("OPENVERSE_REQUEST_DELAY_MS", 150))
+  },
   thumbnail: {
     enabled: boolDefault(process.env.THUMBNAIL_GENERATION_ENABLED, true),
     style: clean(process.env.THUMBNAIL_STYLE || "cinematic") // cinematic | vector

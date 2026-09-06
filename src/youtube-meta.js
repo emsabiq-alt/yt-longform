@@ -119,16 +119,22 @@ export function buildSourcesBlock(item) {
 }
 
 /**
- * Atribusi visual Wikimedia Commons. Semua aset tetap dicantumkan, termasuk
- * Public Domain, agar asal-usul media dapat diaudit. URL lisensi didedup agar
- * deskripsi tetap ringkas.
+ * Atribusi visual berlisensi terbuka (Wikimedia Commons, Openverse, Wikidata).
+ * Semua aset tetap dicantumkan, termasuk Public Domain, agar asal-usul media
+ * dapat diaudit. URL lisensi didedup agar deskripsi tetap ringkas.
+ *
+ * Filternya sengaja berbasis KEBERADAAN metadata lisensi, bukan daftar nama
+ * provider: menambah sumber baru tanpa memperbarui daftar akan diam-diam
+ * menghilangkan atribusi, dan itu melanggar syarat lisensi CC BY.
  */
+const ATTRIBUTION_PROVIDERS = new Set(["wikimedia", "openverse", "wikidata"]);
+
 export function buildMediaAttributionBlock(item) {
   const rawAssets = [
     ...(item.assets?.clips || []),
     ...(item.assets?.images || [])
   ].filter((asset) => (
-    asset?.provider === "wikimedia"
+    ATTRIBUTION_PROVIDERS.has(String(asset?.provider || ""))
     && oneLine(asset.sourceUrl, 400)
   ));
   const seen = new Set();
@@ -142,7 +148,7 @@ export function buildMediaAttributionBlock(item) {
     if (!key || seen.has(key)) continue;
     seen.add(key);
     assets.push({
-      title: oneLine(asset.title || asset.wikimediaPageTitle || "Media Wikimedia Commons", 100),
+      title: oneLine(asset.title || asset.wikimediaPageTitle || "Media berlisensi terbuka", 100),
       creator: oneLine(asset.creator || "Kontributor Wikimedia Commons", 90),
       license: oneLine(asset.license || "Lisensi pada halaman sumber", 50),
       licenseUrl: oneLine(asset.licenseUrl, 300),
@@ -163,8 +169,12 @@ export function buildMediaAttributionBlock(item) {
     seenLicenses.add(key);
     licenseLinks.push(`• ${asset.license}: ${asset.licenseUrl}`);
   }
+  // Judul menyesuaikan isi: tetap "Wikimedia Commons" selama semua aset dari
+  // Commons (menjaga deskripsi lama tidak berubah), jadi generik begitu ada
+  // sumber lain seperti Flickr atau museum lewat Openverse.
+  const commonsOnly = assets.every((asset) => asset.sourceUrl.includes("commons.wikimedia.org"));
   return [
-    "Kredit media Wikimedia Commons:",
+    commonsOnly ? "Kredit media Wikimedia Commons:" : "Kredit media berlisensi terbuka:",
     lines.join("\n"),
     "Media dipotong, diubah ukuran, atau disesuaikan untuk video ini.",
     licenseLinks.length ? `Tautan lisensi:\n${licenseLinks.join("\n")}` : ""
