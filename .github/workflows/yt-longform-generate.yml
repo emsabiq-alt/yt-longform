@@ -95,6 +95,8 @@ jobs:
       ELEVENLABS_MODEL: ${{ secrets.ELEVENLABS_MODEL || 'eleven_multilingual_v2' }}
       ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID || 'wUrGnU2Kx934kbDdOWDo' }}
       ELEVENLABS_SPEED: ${{ secrets.ELEVENLABS_SPEED || '1.08' }}
+      POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
+      POLLINATIONS_IMAGE_MODEL: ${{ secrets.POLLINATIONS_IMAGE_MODEL || 'flux' }}
 
       SPEECH_TEMPO: ${{ secrets.SPEECH_TEMPO || '1.0' }}
       RENDER_TITLE_FONT: Bebas Neue
@@ -127,7 +129,6 @@ jobs:
       YOUTUBE_CATEGORY_ID: ${{ secrets.YOUTUBE_CATEGORY_ID || '27' }}
       YOUTUBE_TAGS: ${{ secrets.YOUTUBE_TAGS || 'BanyakTau,Edukasi,Pengetahuan,Sains,Sejarah,Teknologi' }}
       THUMBNAIL_GENERATION_ENABLED: "true"
-      THUMBNAIL_STYLE: ${{ secrets.THUMBNAIL_STYLE || 'cinematic' }}
       YOUTUBE_CUSTOM_THUMBNAIL_ENABLED: "true"
       YOUTUBE_CAPTION_UPLOAD_ENABLED: "true"
       YOUTUBE_THUMBNAIL_UPLOAD_ATTEMPTS: ${{ secrets.YOUTUBE_THUMBNAIL_UPLOAD_ATTEMPTS || '1' }}

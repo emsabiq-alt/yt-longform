@@ -929,19 +929,27 @@ async function makeImageSegment({ imagePath, outputPath, duration, zoomDirection
     "eq=contrast=1.04:saturation=1.06:brightness=0.01"
   ].join(",");
 
-  await runFfmpeg([
-    "-y",
-    "-loop", "1",
-    "-i", imagePath,
-    "-vf", bgFilter,
-    "-frames:v", String(frames),
-    "-r", String(fps),
-    "-c:v", "libx264",
-    "-preset", "veryfast",
-    "-crf", "22",
-    "-pix_fmt", "yuv420p",
-    outputPath
-  ]);
+  try {
+    await runFfmpeg([
+      "-y",
+      "-loop", "1",
+      "-i", imagePath,
+      "-vf", bgFilter,
+      "-frames:v", String(frames),
+      "-r", String(fps),
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-crf", "22",
+      "-pix_fmt", "yuv420p",
+      outputPath
+    ]);
+  } catch (error) {
+    if (/loop.*not found|option not found/i.test(error.message)) {
+      console.warn(`[Render] File ${imagePath} ditolak opsi loop gambar, mencoba render sebagai video: ${error.message}`);
+      return makeVideoSegment({ videoPath: imagePath, outputPath, duration, resolution });
+    }
+    throw error;
+  }
 }
 
 /**
@@ -980,25 +988,33 @@ async function makeColdOpenVisual({ media, outputPath, duration, zoomDirection, 
   const zoomExpr = zoomDirection === "out"
     ? `if(eq(on,0),1.08,max(1.0,zoom-0.0005))`
     : `min(1.0+on*0.0005,1.08)`;
-  await runFfmpeg([
-    "-y",
-    "-loop", "1",
-    "-i", media.path,
-    "-vf", [
-      `scale=${width}:${height}:force_original_aspect_ratio=increase`,
-      `crop=${width}:${height}`,
-      `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${width}x${height}:fps=${fps}`,
-      "eq=contrast=1.05:saturation=1.06:brightness=0.01",
-      "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.30:t=fill"
-    ].join(","),
-    "-frames:v", String(frames),
-    "-r", String(fps),
-    "-c:v", "libx264",
-    "-preset", "veryfast",
-    "-crf", "22",
-    "-pix_fmt", "yuv420p",
-    outputPath
-  ]);
+  try {
+    await runFfmpeg([
+      "-y",
+      "-loop", "1",
+      "-i", media.path,
+      "-vf", [
+        `scale=${width}:${height}:force_original_aspect_ratio=increase`,
+        `crop=${width}:${height}`,
+        `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${width}x${height}:fps=${fps}`,
+        "eq=contrast=1.05:saturation=1.06:brightness=0.01",
+        "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.30:t=fill"
+      ].join(","),
+      "-frames:v", String(frames),
+      "-r", String(fps),
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-crf", "22",
+      "-pix_fmt", "yuv420p",
+      outputPath
+    ]);
+  } catch (error) {
+    if (/loop.*not found|option not found/i.test(error.message)) {
+      console.warn(`[ColdOpen] File ${media.path} ditolak opsi loop gambar, mencoba render sebagai video: ${error.message}`);
+      return makeColdOpenVisual({ media: { ...media, type: "video" }, outputPath, duration, zoomDirection, resolution });
+    }
+    throw error;
+  }
 }
 
 /**

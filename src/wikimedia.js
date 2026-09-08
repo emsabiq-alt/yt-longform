@@ -22,6 +22,10 @@ import { config, paths } from "./config.js";
 import { buildPexelsQueryPlan, tokenizeWords } from "./pexels.js";
 
 const WIKIMEDIA_API_URL = "https://commons.wikimedia.org/w/api.php";
+const WIKIMEDIA_UPLOAD_HOSTS = new Set([
+  "upload.wikimedia.org",
+  "thumb.wikimedia.org"
+]);
 const WIKIMEDIA_UPLOAD_HOST = "upload.wikimedia.org";
 export const WIKIMEDIA_SELECTOR_VERSION = 1;
 
@@ -33,7 +37,8 @@ const IMAGE_MIME_TYPES = new Set([
 
 const VIDEO_MIME_TYPES = new Set([
   "video/webm",
-  "video/ogg"
+  "video/ogg",
+  "application/ogg"
 ]);
 
 function unique(values) {
@@ -116,7 +121,7 @@ export function isAllowedWikimediaLicense(licenseName, options = {}) {
 function safeUploadUrl(value) {
   try {
     const url = new URL(String(value || ""));
-    return url.protocol === "https:" && url.hostname === WIKIMEDIA_UPLOAD_HOST
+    return url.protocol === "https:" && WIKIMEDIA_UPLOAD_HOSTS.has(url.hostname)
       ? url.toString()
       : "";
   } catch {
@@ -125,6 +130,8 @@ function safeUploadUrl(value) {
 }
 
 function mediaTypeFromInfo(info) {
+  const mediatype = String(info?.mediatype || "").toUpperCase();
+  if (mediatype === "VIDEO") return "video";
   const mime = String(info?.mime || "").toLowerCase();
   const thumbMime = String(info?.thumbmime || "").toLowerCase();
   if (VIDEO_MIME_TYPES.has(mime)) return "video";
@@ -133,15 +140,19 @@ function mediaTypeFromInfo(info) {
 }
 
 function extensionForCandidate(candidate) {
-  const mime = candidate.mediaType === "video"
-    ? candidate.mime
-    : candidate.thumbMime || candidate.mime;
+  if (candidate.mediaType === "video") {
+    const mime = String(candidate.mime || "").toLowerCase();
+    if (mime === "video/webm") return ".webm";
+    if (mime === "video/ogg" || mime === "application/ogg") return ".ogv";
+    if (candidate.originalUrl?.endsWith(".webm")) return ".webm";
+    if (candidate.originalUrl?.endsWith(".ogv")) return ".ogv";
+    return ".ogv";
+  }
+  const mime = candidate.thumbMime || candidate.mime;
   const extensions = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
-    "image/webp": ".webp",
-    "video/ogg": ".ogv",
-    "video/webm": ".webm"
+    "image/webp": ".webp"
   };
   return extensions[String(mime || "").toLowerCase()] || "";
 }

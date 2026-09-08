@@ -120,6 +120,11 @@ export const config = {
     voiceId: clean(process.env.ELEVENLABS_VOICE_ID || "wUrGnU2Kx934kbDdOWDo"),
     speed: Math.min(1.2, Math.max(0.7, numberEnv("ELEVENLABS_SPEED", 1.08)))
   },
+  pollinations: {
+    apiKey: clean(process.env.POLLINATIONS_API_KEY || ""),
+    model: clean(process.env.POLLINATIONS_IMAGE_MODEL || "flux"),
+    baseUrl: trimSlash(process.env.POLLINATIONS_BASE_URL || "https://image.pollinations.ai")
+  },
   youtube: {
     enabled: bool(process.env.YOUTUBE_UPLOAD_ENABLED),
     clientId: clean(process.env.YOUTUBE_CLIENT_ID),
@@ -254,8 +259,7 @@ export const config = {
     requestDelayMs: Math.max(0, numberEnv("OPENVERSE_REQUEST_DELAY_MS", 150))
   },
   thumbnail: {
-    enabled: boolDefault(process.env.THUMBNAIL_GENERATION_ENABLED, true),
-    style: clean(process.env.THUMBNAIL_STYLE || "cinematic") // cinematic | vector
+    enabled: boolDefault(process.env.THUMBNAIL_GENERATION_ENABLED, true)
   },
   wikipedia: {
     // Grounding fakta dari Wikipedia (GRATIS, tanpa API key). Lihat src/wikipedia.js.
@@ -399,5 +403,4 @@ function applyConfigUpdates(updates) {
   if (updates.ELEVENLABS_SPEED !== undefined) config.elevenlabs.speed = Number(updates.ELEVENLABS_SPEED);
   if (updates.SPEECH_TEMPO !== undefined) config.render.speechTempo = Number(updates.SPEECH_TEMPO);
   if (updates.PEXELS_API_KEY !== undefined) config.pexels.apiKey = updates.PEXELS_API_KEY;
-  if (updates.THUMBNAIL_STYLE !== undefined) config.thumbnail.style = clean(updates.THUMBNAIL_STYLE);
 }
