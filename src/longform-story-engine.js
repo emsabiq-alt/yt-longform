@@ -511,7 +511,15 @@ function buildPrompt(input, wiki = null) {
     "    { imagePrompt: 'modern accessible elevator interior wide angle', visualKeywords: 'modern elevator interior design', pexelsQuery: 'modern accessible elevator interior', mustMatchTerms: ['elevator'], narrativeContext: 'standar aksesibilitas internasional' }",
     "  ]",
     "Setiap sub-visual HARUS relevan dengan bagian narasi yang sedang dibacakan saat itu.",
-    "Field visualKeywords dan imagePrompt di level scene tetap wajib diisi sebagai fallback."
+    "Field visualKeywords dan imagePrompt di level scene tetap wajib diisi sebagai fallback.",
+    "",
+    "CHAPTER THUMBNAIL DIVERSITY (WAJIB):",
+    "Setiap kali scene memulai chapter baru (field 'chapter' berbeda dari scene sebelumnya), imagePrompt scene itu HARUS:",
+    "  - Menampilkan WARNA DOMINAN yang berbeda dari chapter sebelumnya (mis. biru → oranye → hijau → merah → kuning).",
+    "  - Menampilkan LOKASI atau SETTING yang berbeda (mis. ruang sidang → pantai → kota → hutan → laboratorium).",
+    "  - Menampilkan SUBJEK UTAMA yang berbeda (bukan hanya sudut pandang berbeda dari objek yang sama).",
+    "Tujuannya: YouTube mengambil frame pertama tiap chapter sebagai thumbnail chapter. Jika semua chapter opener terlihat sama (tone gelap, stock footage serupa), semua thumbnail chapter akan identik dan membingungkan penonton.",
+    "Pastikan imagePrompt dan visualSegments[0].imagePrompt dari chapter opener secara visual mencolok berbeda dari chapter opener sebelumnya."
   ].join("\n");
 }
 
