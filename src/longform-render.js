@@ -852,11 +852,17 @@ function resolveSceneMediaList(item, scene) {
       mediaList.push({ type: "image", path: image.path });
       continue;
     }
-    // Fallback terakhir: cari media apapun untuk scene ini (backward compat)
-    const anyClip = clips.find((c) => Number(c.sceneIndex) === Number(sourceIndex) && c.path);
-    if (anyClip?.path) { mediaList.push({ type: "video", path: anyClip.path }); continue; }
-    const anyImage = images.find((img) => Number(img.sceneIndex) === Number(sourceIndex) && img.path);
-    if (anyImage?.path) { mediaList.push({ type: "image", path: anyImage.path }); continue; }
+    // Fallback: siklus klip scene agar tidak reuse klip yang sama untuk segmen berbeda
+    const sceneClips = clips.filter((c) => Number(c.sceneIndex) === Number(sourceIndex) && c.path);
+    const sceneImages = images.filter((img) => Number(img.sceneIndex) === Number(sourceIndex) && img.path);
+    const usedPaths = new Set(mediaList.map((m) => m.path));
+    const unusedClip = sceneClips.find((c) => !usedPaths.has(c.path));
+    if (unusedClip?.path) { mediaList.push({ type: "video", path: unusedClip.path }); continue; }
+    const unusedImg = sceneImages.find((img) => !usedPaths.has(img.path));
+    if (unusedImg?.path) { mediaList.push({ type: "image", path: unusedImg.path }); continue; }
+    // Absolute fallback (semua media habis): cycle via modulo
+    const cycled = sceneClips[i % Math.max(1, sceneClips.length)] || sceneImages[i % Math.max(1, sceneImages.length)];
+    if (cycled?.path) { mediaList.push({ type: cycled.pexelsId ? "video" : "image", path: cycled.path }); continue; }
   }
 
   // Jika mediaList kosong, fallback ke resolveSceneMedia lama

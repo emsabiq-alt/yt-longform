@@ -45,12 +45,15 @@ export default async function handler(req, res) {
     const fetchedSources = feeds.filter(r => r.status === "fulfilled").length;
     if (!items.length) throw new Error("Semua feed gagal diambil");
 
+    const rawTopics = findTopics(items);
+    const topics = await aiDedup(rawTopics);
+
     res.status(200).json({
       fetchedAt: new Date().toISOString(),
       criteria: CRITERIA,
       media: MEDIA,
       fetchedSources,
-      topics: findTopics(items)
+      topics
     });
   } catch (error) {
     console.error("[api/trends]", error);
@@ -162,4 +165,55 @@ function findTopics(items) {
 
 function toTitleCase(str) {
   return str.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Deduplikasi topik menggunakan OpenAI:
+ * - Kelompokkan topik yang membahas kejadian yang sama
+ * - Pilih 1 wakil terbaik per kelompok
+ * - Kembalikan maks 10 topik yang benar-benar berbeda cerita
+ * Jika OPENAI_API_KEY tidak ada atau request gagal, kembalikan input asli.
+ */
+async function aiDedup(topics) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey || topics.length <= 3) return topics;
+
+  try {
+    const list = topics.map((t, i) => `${i + 1}. ${t.title} (${t.articles} artikel, ${t.sources} sumber)`).join("\n");
+    const prompt = [
+      "Berikut adalah daftar topik berita Indonesia yang ditemukan dari RSS media nasional.",
+      "Tugas kamu: kelompokkan topik yang MEMBAHAS CERITA/KEJADIAN YANG SAMA (bukan hanya kata yang mirip).",
+      "Dari setiap kelompok, pilih 1 topik yang paling informatif dan spesifik sebagai wakil.",
+      "Kembalikan HANYA nomor topik yang terpilih (satu per kelompok), maksimal 10 nomor, dipisah koma.",
+      "Jangan tambahkan teks lain selain angka yang dipisah koma. Contoh: 1,3,7,12",
+      "",
+      "Daftar topik:",
+      list
+    ].join("\n");
+
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 80,
+        temperature: 0
+      }),
+      signal: AbortSignal.timeout(15_000)
+    });
+
+    if (!res.ok) throw new Error(`OpenAI HTTP ${res.status}`);
+    const data = await res.json();
+    const raw = data.choices?.[0]?.message?.content?.trim() || "";
+    const indices = raw.split(/[,\s]+/)
+      .map((s) => parseInt(s, 10) - 1)
+      .filter((n) => Number.isFinite(n) && n >= 0 && n < topics.length);
+
+    if (indices.length < 3) return topics; // fallback jika output AI tidak valid
+    return indices.map((i) => topics[i]);
+  } catch (e) {
+    console.warn("[trends] aiDedup gagal, pakai hasil mentah:", e.message);
+    return topics;
+  }
 }
