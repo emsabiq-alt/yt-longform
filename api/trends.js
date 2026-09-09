@@ -48,6 +48,16 @@ export default async function handler(req, res) {
     const rawTopics = findTopics(items);
     const topics = await aiDedup(rawTopics);
 
+    // Scrape kutipan isi artikel untuk top topics (max 3 artikel per topik)
+    await Promise.allSettled(
+      topics.slice(0, 8).flatMap((topic) =>
+        topic.newsItems.slice(0, 3).map(async (item) => {
+          if (!item.url) return;
+          item.excerpt = await scrapeExcerpt(item.url);
+        })
+      )
+    );
+
     res.status(200).json({
       fetchedAt: new Date().toISOString(),
       criteria: CRITERIA,
@@ -58,6 +68,39 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error("[api/trends]", error);
     res.status(502).json({ error: "Gagal mengambil tren berita." });
+  }
+}
+
+async function scrapeExcerpt(url) {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "id-ID,id;q=0.9,en;q=0.8"
+      },
+      signal: AbortSignal.timeout(8_000),
+      redirect: "follow"
+    });
+    if (!res.ok) return null;
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("html")) return null;
+    const html = await res.text();
+    const clean = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<(nav|header|footer|aside|figure|figcaption|form|button|iframe|noscript|menu)[^>]*>[\s\S]*?<\/\1>/gi, " ")
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<\/p>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
+      .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
+      .replace(/\s{2,}/g, " ").trim();
+    if (clean.length < 100) return null;
+    // Ambil 700 karakter pertama yang bermakna
+    return clean.slice(0, 700).trim();
+  } catch {
+    return null;
   }
 }
 

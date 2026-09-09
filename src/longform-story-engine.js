@@ -311,7 +311,8 @@ function normalizeTrend(trend) {
       headline: cleanText(item?.headline || item?.title || "", 240),
       outlet: cleanText(item?.outlet || item?.source || "", 100),
       url: cleanText(item?.url || "", 500),
-      publishedAt: cleanText(item?.publishedAt || "", 80)
+      publishedAt: cleanText(item?.publishedAt || "", 80),
+      excerpt: cleanText(item?.excerpt || "", 700)
     }))
     .filter((item) => item.headline && item.outlet)
     .slice(0, 12);
@@ -344,18 +345,27 @@ function narrationNamesOutlet(narration, outlet) {
 
 function trendPromptBlock(trend) {
   if (!trend?.newsItems?.length) return "";
-  const headlines = trend.newsItems.map((item, index) =>
-    `${index + 1}. [${item.outlet}] ${item.headline}${item.publishedAt ? ` (${item.publishedAt})` : ""}`
-  ).join("\n");
+  const headlines = trend.newsItems.map((item, index) => {
+    const base = `${index + 1}. [${item.outlet}] ${item.headline}${item.publishedAt ? ` (${item.publishedAt})` : ""}`;
+    return item.excerpt ? `${base}\n   ISI ARTIKEL: ${item.excerpt}` : base;
+  }).join("\n");
+  const hasExcerpts = trend.newsItems.some((it) => it.excerpt);
   return [
     "",
     `BERITA RSS TERKAIT TOPIK (${trend.title || "tren terpilih"}):`,
     headlines,
-    "Aturan sumber media:",
-    "- Gunakan hanya headline di atas; jangan mengarang isi artikel karena yang tersedia hanya metadata RSS.",
-    "- Pada 2-4 scene image yang benar-benar membahas headline, sebut outlet secara eksplisit dalam narration, misalnya 'Menurut Kompas.com, ...'.",
-    "- Scene tersebut WAJIB memiliki mediaSource: { outlet, headline, url, publishedAt } yang disalin dari SATU item di atas.",
-    "- Jangan menambahkan mediaSource pada scene yang narasinya tidak menyebut outlet itu."
+    "",
+    "ATURAN SUMBER MEDIA DAN KUTIPAN:",
+    "- Pada 2-4 scene image yang benar-benar membahas salah satu berita, sebut outlet secara eksplisit: 'Menurut Kompas.com,...', 'Tempo.co melaporkan...', 'Dilansir dari Detik.com,...'.",
+    "- Scene yang menyebut outlet tersebut WAJIB memiliki mediaSource: { outlet, headline, url, publishedAt } yang disalin PERSIS dari item di atas.",
+    "- Jangan menambahkan mediaSource pada scene yang narasinya tidak menyebut outlet itu.",
+    ...(hasExcerpts ? [
+      "KUTIPAN LANGSUNG (WAJIB jika ISI ARTIKEL tersedia):",
+      "- Jika item memiliki 'ISI ARTIKEL', gunakan kalimat atau frasa konkret dari sana untuk memperkuat narasi scene terkait.",
+      "- Integrasikan kutipan secara natural tanpa tanda petik: 'Kompas melaporkan bahwa ... sehingga...' atau 'Menurut laporan Tempo, angkanya mencapai...'.",
+      "- DILARANG menggunakan tanda kutip (\") dalam narration karena merusak ritme TTS; parafrasakan dengan tetap menyebut sumber.",
+      "- Fakta, angka, atau nama konkret dari ISI ARTIKEL lebih diprioritaskan daripada opini atau perkiraan."
+    ] : [])
   ].join("\n");
 }
 
@@ -430,12 +440,13 @@ function buildPrompt(input, wiki = null) {
     "- Jawaban pertanyaan pembuka bab TIDAK boleh langsung diberikan di kalimat berikutnya; ungkap secara bertahap sepanjang bab itu.",
     "- Scene reaction yang berada di batas bab difungsikan sebagai checkpoint tebakan: pertanyaan singkat yang jawabannya dibuka di scene sesudahnya.",
     "",
-    "SPOTLIGHT (OPSIONAL, maksimal 4 scene per naskah):",
+    "SPOTLIGHT (WAJIB diisi pada setiap scene image yang memenuhi syarat, target 8-12 scene per naskah):",
     "- Untuk scene yang punya satu fakta paling layak diingat (angka, tahun, nama tokoh, atau istilah kunci), tambahkan field spotlight.",
     "- Format: spotlight: { type:'keypoint'|'figure', label, sublabel, phrase }.",
-    "- label = fakta itu sendiri, maksimal 5 kata (misal '1.200 kilometer per jam' atau 'Ibnu Sina'). sublabel = penjelas singkat maksimal 6 kata, boleh kosong.",
-    "- type 'figure' hanya jika label adalah nama orang; selain itu 'keypoint'.",
-    "- phrase = potongan 4-8 kata yang DISALIN PERSIS dari narration scene itu, tepat pada bagian saat fakta tersebut diucapkan. Jangan parafrase; kalau tidak bisa menyalin persis, hilangkan field spotlight untuk scene itu.",
+    "- label = fakta itu sendiri, maksimal 5 kata (misal '1.200 kilometer per jam' atau 'Ibnu Sina'). sublabel = penjelas singkat maksimal 6 kata (misal peran/jabatan tokoh), boleh kosong.",
+    "- type 'figure' WAJIB dipakai jika label adalah nama orang/tokoh yang disebut di narration; selain itu gunakan 'keypoint'.",
+    "- type 'figure': SELALU isi sublabel dengan jabatan/peran tokoh (misal 'Menteri ESDM', 'Gubernur Jawa Barat', 'Direktur Utama PLN').",
+    "- phrase = potongan 4-8 kata yang DISALIN PERSIS dari narration scene itu, tepat pada bagian saat nama tokoh atau fakta tersebut diucapkan. Jangan parafrase; kalau tidak bisa menyalin persis, hilangkan field spotlight untuk scene itu.",
     "- Jangan memberi spotlight pada scene reaction atau summary.",
     `CATATAN KATEGORI (${input.category}): ${categoryNote}`,
     `VARIASI CERITA UNTUK NASKAH INI: ${variation}`,

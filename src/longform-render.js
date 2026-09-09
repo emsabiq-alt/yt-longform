@@ -881,11 +881,11 @@ function resolveSceneMediaList(item, scene) {
 async function applyFigureImageOverlays(inputPath, outputPath, figurePlacements, item, resolution) {
   const figureImages = item.assets?.figureImages || {};
   const scale = resolution === "1080p" ? 1.5 : 1;
-  const portraitSize = Math.round(80 * scale);
-  // Sisi kanan kartu Spotlight: CARD_X(64) + CARD_W(470) - portrait - margin(8)
-  const posX = Math.round((64 + 470 - 80 - 8) * scale);
-  // Vertikal: CARD_Y(470) + 12px padding
-  const posY = Math.round((470 + 12) * scale);
+  // Figure spotlight di tengah layar (PlayRes 1280×720, FIG_X=350, FIG_W=580, FIG_Y=240)
+  // Portrait bulat besar di sisi kiri dalam kartu
+  const portraitSize = Math.round(100 * scale);
+  const posX = Math.round(358 * scale); // FIG_X + 8px margin
+  const posY = Math.round(255 * scale); // FIG_Y + 15px padding
 
   const overlays = figurePlacements
     .filter((p) => figureImages[p.sceneIndex]?.imagePath)
