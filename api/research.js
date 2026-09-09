@@ -35,11 +35,13 @@ export default async function handler(req, res) {
       return res.status(200).json({ query: q, articles: [], message: "Tidak ada berita ditemukan untuk topik ini." });
     }
 
-    // Ambil top 8 artikel dan scrape isinya secara paralel
+    // Ambil top 8 artikel dan scrape isinya + og:image secara paralel
     const top = rawItems.slice(0, 8);
     await Promise.allSettled(top.map(async (item) => {
       if (!item.url) return;
-      item.excerpt = await scrapeExcerpt(item.url);
+      const scraped = await scrapeArticle(item.url);
+      item.excerpt = scraped?.excerpt || null;
+      item.imageUrl = scraped?.imageUrl || null;
     }));
 
     return res.status(200).json({
@@ -77,7 +79,7 @@ function detectSource(url) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; }
 }
 
-async function scrapeExcerpt(url) {
+async function scrapeArticle(url) {
   try {
     const res = await fetch(url, {
       headers: {
@@ -92,6 +94,13 @@ async function scrapeExcerpt(url) {
     const ct = res.headers.get("content-type") || "";
     if (!ct.includes("html")) return null;
     const html = await res.text();
+
+    // Ekstrak og:image
+    const imgMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i)
+      || html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
+    const imageUrl = imgMatch?.[1]?.trim() || null;
+
+    // Ekstrak teks artikel
     const clean = html
       .replace(/<script[\s\S]*?<\/script>/gi, " ")
       .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -101,8 +110,9 @@ async function scrapeExcerpt(url) {
       .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
       .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
       .replace(/\s{2,}/g, " ").trim();
-    if (clean.length < 100) return null;
-    return clean.slice(0, 700).trim();
+    const excerpt = clean.length >= 100 ? clean.slice(0, 700).trim() : null;
+
+    return { excerpt, imageUrl };
   } catch {
     return null;
   }

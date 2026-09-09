@@ -283,8 +283,18 @@ export async function createLongformDraft(rawInput) {
 }
 
 function normalizeInput(input) {
-  const durationSec = clamp(Number(input.durationSec || DEFAULT_DURATION_SEC), 300, MAX_DURATION_SEC);
-  const sceneCount = clamp(Number(input.sceneCount || 26), 26, 28);
+  let sceneCount, durationSec;
+
+  if (input.dynamicScenes) {
+    // Mode Ide: hitung dari volume konten artikel, min 18 scene (6 menit)
+    const totalWords = (input.trend?.newsItems || [])
+      .reduce((sum, it) => sum + String(it.excerpt || it.headline || "").split(/\s+/).length, 0);
+    sceneCount = Math.max(18, Math.min(30, Math.ceil(totalWords / 80)));
+    durationSec = Math.max(360, sceneCount * 22); // ~22 detik per scene rata-rata
+  } else {
+    sceneCount = clamp(Number(input.sceneCount || 26), 26, 28);
+    durationSec = clamp(Number(input.durationSec || DEFAULT_DURATION_SEC), 300, MAX_DURATION_SEC);
+  }
 
   return {
     topic: cleanText(input.topic || "Fakta menarik yang jarang diketahui orang", 260),

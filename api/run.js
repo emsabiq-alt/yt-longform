@@ -13,14 +13,21 @@ export default async function handler(req, res) {
       ? process.env.ELEVENLABS_VOICE_ID || "wUrGnU2Kx934kbDdOWDo"
       : process.env.OPENAI_TTS_VOICE || "cedar";
     const topic = clampStr(body.topic || "", 300);
-    const trend = normalizeTrendInput(body.trend);
-    // ponytail: workflow_dispatch tidak punya input tren terpisah; pakai envelope JSON sampai kontrak workflow boleh ditambah.
+    const trend = normalizeTrendInput(body.trendContext || body.trend);
+    const dynamicScenes = body.dynamicScenes === true || body.dynamicScenes === "true";
+    // Embed trend + dynamicScenes flag inside topic JSON envelope for story engine
+    let topicInput = topic;
+    if (trend) {
+      const envelope = { topic, trend };
+      if (dynamicScenes) envelope.dynamicScenes = true;
+      topicInput = JSON.stringify(envelope);
+    }
     const inputs = {
-      topic: trend ? JSON.stringify({ topic, trend }) : topic,
+      topic: topicInput,
       category: clampStr(body.category || "random", 80),
       format_type: clampStr(body.formatType || body.format_type || "", 40),
-      duration: clampStr(body.durationSec || body.duration || process.env.YT_DURATION_SEC || "360", 6),
-      scenes: String(clampNum(body.sceneCount || body.scenes || process.env.YT_SCENE_COUNT || 26, 26, 28, 26)),
+      duration: dynamicScenes ? "" : clampStr(body.durationSec || body.duration || process.env.YT_DURATION_SEC || "360", 6),
+      scenes: dynamicScenes ? "" : String(clampNum(body.sceneCount || body.scenes || process.env.YT_SCENE_COUNT || 26, 26, 28, 26)),
       tts_provider: ttsProvider,
       tts_voice: clampStr(body.ttsVoice || defaultTtsVoice, 80),
       image_quality: clampStr(body.imageQuality || "low", 20),

@@ -6,6 +6,7 @@ import { clamp, normalizeTtsText, safeFilename, splitLines } from "./util.js";
 import { reportProgress } from "./progress.js";
 import { buildWordTimeline, findPhraseTime, tokenizeMatchText } from "./word-timeline.js";
 import { planSceneSpotlights, spotlightDialogueLines, spotlightStyles, logSpotlightStats } from "./spotlight.js";
+import { applyNewsImageOverlays } from "./news-image.js";
 
 const fps = 30;
 const minLongformDurationSec = 300;
@@ -406,9 +407,13 @@ export async function renderLongformVideo(item) {
   const figurePlacements = (spotlightPlacements || []).filter((p) => p.type === "figure");
   await applyFigureImageOverlays(contentSubtitledPath, contentFigurePath, figurePlacements, item, resolution);
 
+  // Overlay device mockup (phone/tablet) dengan foto berita asli via chroma key
+  const contentDevicePath = path.join(workDir, "content-device-overlay.mp4");
+  await applyNewsImageOverlays(contentFigurePath, contentDevicePath, item, renderScenes, resolution, runFfmpeg);
+
   // Add watermark logo to content
   const contentBrandedPath = path.join(workDir, "content-branded.mp4");
-  await addLogoWatermark({ inputPath: contentFigurePath, outputPath: contentBrandedPath, resolution });
+  await addLogoWatermark({ inputPath: contentDevicePath, outputPath: contentBrandedPath, resolution });
 
   // Generate audio for content
   const contentAudioPath = path.join(workDir, "content-audio.m4a");

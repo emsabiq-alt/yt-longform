@@ -24,12 +24,16 @@ function topicValue(value) {
   try {
     const parsed = JSON.parse(value);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return { topic: String(parsed.topic || ""), trend: parsed.trend || null };
+      return {
+        topic: String(parsed.topic || ""),
+        trend: parsed.trend || null,
+        dynamicScenes: parsed.dynamicScenes === true
+      };
     }
   } catch {
     // Topik biasa memang bukan JSON.
   }
-  return { topic: value, trend: null };
+  return { topic: value, trend: null, dynamicScenes: false };
 }
 
 ensureProjectDirs();
@@ -51,7 +55,8 @@ const input = {
   imageQuality: argValue("--image-quality", process.env.IMAGE_QUALITY || config.openai.imageQuality),
   imageSize: argValue("--image-size", process.env.IMAGE_SIZE || "1536x1024"),
   resolution: argValue("--resolution", process.env.YT_RESOLUTION || "720p"),
-  trend: topicPayload.trend
+  trend: topicPayload.trend,
+  dynamicScenes: topicPayload.dynamicScenes || false
 };
 
 const dailyGenerateLimit = config.automation.dailyGenerateLimit;

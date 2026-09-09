@@ -16,6 +16,7 @@ import {
 } from "./wikimedia.js";
 import { findPersonImage } from "./wikidata.js";
 import { ensureFigureImages } from "./person-image.js";
+import { ensureNewsImages } from "./news-image.js";
 import { renderLongformVideo } from "./longform-render.js";
 import { generateThumbnail } from "./thumbnail.js";
 import { saveItem, listContextItems } from "./storage.js";
@@ -61,6 +62,11 @@ export async function ensureVisualAssets(item, options = {}) {
   await ensureFigureImages(item).catch((err) => {
     console.warn(`[PersonImage] ensureFigureImages gagal: ${err.message}`);
   });
+
+  // Foto berita (og:image dari artikel) untuk phone frame overlay.
+  await ensureNewsImages(item).catch((err) => {
+    console.warn(`[NewsImage] ensureNewsImages gagal: ${err.message}`);
+  });
 }
 
 export async function generateFullItem(input = {}, options = {}) {
@@ -79,7 +85,8 @@ export async function generateFullItem(input = {}, options = {}) {
     formatType: input.formatType,
     viralAngleId: input.viralAngleId,
     viralAngleLabel: input.viralAngleLabel,
-    trend: input.trend || null
+    trend: input.trend || null,
+    dynamicScenes: input.dynamicScenes || false
   }, { existingItems });
   await saveItem(item);
   reportProgress("script", "Naskah siap", 100, item.title || "");

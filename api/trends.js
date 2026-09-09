@@ -53,7 +53,9 @@ export default async function handler(req, res) {
       topics.slice(0, 8).flatMap((topic) =>
         topic.newsItems.slice(0, 3).map(async (item) => {
           if (!item.url) return;
-          item.excerpt = await scrapeExcerpt(item.url);
+          const sc = await scrapeArticleFull(item.url);
+      item.excerpt = sc?.excerpt || null;
+      item.imageUrl = sc?.imageUrl || null;
         })
       )
     );
@@ -71,7 +73,7 @@ export default async function handler(req, res) {
   }
 }
 
-async function scrapeExcerpt(url) {
+async function scrapeArticleFull(url) {
   try {
     const res = await fetch(url, {
       headers: {
@@ -96,9 +98,13 @@ async function scrapeExcerpt(url) {
       .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
       .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
       .replace(/\s{2,}/g, " ").trim();
+    // Ekstrak og:image
+    const imgMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i)
+      || html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
+    const imageUrl = imgMatch?.[1]?.trim() || null;
+
     if (clean.length < 100) return null;
-    // Ambil 700 karakter pertama yang bermakna
-    return clean.slice(0, 700).trim();
+    return { excerpt: clean.slice(0, 700).trim(), imageUrl };
   } catch {
     return null;
   }

@@ -677,6 +677,11 @@ async function submitCreate(queue) {
   if (data.force === "on") data.force = true;
 
   if (SELECTED_TREND) data.trendContext = SELECTED_TREND;
+  if (window._ideaMode) {
+    data.trendContext = window._ideaMode.trendContext;
+    data.dynamicScenes = true;
+    window._ideaMode = null; // reset setelah dipakai
+  }
 
   const btn = queue ? $("btnQueue") : $("btnGenerate");
   btn.disabled = true;
@@ -996,15 +1001,28 @@ function renderIdeas(data) {
 }
 
 function useIdeaAsVideo(article, query) {
-  // Pindah ke tab Buat dan pre-fill dengan data artikel
   gotoView("create");
-  // Isi field topik/judul
-  const topicEl = document.querySelector("#createForm [name='topic'], #createForm [name='title'], #topicInput, #createTopic");
+  const topicEl = document.querySelector("#topicInput, #createForm [name='topic'], #createForm [name='title']");
   if (topicEl) topicEl.value = article.title || query;
-  // Simpan newsItems ke hidden field jika ada (untuk dikirim ke antrian)
-  const newsPayload = ideasData?.articles || [];
-  if (window._ideasNewsItems !== undefined) window._ideasNewsItems = newsPayload;
-  toast(`Topik "${article.title.slice(0, 40)}..." siap di tab Buat.`, "ok");
+  // Tandai mode Ide: scene auto-adjust + sertakan newsItems dengan og:image
+  window._ideaMode = {
+    dynamicScenes: true,
+    trendContext: {
+      title: article.title || query,
+      articles: ideasData?.articles?.length || 1,
+      sources: new Set(ideasData?.articles?.map(a => a.outlet)).size || 1,
+      days: 1,
+      newsItems: (ideasData?.articles || []).map(a => ({
+        headline: a.title,
+        outlet: a.outlet,
+        url: a.url,
+        publishedAt: a.publishedAt,
+        excerpt: a.excerpt || "",
+        imageUrl: a.imageUrl || null
+      }))
+    }
+  };
+  toast(`Topik "${(article.title || query).slice(0, 40)}..." siap. Scene otomatis dari konten artikel.`, "ok");
 }
 
 /* ============================================================

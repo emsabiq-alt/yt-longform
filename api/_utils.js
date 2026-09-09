@@ -88,7 +88,9 @@ export function normalizeTrendInput(trend) {
     title: clampStr(item?.title || item?.headline, 240),
     source: clampStr(item?.source || item?.outlet, 100),
     url: clampStr(item?.url, 500),
-    publishedAt: clampStr(item?.publishedAt, 80)
+    publishedAt: clampStr(item?.publishedAt, 80),
+    excerpt: clampStr(item?.excerpt, 1000),
+    imageUrl: clampStr(item?.imageUrl, 500)
   })).filter((item) => item.title && item.source);
   if (!newsItems.length) return null;
   return {
