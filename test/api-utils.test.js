@@ -102,7 +102,7 @@ test("metadata tren RSS dibersihkan dan dipertahankan di item antrian", () => {
   });
   assert.deepEqual(trend, {
     title: "Pembayaran QR", articles: 7, sources: 4, days: 3,
-    newsItems: [{ title: "QR lintas negara meluas", source: "kompas.com", url: "https://example.com/news", publishedAt: "2026-09-09" }]
+    newsItems: [{ title: "QR lintas negara meluas", source: "kompas.com", url: "https://example.com/news", publishedAt: "2026-09-09", excerpt: "", imageUrl: "" }]
   });
   assert.deepEqual(buildQueueItem({ trend }).trend, trend);
   assert.equal(normalizeTrendInput({ title: "tanpa berita" }), null);
