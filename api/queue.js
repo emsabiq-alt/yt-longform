@@ -49,7 +49,7 @@ export default async function handler(req, res) {
         tts_provider: item.ttsProvider,
         tts_voice: item.ttsVoice,
         image_quality: item.imageQuality,
-        resolution: item.resolution || "720p",
+        resolution: item.resolution || "1080p",
         force: "true"
       });
       item.status = "dispatched";
