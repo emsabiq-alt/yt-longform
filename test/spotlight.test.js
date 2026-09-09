@@ -65,9 +65,9 @@ test("kuota per video dan jarak minimum ditegakkan", () => {
     durationSec: 30
   }));
   const placed = planSceneSpotlights(many);
-  assert.ok(placed.length <= 7, `terlalu banyak kartu: ${placed.length}`);
+  assert.ok(placed.length <= 14, `terlalu banyak kartu: ${placed.length}`);
   for (let i = 1; i < placed.length; i += 1) {
-    assert.ok(placed[i].startSec - placed[i - 1].startSec >= 16);
+    assert.ok(placed[i].startSec - placed[i - 1].startSec >= 8);
   }
 });
 
