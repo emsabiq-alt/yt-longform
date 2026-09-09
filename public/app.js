@@ -99,6 +99,7 @@ const VIEW_META = {
   queue:    { kicker: "Antrian", title: "Jadwal Produksi" },
   runs:     { kicker: "CI/CD", title: "Riwayat Workflow" },
   trends:   { kicker: "Intelijen", title: "Tren Berita Bertahan" },
+  ideas:    { kicker: "Kreatif", title: "Ide Video dari Berita" },
   health:   { kicker: "Sistem", title: "Diagnostik" },
 };
 
@@ -829,7 +830,7 @@ document.addEventListener("keydown", e => {
     if (e.key === "?") { e.preventDefault(); openKbd(); }
     if (e.key === "r" || e.key === "R") { e.preventDefault(); triggerRefresh(); }
     const n = parseInt(e.key);
-    if (n >= 1 && n <= 7) { const views = ["overview","create","library","queue","runs","trends","health"]; gotoView(views[n-1]); }
+    if (n >= 1 && n <= 8) { const views = ["overview","create","library","queue","runs","trends","ideas","health"]; gotoView(views[n-1]); }
   }
   if (!$("cmdPalette").classList.contains("hidden")) {
     if (e.key === "ArrowDown") { e.preventDefault(); moveCmdSel(1); }
@@ -932,6 +933,79 @@ function escHtml(s) {
 }
 function slugify(s) { return s.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""); }
 function copyToClip(text) { navigator.clipboard?.writeText(text).then(() => toast("Disalin.", "ok")); }
+
+/* ============================================================
+   IDE VIDEO — riset topik manual
+   ============================================================ */
+let ideasData = null;
+
+$("ideasSearchBtn").addEventListener("click", searchIdeas);
+$("ideasQuery").addEventListener("keydown", e => { if (e.key === "Enter") searchIdeas(); });
+
+async function searchIdeas() {
+  const q = $("ideasQuery").value.trim();
+  if (!q) return toast("Tulis topik atau judul berita dulu.", "warn");
+  const btn = $("ideasSearchBtn");
+  btn.disabled = true;
+  btn.textContent = "Mencari...";
+  $("ideasResult").innerHTML = `<div class="empty-state"><p class="muted">Mencari berita terkait...</p></div>`;
+  try {
+    const data = await apiFetch("/api/research", { method: "POST", body: JSON.stringify({ query: q }) });
+    ideasData = data;
+    renderIdeas(data);
+  } catch (e) {
+    $("ideasResult").innerHTML = `<div class="empty-state"><p class="muted">${escHtml(e.message || "Gagal mencari berita.")}</p></div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Cari Fakta";
+  }
+}
+
+function renderIdeas(data) {
+  const el = $("ideasResult");
+  if (!data?.articles?.length) {
+    el.innerHTML = `<div class="empty-state"><p class="muted">${escHtml(data?.message || "Tidak ada berita ditemukan.")}</p></div>`;
+    return;
+  }
+  const articles = data.articles;
+  let html = `<div class="ideas-summary">
+    <h4>Ditemukan ${articles.length} artikel untuk: "${escHtml(data.query)}"</h4>
+    <p>Pilih artikel yang relevan lalu klik <strong>Buat Video</strong> untuk langsung membuat video berbasis berita ini.</p>
+  </div>`;
+  articles.forEach((art, i) => {
+    const date = art.day || art.publishedAt?.slice(0, 10) || "";
+    html += `<div class="idea-card">
+      <div class="idea-card-head">
+        <div class="idea-card-title">${escHtml(art.title)}</div>
+      </div>
+      <div class="idea-card-meta">
+        <span class="outlet">${escHtml(art.outlet || "")}</span>
+        ${date ? `<span>${date}</span>` : ""}
+        ${art.url ? `<a href="${escHtml(art.url)}" target="_blank" rel="noopener" class="news-link">Buka →</a>` : ""}
+      </div>
+      ${art.excerpt ? `<div class="idea-excerpt truncated">${escHtml(art.excerpt)}</div>` : ""}
+      <div class="idea-actions">
+        <button class="btn ghost tiny ideas-use-btn" data-idx="${i}">Buat Video dari Ini →</button>
+      </div>
+    </div>`;
+  });
+  el.innerHTML = html;
+  el.querySelectorAll(".ideas-use-btn").forEach(btn => {
+    btn.addEventListener("click", () => useIdeaAsVideo(articles[+btn.dataset.idx], data.query));
+  });
+}
+
+function useIdeaAsVideo(article, query) {
+  // Pindah ke tab Buat dan pre-fill dengan data artikel
+  gotoView("create");
+  // Isi field topik/judul
+  const topicEl = document.querySelector("#createForm [name='topic'], #createForm [name='title'], #topicInput, #createTopic");
+  if (topicEl) topicEl.value = article.title || query;
+  // Simpan newsItems ke hidden field jika ada (untuk dikirim ke antrian)
+  const newsPayload = ideasData?.articles || [];
+  if (window._ideasNewsItems !== undefined) window._ideasNewsItems = newsPayload;
+  toast(`Topik "${article.title.slice(0, 40)}..." siap di tab Buat.`, "ok");
+}
 
 /* ============================================================
    INIT
