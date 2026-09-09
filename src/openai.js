@@ -5,7 +5,7 @@ import { config, paths } from "./config.js";
 import { safeFilename } from "./util.js";
 
 // Batas waktu per jenis panggilan (pola konstanta modul sama dengan pexels.js).
-const CHAT_TIMEOUT_MS = 120_000;
+const CHAT_TIMEOUT_MS = 600_000;
 const IMAGE_TIMEOUT_MS = 180_000;
 const TTS_TIMEOUT_MS = 120_000;
 const TRANSCRIBE_TIMEOUT_MS = 180_000;

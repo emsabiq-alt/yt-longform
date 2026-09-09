@@ -12,9 +12,9 @@ on:
         required: false
         default: random
       duration:
-        description: Duration seconds (min 300)
+        description: Duration seconds (300-1200)
         required: false
-        default: "360"
+        default: "1200"
       scenes:
         description: Scene count (26-28)
         required: false
@@ -106,7 +106,7 @@ jobs:
       YT_TTS_VOICE: ${{ secrets.YT_TTS_VOICE || secrets.OPENAI_TTS_VOICE || 'cedar' }}
       YT_TIME_ZONE: America/New_York
       YT_DAILY_GENERATE_LIMIT: ${{ secrets.YT_DAILY_GENERATE_LIMIT || '1' }}
-      YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '360' }}
+      YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '1200' }}
       YT_SCENE_COUNT: ${{ github.event.inputs.scenes || secrets.YT_SCENE_COUNT || '26' }}
       YT_WORKFLOW_FILE: yt-longform-generate.yml
       YT_FORMAT_TYPE: ${{ github.event.inputs.format_type || secrets.YT_FORMAT_TYPE || '' }}

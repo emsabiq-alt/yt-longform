@@ -13,6 +13,15 @@ import { getViralAngleById, pickViralAngle, viralAngleSummary } from "./viral-an
 import { polishPlanForLayAudience, simplifyForLayAudience } from "./story-language.js";
 import { normalizeSpotlight } from "./spotlight.js";
 
+// Kontrak durasi longform, dipakai bersama config, API, workflow, dan render.
+export const DEFAULT_DURATION_SEC = 1200;
+export const MAX_DURATION_SEC = 1200;
+
+// Naskah lebih pendek dari porsi ini tidak akan pernah menghasilkan video
+// sepanjang target, jadi run dihentikan sebelum gambar/TTS/render dibayar.
+// 1.4 kata/detik = 80% dari ambang revisi (1.75).
+const MIN_PUBLISHABLE_WORDS_PER_SEC = 1.4;
+
 const categories = [
   "sains",
   "penemuan",
@@ -218,6 +227,11 @@ export async function createLongformDraft(rawInput) {
     }
   }
 
+  // Gerbang fail-closed: naskah fallback offline atau naskah yang tetap jauh di
+  // bawah target durasi hanya menghasilkan video pendek. Berhenti di sini,
+  // sebelum gambar, TTS, render, dan upload YouTube dikerjakan.
+  assertNarrationLongEnough(normalized, input, source);
+
   // Catat sumber Wikipedia HANYA bila naskah benar-benar dari OpenAI yang di-grounding,
   // agar atribusi di deskripsi tidak menyesatkan saat fallback offline dipakai.
   if (source === "openai" && wiki?.sources?.length) {
@@ -269,7 +283,7 @@ export async function createLongformDraft(rawInput) {
 }
 
 function normalizeInput(input) {
-  const durationSec = clamp(Number(input.durationSec || 300), 300, 900);
+  const durationSec = clamp(Number(input.durationSec || DEFAULT_DURATION_SEC), 300, MAX_DURATION_SEC);
   const sceneCount = clamp(Number(input.sceneCount || 26), 26, 28);
 
   return {
@@ -984,6 +998,28 @@ function completeSummaryNarration(sceneNarration, summary) {
     .filter((value, index, values) => values.findIndex((other) => other.toLowerCase() === value.toLowerCase()) === index)
     .join(" ");
   return combined || "Ringkasan inti belum tersedia.";
+}
+
+/**
+ * Tolak naskah yang tidak mungkin memenuhi durasi target.
+ *
+ * Sebelumnya naskah fallback offline (~600 kata) — dan naskah AI yang tetap jauh
+ * lebih pendek dari target — tetap dirender lalu diunggah, sehingga permintaan
+ * video puluhan menit berakhir menjadi video ~5 menit.
+ *
+ * @throws {Error} status 422 bila naskah terlalu pendek untuk dipublikasikan.
+ */
+export function assertNarrationLongEnough(plan, input, source) {
+  const words = narrationWordCount(plan);
+  const minimumWords = Math.round(input.durationSec * MIN_PUBLISHABLE_WORDS_PER_SEC);
+  if (source === "openai" && words >= minimumWords) return;
+
+  const reason = source === "openai"
+    ? `Naskah AI hanya ${words} kata, minimal ${minimumWords} kata untuk video ${input.durationSec} detik.`
+    : `Naskah fallback offline tidak layak publikasi (${words} kata, minimal ${minimumWords} kata).`;
+  const error = new Error(`${reason} Run dihentikan sebelum aset dibuat agar video pendek tidak terunggah.`);
+  error.status = 422;
+  throw error;
 }
 
 function narrationWordCount(plan) {

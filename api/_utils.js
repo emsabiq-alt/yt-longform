@@ -318,7 +318,7 @@ export function configSummary() {
     publicBaseUrl: cleanBaseUrl(process.env.PUBLIC_BASE_URL),
     timezone: clean(process.env.YT_TIME_ZONE || "Asia/Bangkok"),
     uploadDriver: clean(process.env.UPLOAD_DRIVER || "sftp"),
-    durationSec: Number(process.env.YT_DURATION_SEC || 360),
+    durationSec: Number(process.env.YT_DURATION_SEC || 1200),
     sceneCount: Math.min(28, Math.max(26, Number(process.env.YT_SCENE_COUNT || 26))),
     dailyGenerateLimit: Number(process.env.YT_DAILY_GENERATE_LIMIT || 1),
     youtubeEnabled: boolEnv("YOUTUBE_UPLOAD_ENABLED", true),
@@ -407,7 +407,8 @@ export function buildQueueItem(input) {
     topic: clampStr(input.topic, 300),
     category: clampStr(input.category || "random", 80),
     formatType: clampStr(input.formatType || input.format_type || "", 40),
-    durationSec: clampNum(input.durationSec || 360, 300, 900, 360),
+    // Plafon 1200 detik mengikuti kontrak durasi di src/longform-story-engine.js.
+    durationSec: clampNum(input.durationSec || 1200, 300, 1200, 1200),
     sceneCount: clampNum(input.sceneCount || 26, 26, 28, 26),
     ttsProvider,
     ttsVoice: clampStr(input.ttsVoice || defaultTtsVoice, 80),
