@@ -182,7 +182,7 @@ function initCountdown() {
    ============================================================ */
 async function loadData() {
   try {
-    const headers = PIN ? { "x-pin": PIN } : {};
+    const headers = PIN ? { "x-dashboard-pin": PIN } : {};
     const res = await fetch("/api/state", { headers });
     if (res.status === 401) { toast("PIN salah atau expired.", "err"); return; }
     if (!res.ok) return;
@@ -463,11 +463,16 @@ async function loadTrends() {
 $("refreshTrendsBtn").addEventListener("click", () => { TRENDS_LOADED = false; loadTrends(); });
 
 function renderTrends(data) {
-  const items = data.trends || data.items || data || [];
+  const items = data.topics || data.trends || data.items || [];
   if (data.criteria) {
-    $("trendCriteria").textContent = "Kriteria: " + data.criteria;
-    $("trendMedia").textContent = data.sources ? "Sumber: " + data.sources : "";
-    $("trendUpdated").textContent = data.updatedAt ? "Diperbarui: " + fmt.rel(data.updatedAt) : "";
+    const c = data.criteria;
+    $("trendCriteria").textContent = `Min. ${c.minimumArticles} artikel · ${c.minimumSources} sumber · ${c.minimumDays} hari`;
+  }
+  if (data.media) {
+    $("trendMedia").textContent = "Media: " + (data.media || []).join(", ");
+  }
+  if (data.fetchedAt) {
+    $("trendUpdated").textContent = "Diperbarui: " + fmt.rel(data.fetchedAt);
   }
   if (!items.length) {
     $("trendList").innerHTML = `<div class="empty-state"><p class="muted">Tidak ada tren tersedia saat ini.</p></div>`;
@@ -484,10 +489,9 @@ function renderTrends(data) {
           <button class="btn ghost tiny trend-use-btn" data-idx="${i}">Gunakan</button>
         </div>
         <div class="trend-meta">
-          ${t.category ? `<span>${t.category}</span>` : ""}
-          ${t.score != null ? `<span class="trend-score">Skor ${Math.round(t.score)}</span>` : ""}
-          ${t.publishedAt ? `<span>${fmt.rel(t.publishedAt)}</span>` : ""}
-          ${t.source ? `<span>${escHtml(t.source)}</span>` : ""}
+          ${t.articles != null ? `<span class="trend-score">${t.articles} artikel</span>` : ""}
+          ${t.sources != null ? `<span>${t.sources} sumber</span>` : ""}
+          ${t.days != null ? `<span>${t.days} hari</span>` : ""}
         </div>
       </div>
     </div>`;
@@ -816,7 +820,7 @@ $("copyLog").addEventListener("click", () => {
    API HELPER
    ============================================================ */
 async function apiFetch(url, opts = {}) {
-  const headers = { "Content-Type": "application/json", ...(PIN ? { "x-pin": PIN } : {}), ...(opts.headers || {}) };
+  const headers = { "Content-Type": "application/json", ...(PIN ? { "x-dashboard-pin": PIN } : {}), ...(opts.headers || {}) };
   const res = await fetch(url, { ...opts, headers });
   if (res.status === 401) throw new Error("Tidak terotorisasi.");
   if (!res.ok) {
