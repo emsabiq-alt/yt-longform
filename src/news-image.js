@@ -30,14 +30,14 @@ const FADE_DUR = 0.35;
  */
 const DEVICE_CONFIG = {
   phone: {
-    templateFile: "phone-mockup.jpg",
+    templateFile: "phone-mockup.png",
     templateW: 1500,
     templateH: 1000,
     // Area layar hitam di dalam template (perlu sedikit inset dari tepi layar)
     screen: { x: 598, y: 55, w: 305, h: 675 }
   },
   tablet: {
-    templateFile: "tablet-mockup.jpg",
+    templateFile: "tablet-mockup.png",
     templateW: 1500,
     templateH: 1000,
     // Area layar hitam di dalam template tablet
