@@ -18,8 +18,8 @@ import { buildWordTimeline, findPhraseTime, tokenizeMatchText } from "./word-tim
  */
 
 const MIN_SCORE = 0.6;
-const MIN_GAP_SEC = 25;
-const MAX_PER_VIDEO = 4;
+const MIN_GAP_SEC = 16;
+const MAX_PER_VIDEO = 7;
 const CARD_DURATION_SEC = 3.6;
 const LEAD_IN_SEC = 0.12;
 

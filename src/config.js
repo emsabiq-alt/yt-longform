@@ -238,7 +238,7 @@ export const config = {
     // Openverse mengindeks ratusan juta gambar CC dari Flickr, museum, NASA,
     // Smithsonian, dan Commons. Gratis, tanpa API key. Dipakai untuk slot yang
     // tidak terisi Pexels maupun Commons, sebelum jatuh ke gambar berbayar.
-    enabled: boolDefault(process.env.OPENVERSE_ENABLED, true),
+    enabled: boolDefault(process.env.OPENVERSE_ENABLED, false),
     // Foto tokoh via Wikidata P18: dicoba lebih dulu saat scene menyebut nama
     // orang, karena pemetaan entitas→foto jauh lebih akurat daripada cari teks.
     personLookup: boolDefault(process.env.OPENVERSE_PERSON_LOOKUP, true),

@@ -14,8 +14,8 @@ import {
   fetchWikimediaMediaForScene,
   WIKIMEDIA_SELECTOR_VERSION
 } from "./wikimedia.js";
-import { fetchOpenverseImageForScene } from "./openverse.js";
 import { findPersonImage } from "./wikidata.js";
+import { ensureFigureImages } from "./person-image.js";
 import { renderLongformVideo } from "./longform-render.js";
 import { generateThumbnail } from "./thumbnail.js";
 import { saveItem, listContextItems } from "./storage.js";
@@ -42,20 +42,24 @@ export async function ensureVisualAssets(item, options = {}) {
   const warnings = options.warnings || [];
   const pexelsRunner = options.pexelsRunner || ensurePexelsClips;
   const wikimediaRunner = options.wikimediaRunner || ensureWikimediaMedia;
-  const openverseRunner = options.openverseRunner || ensureOpenverseImages;
   const imageRunner = options.imageRunner || ensureImages;
   const pexelsOptions = options.pexelsOptions || {};
   const wikimediaOptions = options.wikimediaOptions || {};
-  const openverseOptions = options.openverseOptions || {};
   const imageOptions = options.imageOptions || {};
 
   await pexelsRunner(item, { ...pexelsOptions, warnings });
   await wikimediaRunner(item, { ...wikimediaOptions, warnings });
-  await openverseRunner(item, { ...openverseOptions, warnings });
+  // Openverse dihapus — API tidak stabil (sering 502). Slot gambar ditangani
+  // sepenuhnya oleh Wikimedia Commons + OpenAI image generation.
   await imageRunner(item, {
     ...imageOptions,
     warnings,
     strict: options.strict ?? imageOptions.strict ?? true
+  });
+
+  // Foto tokoh untuk overlay Spotlight (type "figure") — download di latar.
+  await ensureFigureImages(item).catch((err) => {
+    console.warn(`[PersonImage] ensureFigureImages gagal: ${err.message}`);
   });
 }
 
@@ -820,7 +824,7 @@ export async function ensureWikimediaMedia(item, options = {}) {
  */
 export async function ensureOpenverseImages(item, options = {}) {
   const warnings = options.warnings || [];
-  const fetchImage = options.fetchImage || fetchOpenverseImageForScene;
+  const fetchImage = options.fetchImage || (() => Promise.resolve(null));
   const persistItem = options.persistItem || saveItem;
   const mediaExists = createMediaExists(options.fileExists || pathExists);
   const sleep = options.sleep || ((delay) => new Promise((resolve) => setTimeout(resolve, delay)));

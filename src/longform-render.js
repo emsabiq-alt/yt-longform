@@ -289,9 +289,9 @@ export async function renderLongformVideo(item) {
     throw new Error("Background music not found! Please place Marimba Curiosity Case MP3 under assets/music.");
   }
 
-  const bumperIntroRaw = path.join(paths.rootDir, "assets", "bumper-yt", "bumper-youtube-intro.mp4");
   const bumperOutroRaw = path.join(paths.rootDir, "assets", "bumper-yt", "bumper-youtube-outro.mp4");
-  const bumperIntroDuration = await probeDuration(bumperIntroRaw);
+  // Bumper intro dihapus: era modern lebih efektif cold open hook langsung.
+  const bumperIntroDuration = 0;
   const bumperOutroDuration = await probeDuration(bumperOutroRaw);
 
   // 1. Select the intro and outro videos
@@ -390,7 +390,7 @@ export async function renderLongformVideo(item) {
 
   // Write content captions ASS file
   const contentAssPath = path.join(workDir, "content-captions.ass");
-  await writeContentCaptionAss({
+  const { spotlightPlacements } = await writeContentCaptionAss({
     outputPath: contentAssPath,
     item,
     scenes: renderScenes,
@@ -401,9 +401,14 @@ export async function renderLongformVideo(item) {
   const contentSubtitledPath = path.join(workDir, "content-subtitled.mp4");
   await burnSubtitles({ inputPath: contentVisualPath, assPath: contentAssPath, outputPath: contentSubtitledPath });
 
+  // Overlay foto tokoh untuk spotlight "figure" (bila gambar tersedia)
+  const contentFigurePath = path.join(workDir, "content-figure-overlay.mp4");
+  const figurePlacements = (spotlightPlacements || []).filter((p) => p.type === "figure");
+  await applyFigureImageOverlays(contentSubtitledPath, contentFigurePath, figurePlacements, item, resolution);
+
   // Add watermark logo to content
   const contentBrandedPath = path.join(workDir, "content-branded.mp4");
-  await addLogoWatermark({ inputPath: contentSubtitledPath, outputPath: contentBrandedPath, resolution });
+  await addLogoWatermark({ inputPath: contentFigurePath, outputPath: contentBrandedPath, resolution });
 
   // Generate audio for content
   const contentAudioPath = path.join(workDir, "content-audio.m4a");
@@ -469,14 +474,9 @@ export async function renderLongformVideo(item) {
   // Outro = full-frame presenter video (no ringkasan text overlay)
   const finalOutroPath = outroRawPath;
 
-  // Transcode Bumper Intro
-  const finalBumperIntroPath = path.join(workDir, "part-0-bumper-intro.mp4");
-  reportProgress("render", "Menyiapkan bumper", 90, "");console.log("Transcoding Bumper Intro...");
-  await prepareBumper(bumperIntroRaw, finalBumperIntroPath, resolution);
-
-  // Transcode Bumper Outro
+  // Transcode Bumper Outro (intro bumper dihapus — hanya outro yang dipertahankan)
   const finalBumperOutroPath = path.join(workDir, "part-4-bumper-outro.mp4");
-  console.log("Transcoding Bumper Outro...");
+  reportProgress("render", "Menyiapkan bumper outro", 90, "");console.log("Transcoding Bumper Outro...");
   await prepareBumper(bumperOutroRaw, finalBumperOutroPath, resolution);
 
   // Cold open (hook teaser) opsional — diputar lebih dulu agar penonton langsung
@@ -514,23 +514,16 @@ export async function renderLongformVideo(item) {
     }
   }
 
-  // Susun urutan pembuka secara BERAGAM. Saat cold open ada, mayoritas pola
-  // menaruh hook paling depan (bukan bumper/intro), demi retensi 15 detik pertama.
-  const openings = coldOpenPath
-    ? [
-        [coldOpenPath, finalBumperIntroPath, introPartPath], // hook → bumper → intro
-        [coldOpenPath, introPartPath],                       // hook → intro (bumper depan dilewati)
-        [finalBumperIntroPath, coldOpenPath, introPartPath]  // kilat brand → hook → intro
-      ]
-    : [[finalBumperIntroPath, introPartPath]];
-  const opening = openings[Math.floor(Math.random() * openings.length)];
+  // Urutan pembuka: cold open hook langsung → category intro.
+  // Bumper intro dihapus agar penonton langsung kena hook tanpa jeda brand opener.
+  const opening = coldOpenPath
+    ? [coldOpenPath, introPartPath]
+    : [introPartPath];
 
   const coreParts = [...opening, finalContentPath, finalOutroPath, finalBumperOutroPath];
 
-  // Hitung total durasi sesuai segmen yang benar-benar dipakai (pola bisa beda).
   const durationByPath = new Map([
     [coldOpenPath, coldOpenDuration],
-    [finalBumperIntroPath, bumperIntroDuration],
     [introPartPath, introDuration]
   ]);
   const frontDuration = opening.reduce((sum, part) => sum + (durationByPath.get(part) || 0), 0);
@@ -872,6 +865,59 @@ function resolveSceneMediaList(item, scene) {
   }
 
   return mediaList;
+}
+
+/**
+ * Overlay potret tokoh di atas video selama window spotlight "figure".
+ * Portrait diletakkan di sisi kanan kartu Spotlight (koordinat PlayRes 1280x720
+ * kemudian di-scale ke resolusi aktual).
+ */
+async function applyFigureImageOverlays(inputPath, outputPath, figurePlacements, item, resolution) {
+  const figureImages = item.assets?.figureImages || {};
+  const scale = resolution === "1080p" ? 1.5 : 1;
+  const portraitSize = Math.round(80 * scale);
+  // Sisi kanan kartu Spotlight: CARD_X(64) + CARD_W(470) - portrait - margin(8)
+  const posX = Math.round((64 + 470 - 80 - 8) * scale);
+  // Vertikal: CARD_Y(470) + 12px padding
+  const posY = Math.round((470 + 12) * scale);
+
+  const overlays = figurePlacements
+    .filter((p) => figureImages[p.sceneIndex]?.imagePath)
+    .map((p) => ({ ...p, imagePath: figureImages[p.sceneIndex].imagePath }));
+
+  if (!overlays.length) {
+    // Tidak ada gambar tokoh → lewati (copy saja agar pipeline tidak putus)
+    await fs.copyFile(inputPath, outputPath);
+    return;
+  }
+
+  const args = ["-y", "-i", inputPath];
+  overlays.forEach((o) => args.push("-i", o.imagePath));
+
+  const filters = [];
+  let prevLabel = "0:v";
+  overlays.forEach((o, idx) => {
+    const inLabel = `${idx + 1}:v`;
+    const outLabel = idx === overlays.length - 1 ? "outv" : `tmp${idx}`;
+    const start = o.startSec.toFixed(3);
+    const end = o.endSec.toFixed(3);
+    filters.push(
+      `[${inLabel}]scale=${portraitSize}:${portraitSize}:force_original_aspect_ratio=increase,crop=${portraitSize}:${portraitSize},format=rgba[p${idx}]`,
+      `[${prevLabel}][p${idx}]overlay=${posX}:${posY}:enable='between(t,${start},${end})'[${outLabel}]`
+    );
+    prevLabel = outLabel;
+  });
+
+  await runFfmpeg([
+    ...args,
+    "-filter_complex", filters.join(";"),
+    "-map", "[outv]",
+    "-c:v", "libx264",
+    "-preset", "veryfast",
+    "-crf", "21",
+    "-pix_fmt", "yuv420p",
+    outputPath
+  ]);
 }
 
 export async function makeVideoSegment({ videoPath, outputPath, duration, resolution = "720p" }) {
@@ -1267,7 +1313,8 @@ export async function writeContentCaptionAss({ outputPath, item, scenes, content
   }
 
   // Kartu Spotlight: hanya muncul di titik yang lolos pencocokan frasa.
-  events.push(...spotlightDialogueLines(planSceneSpotlights(scenes), dialogue, assEscape));
+  const spotlightPlacements = planSceneSpotlights(scenes);
+  events.push(...spotlightDialogueLines(spotlightPlacements, dialogue, assEscape));
   logSpotlightStats();
 
   const ass = [
@@ -1299,6 +1346,7 @@ export async function writeContentCaptionAss({ outputPath, item, scenes, content
   ].join("\n");
 
   await fs.writeFile(outputPath, ass, "utf8");
+  return { spotlightPlacements };
 }
 
 export function headlineCardForScene(scene) {

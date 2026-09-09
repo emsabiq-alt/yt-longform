@@ -283,11 +283,10 @@ export function sceneWordRange(sceneCount, formatType, durationSec) {
   const narratedScenes = buildScenePattern(sceneCount, formatType)
     .filter((type) => type !== "reaction").length || 1;
   const seconds = Math.max(60, Number(durationSec) || 300);
-  // 1.95 kata/detik: cukup di atas ambang revisi (1.75) agar naskah yang menuruti
-  // instruksi tetap lolos meski dedupe lintas scene memangkas beberapa kalimat;
-  // 2.4 memberi ruang di atas target 2.1.
-  const imageMin = Math.max(35, Math.ceil((seconds * 1.95) / narratedScenes));
-  const imageMax = Math.max(imageMin + 14, Math.ceil((seconds * 2.4) / narratedScenes));
+  // 2.35 kata/detik: target 20-22 menit untuk durasi 1200 detik; 2.85 memberi
+  // ruang di atas target 2.6 agar naskah panjang tetap lolos minimum.
+  const imageMin = Math.max(35, Math.ceil((seconds * 2.35) / narratedScenes));
+  const imageMax = Math.max(imageMin + 14, Math.ceil((seconds * 2.85) / narratedScenes));
   return {
     narratedScenes,
     imageMin,

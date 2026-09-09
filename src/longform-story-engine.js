@@ -205,7 +205,7 @@ export async function createLongformDraft(rawInput) {
   }
 
   const selectedTitle = normalized.title;
-  const minimumNarrationWords = Math.round(input.durationSec * 1.75);
+  const minimumNarrationWords = Math.round(input.durationSec * 2.15);
   const words = sceneWordRange(input.sceneCount, input.formatType, input.durationSec);
   if (config.openai.apiKey && narrationWordCount(normalized) < minimumNarrationWords) {
     try {
@@ -471,7 +471,7 @@ function buildPrompt(input, wiki = null) {
     `Tone Narasi: ${input.tone}`,
     `Durasi Total: ${input.durationSec} detik`,
     `Jumlah Scene: ${input.sceneCount}`,
-    `Target Jumlah Kata: sekitar ${Math.round(input.durationSec * 2.1)} kata bahasa Indonesia secara keseluruhan.`,
+    `Target Jumlah Kata: sekitar ${Math.round(input.durationSec * 2.6)} kata bahasa Indonesia secara keseluruhan.`,
     wikiBlock,
     trendBlock,
     "",

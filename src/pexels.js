@@ -593,11 +593,13 @@ export async function fetchPexelsClipForScene({
   for (const query of queryPlan) {
     let videos = [];
     try {
+      // Rotasi halaman 1-3 agar tidak selalu mendapat klip yang sama di semua scene.
+      const page = (Number(scene.index || 0) % 3) + 1;
       videos = await searchPexelsVideos(query, {
         orientation: "landscape",
         size: "medium",
         locale: config.pexels.locale,
-        page: 1,
+        page,
         perPage: config.pexels.maxResultsPerScene
       });
     } catch (error) {

@@ -34,7 +34,7 @@ on:
       resolution:
         description: Video resolution (720p or 1080p)
         required: false
-        default: "720p"
+        default: "1080p"
       format_type:
         description: Format video type (dokumenter_klasik, investigasi_misteri, timeline_evolutif, mitos_vs_fakta, kisah_manusia, countdown, debat_dua_sisi, fenomena_alam, perbandingan, eksperimen_berpikir)
         required: false
