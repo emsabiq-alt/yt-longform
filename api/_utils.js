@@ -497,7 +497,7 @@ async function withRemoteRetry(task) {
 
 // ---------------- internals ----------------
 function githubRepo() {
-  return clean(process.env.DASHBOARD_GITHUB_REPO || process.env.GITHUB_REPOSITORY || "emsabiq/yt-longform");
+  return clean(process.env.DASHBOARD_GITHUB_REPO || process.env.GITHUB_REPOSITORY || "emsabiq-alt/yt-longform");
 }
 
 function githubToken() {
