@@ -3,13 +3,64 @@ import assert from "node:assert/strict";
 import { config } from "../src/config.js";
 import { parseDeepSeekJson } from "../src/deepseek.js";
 import { fallbackTitle, generateViralTitle, pickBestTitle, titleBonus, DEFAULT_TITLE_PATTERNS } from "../src/title-engine.js";
-import { isSpaceQuotaDue } from "../src/topic-engine.js";
+import { createTrendFallbackIdeas, isSpaceQuotaDue } from "../src/topic-engine.js";
+import { parseGoogleTrendsRss, parseTrendTraffic } from "../src/google-trends.js";
+import { findSustainedNewsTopics, parseGoogleNewsRss } from "../src/google-news-trends.js";
+import { checkFreshness } from "../src/continuity-engine.js";
 
 const space = () => ({ category: "luar angkasa" });
 const other = () => ({ category: "teknologi" });
 
 test("isSpaceQuotaDue: memprioritaskan space saat arsip masih kosong", () => {
   assert.equal(isSpaceQuotaDue([]), true);
+});
+
+test("Google Trends RSS: memilih trafik terbesar tanpa API key", () => {
+  const rss = `<rss><channel>
+    <item><title>Tren kecil</title><ht:approx_traffic>500+</ht:approx_traffic></item>
+    <item><title><![CDATA[Tren &amp; terbesar]]></title><ht:approx_traffic>2K+</ht:approx_traffic><ht:news_item_title>Berita terkait</ht:news_item_title></item>
+  </channel></rss>`;
+  assert.equal(parseTrendTraffic("1,000+"), 1000);
+  assert.deepEqual(parseGoogleTrendsRss(rss).map((item) => item.title), ["Tren & terbesar", "Tren kecil"]);
+});
+
+test("Google News RSS: hanya memilih isu yang bertahan beberapa hari dan media", () => {
+  const articles = [
+    ["Gunung Anak Krakatau kembali erupsi", "Media A", "Mon, 07 Sep 2026 01:00:00 GMT"],
+    ["Aktivitas Gunung Anak Krakatau terus dipantau", "Media B", "Mon, 07 Sep 2026 05:00:00 GMT"],
+    ["Dampak erupsi Gunung Anak Krakatau meluas", "Media C", "Tue, 08 Sep 2026 01:00:00 GMT"],
+    ["Gunung Anak Krakatau dan sebaran abu vulkanik", "Media D", "Tue, 08 Sep 2026 05:00:00 GMT"],
+    ["Status Gunung Anak Krakatau hari ini", "Media E", "Wed, 09 Sep 2026 01:00:00 GMT"],
+    ["Skor pertandingan sesaat", "Media A", "Wed, 09 Sep 2026 02:00:00 GMT"]
+  ];
+  const rss = `<rss><channel>${articles.map(([title, source, date]) =>
+    `<item><title>${title}</title><source>${source}</source><pubDate>${date}</pubDate><link>https://example.com</link></item>`
+  ).join("")}</channel></rss>`;
+  const topics = findSustainedNewsTopics(parseGoogleNewsRss(rss));
+  assert.equal(topics[0].title, "Gunung Anak Krakatau");
+  assert.equal(topics[0].days, 3);
+  assert.equal(topics[0].sources, 5);
+  assert.ok(!topics.some((topic) => topic.title.includes("Pertandingan")));
+});
+
+test("continuity: tren sama boleh memakai angle baru tetapi bukan judul identik", () => {
+  const history = [{ topic: "Sejarah AEK Athena yang Jarang Diketahui", title: "Sejarah AEK Athena yang Jarang Diketahui" }];
+  assert.equal(checkFreshness({
+    topic: "Mengapa Strategi AEK Athena Sulit Ditebak Lawan",
+    title: "Mengapa Strategi AEK Athena Sulit Ditebak Lawan"
+  }, history, { allowRepeatedSubject: true }).isFresh, true);
+  assert.equal(checkFreshness({
+    topic: history[0].topic,
+    title: history[0].title
+  }, history, { allowRepeatedSubject: true }).isFresh, false);
+});
+
+test("fallback tren: tetap membuat beberapa angle terkait tanpa provider AI", () => {
+  const ideas = createTrendFallbackIdeas({ title: "AEK Athena F.C.", newsTitle: "Laga Liga Champions" });
+  assert.equal(ideas.length, 8);
+  assert.ok(ideas.every((idea) => idea.topic.includes("AEK Athena F.C.")));
+  assert.equal(new Set(ideas.map((idea) => idea.topic)).size, 8);
+  assert.ok(ideas.every((idea) => !/hari ini|viral|mendadak/i.test(idea.topic)));
 });
 
 test("isSpaceQuotaDue: mengejar target 70 persen pada rolling window", () => {

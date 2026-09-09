@@ -131,6 +131,7 @@ export async function createLongformDraft(rawInput) {
     seed.formatType = fresh.formatType;
     seed.viralAngleId = fresh.viralAngleId;
     seed.viralAngleLabel = simplifyForLayAudience(fresh.viralAngleLabel || "", 80);
+    seed.trend = fresh.trend || null;
     console.log(`[Topic Engine] Topik otomatis (${fresh.source}): "${fresh.topic}" [${fresh.category}] [${fresh.formatType}] [${seed.viralAngleLabel || "angle acak"}]`);
   } else {
     if (!seed.angle) seed.angle = "asal-usul yang jarang diketahui";
@@ -279,6 +280,7 @@ function normalizeInput(input) {
     formatType: cleanText(input.formatType || "dokumenter_klasik", 40),
     viralAngleId: cleanText(input.viralAngleId || "", 40),
     viralAngleLabel: simplifyForLayAudience(input.viralAngleLabel || "", 80),
+    trend: input.trend || null,
     tone: cleanText(input.tone || "narrator, serius tapi menarik, informatif, mendalam, seperti video dokumenter Vox atau Lemmino", 180),
     durationSec,
     sceneCount,

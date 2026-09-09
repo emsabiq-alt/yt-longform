@@ -12,6 +12,7 @@ import { cleanText } from "./util.js";
 import { FORMAT_TYPES, pickFormatType } from "./format-engine.js";
 import { loadHistory, checkFreshness, pickFreshIdeaFromBatch } from "./continuity-engine.js";
 import { buildTrendingContext, formatTrendingForPrompt } from "./youtube-trends.js";
+import { fetchTopSustainedNewsTopic } from "./google-news-trends.js";
 import { pickViralAngle, viralAnglePromptList, viralAngleSummary } from "./viral-angle-library.js";
 import { simplifyForLayAudience } from "./story-language.js";
 
@@ -342,6 +343,98 @@ function buildIdeaPrompt(history, category, angle, formatType, viralAngle, trend
   ].filter(Boolean).join("\n");
 }
 
+function trendIdeaPrompt(trend, history) {
+  const previous = history
+    .filter((item) => isDuplicate(trend.title, [item], 0.8))
+    .slice(0, 12)
+    .map((item) => `- ${item.topic}${item.title && item.title !== item.topic ? ` | judul: ${item.title}` : ""}`)
+    .join("\n") || "- (belum pernah dibahas)";
+  return [
+    "Kamu produser video dokumenter edukasi YouTube Indonesia.",
+    `Isu Indonesia yang bertahan ${trend.days} hari: "${trend.title}" (${trend.articles} artikel dari ${trend.sources} media).`,
+    trend.newsTitle ? `Contoh berita terkait: "${trend.newsTitle}" — ${trend.newsSource || "Google News"}.` : "",
+    "Buat 8 ide video edukasi evergreen yang benar-benar terkait isu tersebut, bukan sekadar menempelkan namanya.",
+    "Cari mekanisme, sejarah, strategi, sains, psikologi, ekonomi, atau konteks mendalam di balik tren.",
+    "Jangan membuat update berita, prediksi sesaat, jadwal, skor, atau judul 'sedang viral'. Video harus tetap berguna berbulan-bulan setelah beritanya reda.",
+    "Jika subjek yang sama pernah dibahas, subjek boleh diulang tetapi pertanyaan, sudut cerita, dan judul WAJIB berbeda.",
+    "Ide yang pernah dibuat dari tren ini:",
+    previous,
+    "Urutkan ide terbaik dahulu. Kembalikan JSON valid saja:",
+    '{"ideas":[{"topic":"judul/pertanyaan video yang spesifik","category":"kategori","angle":"sudut baru","viralScore":0,"why":"hubungan faktual dengan tren"}]}'
+  ].filter(Boolean).join("\n");
+}
+
+export function createTrendFallbackIdeas(trend) {
+  const subject = cleanText(trend?.title || "tren hari ini", 100);
+  const category = /fc|f\.c|liga|piala|open|timnas|sepak bola|tenis|olahraga/i.test(`${subject} ${trend?.newsTitle || ""}`)
+    ? "olahraga"
+    : /play store|aplikasi|ponsel|ai|teknologi/i.test(`${subject} ${trend?.newsTitle || ""}`)
+      ? "teknologi"
+      : "berita dan fenomena";
+  return [
+    { topic: `Sains di Balik ${subject} yang Jarang Dijelaskan`, angle: "mekanisme ilmiah yang tetap relevan setelah berita reda" },
+    { topic: `Sejarah ${subject} dan Peristiwa yang Membentuknya`, angle: "asal-usul dan titik balik historis" },
+    { topic: `Mengapa ${subject} Bisa Berdampak Begitu Besar`, angle: "rantai sebab-akibat dan skala dampaknya" },
+    { topic: `Cara Para Ahli Membaca Tanda dari ${subject}`, angle: "metode observasi, bukti, dan batas prediksi" },
+    { topic: `Mitos dan Fakta tentang ${subject}`, angle: "meluruskan kesalahpahaman dengan penjelasan faktual" },
+    { topic: `Apa yang Bisa Dipelajari Manusia dari ${subject}`, angle: "pelajaran jangka panjang bagi ilmu dan masyarakat" },
+    { topic: `Teknologi yang Digunakan untuk Memahami ${subject}`, angle: "alat, data, dan proses kerja para peneliti" },
+    { topic: `Bagaimana ${subject} Mengubah Dunia di Sekitarnya`, angle: "dampak jangka panjang pada alam dan manusia" }
+  ].map((idea, index) => ({ ...idea, category, viralScore: 90 - index }));
+}
+
+async function pickSustainedTrendIdea(history) {
+  const trend = await fetchTopSustainedNewsTopic();
+  if (!trend) return null;
+  console.log(`[Tren Bertahan] "${trend.title}": ${trend.articles} artikel, ${trend.sources} media, ${trend.days} hari`);
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    let ideas;
+    let provider;
+    try {
+      const aiResult = await requestIdeaJsonWithFallback(trendIdeaPrompt(trend, history));
+      ideas = aiResult.data?.ideas || [];
+      provider = aiResult.provider;
+    } catch (error) {
+      console.warn(`[Tren Bertahan] AI ide tidak tersedia, memakai ide lokal: ${error.message}`);
+      ideas = createTrendFallbackIdeas(trend);
+      provider = "rss-local";
+    }
+    const ranked = [...ideas]
+      .filter((idea) => idea?.topic)
+      .sort((a, b) => (Number(b.viralScore) || 0) - (Number(a.viralScore) || 0));
+    for (const idea of ranked) {
+      const candidate = {
+        topic: cleanText(idea.topic, 160),
+        title: cleanText(idea.topic, 160),
+        category: cleanText(idea.category || "berita dan fenomena", 80),
+        angle: simplifyForLayAudience(idea.angle || `konteks di balik ${trend.title}`, 140)
+      };
+      const check = checkFreshness(candidate, history, {
+        allowRepeatedSubject: true,
+        topicThreshold: 0.7,
+        titleThreshold: 0.7
+      });
+      if (!check.isFresh) continue;
+      const formatType = pickFormatType(history);
+      const viralAngle = pickViralAngle(history);
+      return {
+        ...candidate,
+        formatType,
+        viralAngleId: viralAngle.id,
+        viralAngleLabel: simplifyForLayAudience(viralAngle.label, 80),
+        source: `${provider}+google-news-sustained`,
+        trendingScore: trend.days * 100 + trend.sources * 10 + trend.articles,
+        trendingKeywords: [trend.title],
+        trend
+      };
+    }
+    if (provider === "rss-local") break;
+    console.log(`[Tren Bertahan] Percobaan ${attempt}: semua ide terlalu mirip riwayat, meminta sudut baru...`);
+  }
+  return null;
+}
+
 const OFFLINE_SEEDS = [
   "Kenapa madu tidak pernah basi meski disimpan ribuan tahun",
   "Bagaimana jam pasir kuno bisa mengukur waktu dengan akurat",
@@ -442,6 +535,14 @@ export function filterFreshTrendingContext(context, history = []) {
  */
 export async function pickFreshTopic(options = {}) {
   const history = await loadHistory(80);
+
+  try {
+    const trending = await pickSustainedTrendIdea(history);
+    if (trending) return trending;
+  } catch (error) {
+    console.warn(`[Tren Bertahan] Gagal memilih topik, lanjut evergreen fallback: ${error.message}`);
+  }
+
   const category = cleanText(options.category && options.category !== "random"
     ? options.category : pickBalancedCategory(history), 80);
 

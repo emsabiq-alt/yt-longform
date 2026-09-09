@@ -105,6 +105,7 @@ export function checkFreshness(candidate, history, options = {}) {
   const topicThreshold = options.topicThreshold || SIMILARITY_THRESHOLD;
   const titleThreshold = options.titleThreshold || TITLE_SIMILARITY_THRESHOLD;
   const comboLookback = options.comboLookback || COMBO_LOOKBACK;
+  const allowRepeatedSubject = options.allowRepeatedSubject === true;
 
   const candNorm = normalizeTitle(candidate.topic);
   const candKeywords = keywordSet(candidate.topic);
@@ -122,7 +123,7 @@ export function checkFreshness(candidate, history, options = {}) {
     }
 
     // Topik mirip
-    if (similarity(candKeywords, keywordSet(past.topic)) >= topicThreshold) {
+    if (!allowRepeatedSubject && similarity(candKeywords, keywordSet(past.topic)) >= topicThreshold) {
       return { isFresh: false, reason: `topik terlalu mirip dengan: "${past.title || past.topic}"`, similarItem: past };
     }
 
@@ -157,7 +158,7 @@ export function checkFreshness(candidate, history, options = {}) {
     const pastNamedSubjects = namedSubjectSet(pastSubjectText);
     const sharedSubjects = [...candSubjects].filter((word) => pastSubjects.has(word));
     const sharedNamedSubjects = [...candNamedSubjects].filter((word) => pastNamedSubjects.has(word));
-    if (sharedNamedSubjects.length || sharedSubjects.length >= 2) {
+    if (!allowRepeatedSubject && (sharedNamedSubjects.length || sharedSubjects.length >= 2)) {
       const blockedSubjects = sharedNamedSubjects.length ? sharedNamedSubjects : sharedSubjects;
       return {
         isFresh: false,
