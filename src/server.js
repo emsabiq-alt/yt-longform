@@ -12,6 +12,7 @@ import {
 import { listItems, saveItem, getItem } from "./storage.js";
 import { createLongformDraft } from "./longform-story-engine.js";
 import { nowIso } from "./util.js";
+import { fetchSustainedNewsTopics, SUSTAINED_NEWS_CRITERIA, SUSTAINED_NEWS_MEDIA } from "./google-news-trends.js";
 
 ensureProjectDirs();
 
@@ -29,6 +30,19 @@ app.use("/api", requireDashboardPin);
 app.get("/api/state", async (_req, res, next) => {
   try {
     res.json({ config: publicConfig(), items: await listItems() });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/trends", async (_req, res, next) => {
+  try {
+    res.json({
+      fetchedAt: new Date().toISOString(),
+      criteria: SUSTAINED_NEWS_CRITERIA,
+      media: SUSTAINED_NEWS_MEDIA,
+      topics: await fetchSustainedNewsTopics()
+    });
   } catch (error) {
     next(error);
   }

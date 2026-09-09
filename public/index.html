@@ -57,6 +57,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
           <span class="nav-label">Proses</span>
         </button>
+        <button class="nav-item" data-view="trends">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-9"/><path d="M15 6h6v6"/></svg>
+          <span class="nav-label">Tren</span>
+        </button>
         <button class="nav-item" data-view="health">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4-3 7-7 8-4-1-7-4-7-8V6z"/><path d="M9 12l2 2 4-4"/></svg>
           <span class="nav-label">Diagnostik</span>
@@ -123,7 +127,7 @@
             <label class="field"><span>Durasi (detik)</span>
               <select name="durationSec"><option>300</option><option selected>360</option><option>480</option><option>600</option><option>720</option></select></label>
             <label class="field"><span>Jumlah scene</span>
-              <select name="sceneCount"><option>10</option><option>12</option><option selected>14</option><option>16</option><option>18</option></select></label>
+              <select name="sceneCount"><option selected>26</option><option>27</option><option>28</option></select></label>
             <label class="field"><span>TTS provider</span>
               <select name="ttsProvider"><option>openai</option><option>elevenlabs</option></select></label>
             <label class="field"><span>TTS voice</span>
@@ -174,6 +178,19 @@
           <div class="panel-head"><h3>Riwayat Proses (GitHub Actions)</h3></div>
           <div id="runsList" class="runs-list"></div>
         </div>
+      </section>
+
+      <!-- TRENDS -->
+      <section class="view" data-view="trends">
+        <div class="panel">
+          <div class="panel-head">
+            <div><h3>Tren Berita Bertahan</h3><p id="trendUpdated" class="muted trend-updated">Belum dimuat.</p></div>
+            <button id="refreshTrendsBtn" class="btn ghost tiny">Muat ulang</button>
+          </div>
+          <div id="trendCriteria" class="trend-criteria" aria-label="Kriteria seleksi"></div>
+          <div id="trendMedia" class="trend-media" aria-label="Media yang dipantau"></div>
+        </div>
+        <div id="trendList" class="trend-list" aria-live="polite"><div class="panel muted">Buka tab ini untuk memuat tren.</div></div>
       </section>
 
       <!-- HEALTH -->

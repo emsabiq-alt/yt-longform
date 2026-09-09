@@ -1197,7 +1197,7 @@ async function muxVideoAudio({ videoPath, audioPath, outputPath }) {
   ]);
 }
 
-async function writeContentCaptionAss({ outputPath, item, scenes, contentDuration }) {
+export async function writeContentCaptionAss({ outputPath, item, scenes, contentDuration }) {
   const events = [];
   const titleOverlay = sceneTitleOverlay(item.title || item.plan?.title || "BanyakTau");
   events.push(dialogue(
@@ -1208,6 +1208,18 @@ async function writeContentCaptionAss({ outputPath, item, scenes, contentDuratio
   ));
 
   for (const scene of scenes) {
+    const headline = headlineCardForScene(scene);
+    if (headline) {
+      const start = scene.startSec + 0.35;
+      const end = Math.min(scene.endSec - 0.15, start + 6);
+      if (end > start + 0.5) {
+        events.push(
+          dialogue(start, end, "HeadlineKicker", `{\\fad(140,180)}${assEscape("SUMBER BERITA")}`),
+          dialogue(start, end, "HeadlineText", `{\\fad(140,180)}${assEscape(splitLines(headline.headline, 54, 3).join("\\N"))}`),
+          dialogue(start, end, "HeadlineSource", `{\\fad(140,180)}${assEscape(headline.outlet)}`)
+        );
+      }
+    }
     if (scene.sceneType === "reaction") {
       const prompt = splitLines(scene.screenText || scene.narration, 34, 3).join("\\N");
       events.push(dialogue(
@@ -1276,6 +1288,9 @@ async function writeContentCaptionAss({ outputPath, item, scenes, contentDuratio
     `Style: SummaryText,${config.render.fontBody},29,&H00FFFFFF,&H000000FF,&H9011171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.5,0,8,120,120,170,1`,
     `Style: SummaryPoints,${config.render.fontBody},27,&H00F7F2DC,&H000000FF,&H9011171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.5,0,8,140,140,330,1`,
     `Style: Point,${config.render.fontBody},44,&H00FFFFFF,&H000000FF,&H8F11171B,&HCC11171B,-1,0,0,0,100,100,0,0,3,10,0,5,80,80,0,1`,
+    `Style: HeadlineKicker,${config.render.fontMono},18,&H004CC8F5,&H000000FF,&H0011171B,&HDA11171B,-1,0,0,0,100,100,1,0,3,12,0,7,220,220,174,1`,
+    `Style: HeadlineText,${config.render.fontBody},28,&H00FFFFFF,&H000000FF,&H0011171B,&HDA11171B,-1,0,0,0,100,100,0,0,3,12,0,7,220,220,205,1`,
+    `Style: HeadlineSource,${config.render.fontMono},18,&H00F7F2DC,&H000000FF,&H0011171B,&HDA11171B,0,0,0,0,100,100,0,0,3,12,0,7,220,220,315,1`,
     ...spotlightStyles(),
     "",
     "[Events]",
@@ -1284,6 +1299,14 @@ async function writeContentCaptionAss({ outputPath, item, scenes, contentDuratio
   ].join("\n");
 
   await fs.writeFile(outputPath, ass, "utf8");
+}
+
+export function headlineCardForScene(scene) {
+  const source = scene?.mediaSource;
+  if (scene?.sceneType !== "image" || !source?.outlet || !source?.headline) return null;
+  const outlet = String(source.outlet).trim();
+  if (!String(scene.narration || "").toLocaleLowerCase("id-ID").includes(outlet.toLocaleLowerCase("id-ID"))) return null;
+  return { outlet, headline: String(source.headline).trim() };
 }
 
 async function writeOutroCaptionAss({ outputPath, item, duration }) {

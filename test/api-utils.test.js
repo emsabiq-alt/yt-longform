@@ -14,7 +14,8 @@ import {
   removeById,
   makeId,
   check,
-  remoteMissingEnv
+  remoteMissingEnv,
+  normalizeTrendInput
 } from "../api/_utils.js";
 
 test("clean: trim string, null/undefined → ''", () => {
@@ -71,11 +72,11 @@ test("buildQueueItem: durasi di-clamp ke rentang [300, 900]", () => {
   assert.equal(buildQueueItem({ durationSec: 420 }).durationSec, 420);  // di dalam rentang
 });
 
-test("buildQueueItem: sceneCount di-clamp ke atas 60, nilai falsy (0) → default", () => {
-  assert.equal(buildQueueItem({ sceneCount: 100 }).sceneCount, 60); // dipotong ke max
-  assert.equal(buildQueueItem({ sceneCount: 30 }).sceneCount, 30);  // di dalam rentang
-  // Catatan: 0 itu falsy → `0 || default` jatuh ke 14, bukan di-clamp ke 1.
-  assert.equal(buildQueueItem({ sceneCount: 0 }).sceneCount, 14);
+test("buildQueueItem: sceneCount dibatasi ke 26-28", () => {
+  assert.equal(buildQueueItem({ sceneCount: 100 }).sceneCount, 28);
+  assert.equal(buildQueueItem({ sceneCount: 27 }).sceneCount, 27);
+  assert.equal(buildQueueItem({ sceneCount: 1 }).sceneCount, 26);
+  assert.equal(buildQueueItem({ sceneCount: 0 }).sceneCount, 26);
 });
 
 test("buildQueueItem: ttsProvider hanya 'openai' atau 'elevenlabs'", () => {
@@ -92,6 +93,19 @@ test("buildQueueItem: trim topik, hormati id yang diberikan, auto-id kalau koson
   const item = buildQueueItem({});
   assert.ok(!Number.isNaN(Date.parse(item.createdAt)));
   assert.ok(!Number.isNaN(Date.parse(item.updatedAt)));
+});
+
+test("metadata tren RSS dibersihkan dan dipertahankan di item antrian", () => {
+  const trend = normalizeTrendInput({
+    title: "  Pembayaran QR  ", articles: 7, sources: 4, days: 3,
+    newsItems: [{ title: "  QR lintas negara meluas  ", source: " kompas.com ", url: "https://example.com/news", publishedAt: "2026-09-09" }]
+  });
+  assert.deepEqual(trend, {
+    title: "Pembayaran QR", articles: 7, sources: 4, days: 3,
+    newsItems: [{ title: "QR lintas negara meluas", source: "kompas.com", url: "https://example.com/news", publishedAt: "2026-09-09" }]
+  });
+  assert.deepEqual(buildQueueItem({ trend }).trend, trend);
+  assert.equal(normalizeTrendInput({ title: "tanpa berita" }), null);
 });
 
 test("upsertById: insert item baru, merge item yang sudah ada, tanpa mutasi sumber", () => {

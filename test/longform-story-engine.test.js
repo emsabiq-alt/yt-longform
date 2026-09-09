@@ -9,7 +9,52 @@ import {
   createLongformDraft,
   normalizeVisualSegments
 } from "../src/longform-story-engine.js";
+import { headlineCardForScene, writeContentCaptionAss } from "../src/longform-render.js";
 import { scorePexelsCandidate } from "../src/pexels.js";
+
+test("headline card hanya muncul bila narasi menyebut outlet sumber", () => {
+  const mediaSource = { outlet: "kompas.com", headline: "Pembayaran QR lintas negara makin luas" };
+  assert.deepEqual(headlineCardForScene({
+    sceneType: "image",
+    narration: "Menurut Kompas.com, pembayaran itu kini makin luas.",
+    mediaSource
+  }), mediaSource);
+  assert.equal(headlineCardForScene({
+    sceneType: "image",
+    narration: "Pembayaran itu kini makin luas.",
+    mediaSource
+  }), null);
+  assert.equal(headlineCardForScene({
+    sceneType: "image",
+    narration: "Menurut Kompas, pembayaran itu kini makin luas.",
+    mediaSource
+  }), null);
+});
+
+test("ASS render memuat headline dan outlet untuk scene bersumber", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "yt-headline-ass-"));
+  const outputPath = path.join(dir, "headline.ass");
+  try {
+    await writeContentCaptionAss({
+      outputPath,
+      item: { title: "Uji", plan: { importantPoints: [] } },
+      contentDuration: 8,
+      scenes: [{
+        sceneType: "image",
+        startSec: 0,
+        endSec: 8,
+        narration: "Menurut Kompas.com, pembayaran itu makin luas.",
+        mediaSource: { outlet: "kompas.com", headline: "Pembayaran QR lintas negara makin luas" }
+      }]
+    });
+    const ass = await fs.readFile(outputPath, "utf8");
+    assert.match(ass, /Style: HeadlineText/);
+    assert.match(ass, /Pembayaran QR lintas negara makin luas/);
+    assert.match(ass, /kompas\.com/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
 
 test("normalizeVisualSegments mempertahankan dan membersihkan intent Pexels dari AI", () => {
   const segments = normalizeVisualSegments([
@@ -496,12 +541,13 @@ test("fallback offline sebenarnya tidak meneruskan keyword generik ke Pexels", a
     topic: "Sejarah lift modern",
     category: "teknologi",
     durationSec: 300,
-    sceneCount: 10,
+    sceneCount: 26,
     formatType: "dokumenter_klasik"
   });
   const visualSegments = draft.plan.scenes.flatMap((scene) => scene.visualSegments || []);
 
   assert.equal(draft.source, "offline");
+  assert.equal(draft.plan.scenes.length, 26);
   assert.ok(visualSegments.length > 0);
   assert.ok(visualSegments.every((segment) => segment.pexelsQuery === ""));
   assert.ok(visualSegments.every((segment) => segment.mustMatchTerms.length === 0));

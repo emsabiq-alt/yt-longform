@@ -36,7 +36,7 @@ test("sceneWordRange: semua format bisa mencapai ambang revisi durationSec*1.75"
   // durasi panjang, memicu satu tulis-ulang penuh yang gagal lagi.
   for (const formatType of Object.keys(FORMAT_TYPES)) {
     for (const durationSec of [300, 420, 600, 900]) {
-      const sceneCount = Math.max(10, Math.min(28, Math.round(durationSec / 18)));
+      const sceneCount = Math.max(26, Math.min(28, Math.round(durationSec / 18)));
       const range = sceneWordRange(sceneCount, formatType, durationSec);
       const reachable = range.narratedScenes * range.imageMax;
       const threshold = Math.round(durationSec * 1.75);

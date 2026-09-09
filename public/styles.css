@@ -454,6 +454,29 @@ h1, h2, h3, h4 { font-weight: 700; letter-spacing: -0.01em; color: var(--text); 
 .health-row b { font-size: 14px; font-weight: 600; }
 .health-row small { color: var(--muted); display: block; font-family: var(--font-mono); font-size: 12px; margin-top: 2px; }
 
+/* ---------- News trends ---------- */
+.trend-updated { font-size: 12px; margin-top: 3px; }
+.trend-criteria, .trend-media { display: flex; gap: 7px; flex-wrap: wrap; }
+.trend-media { margin-top: 12px; }
+.trend-media span { padding: 5px 9px; border-radius: 99px; background: var(--surface-2); color: var(--muted); font: 11px var(--font-mono); }
+.trend-list { display: flex; flex-direction: column; gap: 10px; }
+.trend-card { display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 15px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-sm); }
+.trend-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.trend-rank { display: grid; place-items: center; align-self: start; width: 30px; height: 30px; border-radius: 50%; background: var(--surface-2); color: var(--muted); font-weight: 700; }
+.trend-card.selected .trend-rank { background: var(--accent); color: var(--on-accent); }
+.trend-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.trend-title h3 { font-size: 16px; }
+.trend-stats { margin-top: 6px; color: var(--muted); font-size: 13px; }
+.trend-stats b { color: var(--text); }
+.trend-use { margin-top: 10px; }
+.trend-card details { margin-top: 11px; border-top: 1px solid var(--border); padding-top: 9px; }
+.trend-card summary { cursor: pointer; color: var(--accent); font-size: 13px; font-weight: 600; }
+.trend-card ul { margin: 9px 0 0 18px; }
+.trend-card li { margin: 8px 0; padding-left: 3px; }
+.trend-card a { color: var(--text); font-size: 13px; text-decoration: none; }
+.trend-card a:hover { text-decoration: underline; }
+.trend-card li small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+
 /* ---------- Form ---------- */
 .form-panel { max-width: 760px; }
 .grid-form { display: grid; grid-template-columns: 1fr; gap: 14px; }

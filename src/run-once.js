@@ -20,15 +20,28 @@ function boolValue(value, fallback = false) {
   return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
 }
 
+function topicValue(value) {
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return { topic: String(parsed.topic || ""), trend: parsed.trend || null };
+    }
+  } catch {
+    // Topik biasa memang bukan JSON.
+  }
+  return { topic: value, trend: null };
+}
+
 ensureProjectDirs();
 
 const ttsProvider = argValue("--tts-provider", process.env.YT_TTS_PROVIDER || "openai");
 const defaultTtsVoice = String(ttsProvider).toLowerCase() === "elevenlabs"
   ? config.elevenlabs.voiceId
   : config.openai.ttsVoice;
+const topicPayload = topicValue(argValue("--topic", process.env.YT_TOPIC || ""));
 
 const input = {
-  topic: argValue("--topic", process.env.YT_TOPIC || ""),
+  topic: topicPayload.topic,
   category: argValue("--category", process.env.YT_CATEGORY || "random"),
   formatType: argValue("--format-type", process.env.YT_FORMAT_TYPE || ""),
   ttsProvider,
@@ -37,7 +50,8 @@ const input = {
   sceneCount: Number(argValue("--scenes", process.env.YT_SCENE_COUNT || String(config.automation.sceneCount))),
   imageQuality: argValue("--image-quality", process.env.IMAGE_QUALITY || config.openai.imageQuality),
   imageSize: argValue("--image-size", process.env.IMAGE_SIZE || "1536x1024"),
-  resolution: argValue("--resolution", process.env.YT_RESOLUTION || "720p")
+  resolution: argValue("--resolution", process.env.YT_RESOLUTION || "720p"),
+  trend: topicPayload.trend
 };
 
 const dailyGenerateLimit = config.automation.dailyGenerateLimit;

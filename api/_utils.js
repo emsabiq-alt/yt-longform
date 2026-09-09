@@ -82,6 +82,24 @@ export function clampNum(value, min, max, fallback) {
   return Math.min(max, Math.max(min, n));
 }
 
+export function normalizeTrendInput(trend) {
+  if (!trend || typeof trend !== "object" || Array.isArray(trend)) return null;
+  const newsItems = (Array.isArray(trend.newsItems) ? trend.newsItems : []).slice(0, 12).map((item) => ({
+    title: clampStr(item?.title || item?.headline, 240),
+    source: clampStr(item?.source || item?.outlet, 100),
+    url: clampStr(item?.url, 500),
+    publishedAt: clampStr(item?.publishedAt, 80)
+  })).filter((item) => item.title && item.source);
+  if (!newsItems.length) return null;
+  return {
+    title: clampStr(trend.title, 180),
+    articles: clampNum(trend.articles, 0, 10_000, 0),
+    sources: clampNum(trend.sources, 0, 1_000, 0),
+    days: clampNum(trend.days, 0, 365, 0),
+    newsItems
+  };
+}
+
 export function boolEnv(name, fallback = false) {
   const value = process.env[name];
   if (value === undefined || value === "") return fallback;
@@ -301,7 +319,7 @@ export function configSummary() {
     timezone: clean(process.env.YT_TIME_ZONE || "Asia/Bangkok"),
     uploadDriver: clean(process.env.UPLOAD_DRIVER || "sftp"),
     durationSec: Number(process.env.YT_DURATION_SEC || 360),
-    sceneCount: Number(process.env.YT_SCENE_COUNT || 14),
+    sceneCount: Math.min(28, Math.max(26, Number(process.env.YT_SCENE_COUNT || 26))),
     dailyGenerateLimit: Number(process.env.YT_DAILY_GENERATE_LIMIT || 1),
     youtubeEnabled: boolEnv("YOUTUBE_UPLOAD_ENABLED", true),
     youtubeDailyUploadLimit: Number(process.env.YOUTUBE_DAILY_UPLOAD_LIMIT || 2),
@@ -390,7 +408,7 @@ export function buildQueueItem(input) {
     category: clampStr(input.category || "random", 80),
     formatType: clampStr(input.formatType || input.format_type || "", 40),
     durationSec: clampNum(input.durationSec || 360, 300, 900, 360),
-    sceneCount: clampNum(input.sceneCount || 14, 1, 60, 14),
+    sceneCount: clampNum(input.sceneCount || 26, 26, 28, 26),
     ttsProvider,
     ttsVoice: clampStr(input.ttsVoice || defaultTtsVoice, 80),
     imageQuality: clampStr(input.imageQuality || "low", 20),
@@ -398,6 +416,7 @@ export function buildQueueItem(input) {
     priority: clampNum(input.priority || 1, 1, 99, 1),
     status: clampStr(input.status || "pending", 40),
     notes: clampStr(input.notes || "", 500),
+    trend: normalizeTrendInput(input.trend),
     createdAt: clampStr(input.createdAt, 40) || now,
     updatedAt: now
   };

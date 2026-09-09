@@ -4,6 +4,8 @@ const PIN_KEY = "yt_dashboard_pin";
 let PIN = sessionStorage.getItem(PIN_KEY) || "";
 let STATE = { items: [], queue: [], config: {}, activeRun: null, recentRuns: [], stats: {} };
 let POLL = null;
+let TRENDS = null;
+let SELECTED_TREND = null;
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -83,6 +85,7 @@ const VIEW_TITLES = {
   library: ["Pustaka", "Semua Video"],
   queue: ["Antrian", "Daftar Antrian Produksi"],
   runs: ["Proses", "Riwayat GitHub Actions"],
+  trends: ["Tren", "Pemantau Berita Mingguan"],
   health: ["Diagnostik", "Health Check Sistem"]
 };
 function switchView(view) {
@@ -91,6 +94,7 @@ function switchView(view) {
   const [k, t] = VIEW_TITLES[view] || ["", ""];
   $("#viewKicker").textContent = k;
   $("#viewTitle").textContent = t;
+  if (view === "trends" && !TRENDS) refreshTrends();
   
   // Close sidebar drawer on mobile
   $("#sidebar")?.classList.remove("active");
@@ -133,6 +137,44 @@ function render() {
   if (!configLoaded && STATE.config && Object.keys(STATE.config).length > 0) {
     initFormDefaults();
     configLoaded = true;
+  }
+}
+
+function renderTrends() {
+  if (!TRENDS) return;
+  const topics = TRENDS.topics || [];
+  const criteria = TRENDS.criteria || {};
+  $("#trendUpdated").textContent = `Diperbarui ${fmtDate(TRENDS.fetchedAt)} · jendela 7 hari`;
+  $("#trendCriteria").innerHTML = [
+    `${criteria.minimumArticles || 5}+ artikel`, `${criteria.minimumSources || 3}+ media`, `${criteria.minimumDays || 3}+ hari`
+  ].map((value) => `<span class="badge neutral">${esc(value)}</span>`).join("");
+  $("#trendMedia").innerHTML = (TRENDS.media || []).map((media) => `<span>${esc(media)}</span>`).join("");
+  $("#trendList").innerHTML = topics.length ? topics.map((topic, index) => `
+    <article class="trend-card ${SELECTED_TREND === topic ? "selected" : ""}">
+      <div class="trend-rank">${index + 1}</div>
+      <div class="trend-body">
+        <div class="trend-title"><h3>${esc(topic.title)}</h3>${index === 0 ? '<span class="badge ok">Pilihan mesin</span>' : ""}</div>
+        <div class="trend-stats"><b>${Number(topic.articles) || 0}</b> artikel <span>·</span> <b>${Number(topic.sources) || 0}</b> media <span>·</span> <b>${Number(topic.days) || 0}</b> hari</div>
+        <button type="button" class="btn ghost tiny trend-use" data-trend-index="${index}">${SELECTED_TREND === topic ? "Dipilih" : "Gunakan tren"}</button>
+        <details>
+          <summary>Lihat contoh berita</summary>
+          <ul>${(topic.newsItems || []).slice(0, 5).map((item) => `<li><a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.title)}</a><small>${esc(item.source)} · ${fmtDate(item.publishedAt)}</small></li>`).join("")}</ul>
+        </details>
+      </div>
+    </article>`).join("") : '<div class="panel empty">Belum ada topik yang lolos kriteria minggu ini.</div>';
+}
+
+async function refreshTrends() {
+  const button = $("#refreshTrendsBtn");
+  button.disabled = true;
+  $("#trendList").innerHTML = '<div class="panel muted">Mengambil Google News dari enam media…</div>';
+  try {
+    TRENDS = await api("/api/trends");
+    renderTrends();
+  } catch (error) {
+    $("#trendList").innerHTML = `<div class="panel form-error">${esc(error.message)}</div>`;
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -407,7 +449,8 @@ function formData() {
     ttsVoice: f.ttsVoice.value,
     imageQuality: f.imageQuality.value,
     resolution: f.resolution.value,
-    force: f.force.checked
+    force: f.force.checked,
+    trend: SELECTED_TREND
   };
 }
 
@@ -468,6 +511,20 @@ $("#copyLog").addEventListener("click", () => {
 $("#librarySearch").addEventListener("input", renderLibrary);
 $("#libraryFilter").addEventListener("change", renderLibrary);
 $("#refreshBtn").addEventListener("click", refresh);
+$("#refreshTrendsBtn").addEventListener("click", refreshTrends);
+$("#trendList").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-trend-index]");
+  const trend = TRENDS?.topics?.[Number(button?.dataset.trendIndex)];
+  if (!trend) return;
+  SELECTED_TREND = trend;
+  $("#createForm").topic.value = trend.title;
+  renderTrends();
+  switchView("create");
+  toast("Tren dan metadata RSS dipilih.", "ok");
+});
+$("#createForm [name=topic]").addEventListener("input", (event) => {
+  if (SELECTED_TREND && event.target.value.trim() !== SELECTED_TREND.title) SELECTED_TREND = null;
+});
 const providerSelect = $("#createForm [name=ttsProvider]");
 if (providerSelect) {
   providerSelect.addEventListener("change", updateVoiceDropdown);

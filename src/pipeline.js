@@ -70,7 +70,12 @@ export async function generateFullItem(input = {}, options = {}) {
     sceneCount: input.sceneCount || config.automation.sceneCount,
     ttsProvider: input.ttsProvider || "openai",
     imageQuality: input.imageQuality || config.openai.imageQuality,
-    resolution: input.resolution || "720p"
+    resolution: input.resolution || "720p",
+    angle: input.angle,
+    formatType: input.formatType,
+    viralAngleId: input.viralAngleId,
+    viralAngleLabel: input.viralAngleLabel,
+    trend: input.trend || null
   }, { existingItems });
   await saveItem(item);
   reportProgress("script", "Naskah siap", 100, item.title || "");

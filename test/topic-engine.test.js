@@ -4,8 +4,7 @@ import { config } from "../src/config.js";
 import { parseDeepSeekJson } from "../src/deepseek.js";
 import { fallbackTitle, generateViralTitle, pickBestTitle, titleBonus, DEFAULT_TITLE_PATTERNS } from "../src/title-engine.js";
 import { createTrendFallbackIdeas, isSpaceQuotaDue } from "../src/topic-engine.js";
-import { parseGoogleTrendsRss, parseTrendTraffic } from "../src/google-trends.js";
-import { findSustainedNewsTopics, parseGoogleNewsRss } from "../src/google-news-trends.js";
+import { fetchSustainedNewsTopics, findSustainedNewsTopics, parseGoogleNewsRss } from "../src/google-news-trends.js";
 import { checkFreshness } from "../src/continuity-engine.js";
 
 const space = () => ({ category: "luar angkasa" });
@@ -15,32 +14,61 @@ test("isSpaceQuotaDue: memprioritaskan space saat arsip masih kosong", () => {
   assert.equal(isSpaceQuotaDue([]), true);
 });
 
-test("Google Trends RSS: memilih trafik terbesar tanpa API key", () => {
-  const rss = `<rss><channel>
-    <item><title>Tren kecil</title><ht:approx_traffic>500+</ht:approx_traffic></item>
-    <item><title><![CDATA[Tren &amp; terbesar]]></title><ht:approx_traffic>2K+</ht:approx_traffic><ht:news_item_title>Berita terkait</ht:news_item_title></item>
-  </channel></rss>`;
-  assert.equal(parseTrendTraffic("1,000+"), 1000);
-  assert.deepEqual(parseGoogleTrendsRss(rss).map((item) => item.title), ["Tren & terbesar", "Tren kecil"]);
-});
-
 test("Google News RSS: hanya memilih isu yang bertahan beberapa hari dan media", () => {
   const articles = [
-    ["Gunung Anak Krakatau kembali erupsi", "Media A", "Mon, 07 Sep 2026 01:00:00 GMT"],
-    ["Aktivitas Gunung Anak Krakatau terus dipantau", "Media B", "Mon, 07 Sep 2026 05:00:00 GMT"],
-    ["Dampak erupsi Gunung Anak Krakatau meluas", "Media C", "Tue, 08 Sep 2026 01:00:00 GMT"],
-    ["Gunung Anak Krakatau dan sebaran abu vulkanik", "Media D", "Tue, 08 Sep 2026 05:00:00 GMT"],
-    ["Status Gunung Anak Krakatau hari ini", "Media E", "Wed, 09 Sep 2026 01:00:00 GMT"],
+    ["Pembayaran QR lintas negara makin luas", "Media A", "Mon, 07 Sep 2026 01:00:00 GMT"],
+    ["Bank menguji pembayaran QR lintas negara", "Media B", "Mon, 07 Sep 2026 05:00:00 GMT"],
+    ["Biaya pembayaran QR lintas negara disorot", "Media C", "Tue, 08 Sep 2026 01:00:00 GMT"],
+    ["Keamanan pembayaran QR lintas negara diperkuat", "Media D", "Tue, 08 Sep 2026 05:00:00 GMT"],
+    ["Pembayaran QR lintas negara menjangkau pasar baru", "Media E", "Wed, 09 Sep 2026 01:00:00 GMT"],
     ["Skor pertandingan sesaat", "Media A", "Wed, 09 Sep 2026 02:00:00 GMT"]
   ];
   const rss = `<rss><channel>${articles.map(([title, source, date]) =>
-    `<item><title>${title}</title><source>${source}</source><pubDate>${date}</pubDate><link>https://example.com</link></item>`
+    `<item><title>${title} - ${source}</title><source>${source}</source><pubDate>${date}</pubDate><link>https://example.com</link></item>`
   ).join("")}</channel></rss>`;
   const topics = findSustainedNewsTopics(parseGoogleNewsRss(rss));
-  assert.equal(topics[0].title, "Gunung Anak Krakatau");
+  assert.equal(topics[0].title, "Pembayaran QR Lintas Negara");
   assert.equal(topics[0].days, 3);
   assert.equal(topics[0].sources, 5);
+  assert.ok(!topics.some((topic) => topic.title.includes("Media")));
   assert.ok(!topics.some((topic) => topic.title.includes("Pertandingan")));
+});
+
+test("Google News RSS: mengambil berita tujuh hari dari media Indonesia terkemuka", async () => {
+  const urls = [];
+  await fetchSustainedNewsTopics(async (url) => {
+    urls.push(url);
+    return { ok: true, text: async () => `<rss><channel><item><title>Topik netral</title><source>Media</source><pubDate>Mon, 07 Sep 2026 01:00:00 GMT</pubDate><link>https://example.com</link></item></channel></rss>` };
+  });
+  assert.equal(urls.length, 6);
+  assert.ok(urls.every((url) => new URL(url).searchParams.get("q").includes("when:7d")));
+  for (const domain of ["kompas.com", "detik.com", "cnnindonesia.com", "tempo.co", "antaranews.com", "liputan6.com"]) {
+    assert.ok(urls.some((url) => new URL(url).searchParams.get("q").includes(`site:${domain}`)));
+  }
+});
+
+test("Google News RSS: menerima topik olahraga hanya jika bertahan lintas hari", () => {
+  const items = [
+    ["Piala Asia memasuki babak baru", "Media A", "Mon, 07 Sep 2026 01:00:00 GMT"],
+    ["Jadwal Piala Asia diumumkan", "Media B", "Mon, 07 Sep 2026 05:00:00 GMT"],
+    ["Piala Asia menjadi sorotan", "Media C", "Tue, 08 Sep 2026 01:00:00 GMT"],
+    ["Tim bersiap menghadapi Piala Asia", "Media D", "Tue, 08 Sep 2026 05:00:00 GMT"],
+    ["Piala Asia berlanjut pekan ini", "Media E", "Wed, 09 Sep 2026 01:00:00 GMT"]
+  ].map(([title, source, publishedAt]) => ({ title, source, publishedAt, day: new Date(publishedAt).toISOString().slice(0, 10) }));
+  assert.equal(findSustainedNewsTopics(items)[0].title, "Piala Asia");
+  assert.equal(findSustainedNewsTopics(items)[0].days, 3);
+  assert.deepEqual(findSustainedNewsTopics(items.map((item) => ({ ...item, day: "2026-09-09" }))), []);
+});
+
+test("Google News RSS: frasa headline generik bukan topik berita", () => {
+  const items = [
+    ["Pelatih buka suara tentang pemain", "Media A", "Mon, 07 Sep 2026 01:00:00 GMT"],
+    ["Perusahaan buka suara soal transaksi", "Media B", "Mon, 07 Sep 2026 05:00:00 GMT"],
+    ["Sekolah buka suara setelah insiden", "Media C", "Tue, 08 Sep 2026 01:00:00 GMT"],
+    ["Pemerintah buka suara terkait aturan", "Media D", "Tue, 08 Sep 2026 05:00:00 GMT"],
+    ["Artis buka suara mengenai kabar", "Media E", "Wed, 09 Sep 2026 01:00:00 GMT"]
+  ].map(([title, source, publishedAt]) => ({ title, source, publishedAt, day: new Date(publishedAt).toISOString().slice(0, 10) }));
+  assert.ok(!findSustainedNewsTopics(items).some((topic) => topic.title === "Buka Suara"));
 });
 
 test("continuity: tren sama boleh memakai angle baru tetapi bukan judul identik", () => {

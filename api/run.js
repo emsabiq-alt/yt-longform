@@ -1,4 +1,4 @@
-import { clampStr, clean, dispatchWorkflow, makeId, methodAllowed, readBody, requireAuth, sendError, sendJson } from "./_utils.js";
+import { clampNum, clampStr, clean, dispatchWorkflow, makeId, methodAllowed, normalizeTrendInput, readBody, requireAuth, sendError, sendJson } from "./_utils.js";
 
 export default async function handler(req, res) {
   if (!methodAllowed(req, res, ["POST"])) return;
@@ -12,12 +12,15 @@ export default async function handler(req, res) {
     const defaultTtsVoice = ttsProvider === "elevenlabs"
       ? process.env.ELEVENLABS_VOICE_ID || "wUrGnU2Kx934kbDdOWDo"
       : process.env.OPENAI_TTS_VOICE || "cedar";
+    const topic = clampStr(body.topic || "", 300);
+    const trend = normalizeTrendInput(body.trend);
+    // ponytail: workflow_dispatch tidak punya input tren terpisah; pakai envelope JSON sampai kontrak workflow boleh ditambah.
     const inputs = {
-      topic: clampStr(body.topic || "", 300),
+      topic: trend ? JSON.stringify({ topic, trend }) : topic,
       category: clampStr(body.category || "random", 80),
       format_type: clampStr(body.formatType || body.format_type || "", 40),
       duration: clampStr(body.durationSec || body.duration || process.env.YT_DURATION_SEC || "360", 6),
-      scenes: clampStr(body.sceneCount || body.scenes || process.env.YT_SCENE_COUNT || "14", 4),
+      scenes: String(clampNum(body.sceneCount || body.scenes || process.env.YT_SCENE_COUNT || 26, 26, 28, 26)),
       tts_provider: ttsProvider,
       tts_voice: clampStr(body.ttsVoice || defaultTtsVoice, 80),
       image_quality: clampStr(body.imageQuality || "low", 20),

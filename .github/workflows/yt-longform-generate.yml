@@ -16,9 +16,9 @@ on:
         required: false
         default: "360"
       scenes:
-        description: Scene count
+        description: Scene count (26-28)
         required: false
-        default: "14"
+        default: "26"
       tts_provider:
         description: openai or elevenlabs
         required: false
@@ -107,7 +107,7 @@ jobs:
       YT_TIME_ZONE: America/New_York
       YT_DAILY_GENERATE_LIMIT: ${{ secrets.YT_DAILY_GENERATE_LIMIT || '1' }}
       YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '360' }}
-      YT_SCENE_COUNT: ${{ github.event.inputs.scenes || secrets.YT_SCENE_COUNT || '14' }}
+      YT_SCENE_COUNT: ${{ github.event.inputs.scenes || secrets.YT_SCENE_COUNT || '26' }}
       YT_WORKFLOW_FILE: yt-longform-generate.yml
       YT_FORMAT_TYPE: ${{ github.event.inputs.format_type || secrets.YT_FORMAT_TYPE || '' }}
       YT_STRICT_REMOTE: ${{ secrets.YT_STRICT_REMOTE || 'false' }}

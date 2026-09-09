@@ -247,7 +247,7 @@ function patternStickFigureRich(count) {
  * @returns {string[]}
  */
 export function buildScenePattern(sceneCount, formatType = "dokumenter_klasik") {
-  const count = Math.max(8, Math.floor(sceneCount || 14));
+  const count = Math.max(8, Math.floor(sceneCount || 26));
   switch (formatType) {
     case "dokumenter_klasik": return patternDokumenterKlasik(count);
     case "investigasi_misteri": return patternInvestigasiMisteri(count);

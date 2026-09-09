@@ -40,7 +40,8 @@ export default async function handler(req, res) {
 
     if (body.run_now === true || body.run_now === "true") {
       await dispatchWorkflow({
-        topic: item.topic,
+        // ponytail: workflow_dispatch tidak punya input tren terpisah; pakai envelope JSON sampai kontrak workflow boleh ditambah.
+        topic: item.trend ? JSON.stringify({ topic: item.topic, trend: item.trend }) : item.topic,
         category: item.category || "random",
         format_type: item.formatType || "",
         duration: String(item.durationSec),

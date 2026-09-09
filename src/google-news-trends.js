@@ -1,15 +1,21 @@
-const FEED_URL = "https://news.google.com/rss/search?q=%28%22gunung%20api%22%20OR%20erupsi%20OR%20gempa%20OR%20tsunami%20OR%20banjir%20OR%20longsor%20OR%20kebakaran%20OR%20penemuan%20OR%20penelitian%20OR%20arkeologi%20OR%20NASA%20OR%20teknologi%20OR%20kesehatan%20OR%20lingkungan%29%20when%3A7d&hl=id&gl=ID&ceid=ID%3Aid";
+// ponytail: RSS publik hanya memberi headline terkini; simpan arsip harian bila kelak perlu mengukur tren bulanan.
+const FEED_BASE = "https://news.google.com/rss";
+export const SUSTAINED_NEWS_MEDIA = [
+  "kompas.com", "detik.com", "cnnindonesia.com", "tempo.co", "antaranews.com", "liputan6.com"
+];
+export const SUSTAINED_NEWS_CRITERIA = { minimumArticles: 5, minimumSources: 3, minimumDays: 3 };
+const FEED_URLS = SUSTAINED_NEWS_MEDIA.map((domain) =>
+  `${FEED_BASE}/search?q=${encodeURIComponent(`site:${domain} when:7d`)}&hl=id&gl=ID&ceid=ID%3Aid`
+);
 
 const STOP_WORDS = new Set([
-  "yang", "dan", "atau", "dari", "untuk", "pada", "dalam", "dengan", "ini", "itu", "saat", "kini",
+  "yang", "dan", "atau", "dari", "untuk", "pada", "dalam", "dengan", "di", "ke", "ini", "itu", "saat", "kini",
   "hari", "terbaru", "update", "akibat", "soal", "jadi", "akan", "telah", "masih", "kembali", "indonesia",
-  "karena", "sebagai", "oleh", "tentang", "setelah", "hingga", "warga", "waspada", "resmi", "begini", "berikut"
+  "karena", "sebagai", "oleh", "tentang", "setelah", "hingga", "warga", "waspada", "resmi", "begini", "berikut",
+  "januari", "februari", "maret", "april", "mei", "juni", "juli", "agustus", "september", "oktober", "november", "desember"
 ]);
-
-const GENERIC_WORDS = new Set([
-  "aktivitas", "api", "bencana", "dampak", "erupsi", "gempa", "guncang", "gunung", "kebakaran", "longsor",
-  "penelitian", "penemuan", "teknologi", "tsunami", "banjir", "terjadi", "terus", "wilayah"
-]);
+// ponytail: daftar kecil ini hanya membuang idiom headline; ganti dengan clustering entitas jika false-positive makin beragam.
+const GENERIC_HEADLINE_PHRASES = new Set(["buka suara", "cara cek", "rp triliun", "rp jutaan"]);
 
 function decodeXml(value = "") {
   return String(value)
@@ -32,19 +38,23 @@ function tag(xml, name) {
 
 function normalizedWords(title) {
   return title.toLowerCase().replace(/[^a-z0-9à-ÿ ]/g, " ").split(/\s+/)
-    .filter((word) => word.length > 2 && !STOP_WORDS.has(word));
+    .filter((word) => word.length > 1 && !/^\d+$/.test(word) && !STOP_WORDS.has(word));
 }
 
 function titleCase(value) {
-  return value.replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
+  return value.split(" ").map((word) => word.length <= 2 ? word.toUpperCase() :
+    word.replace(/^\p{L}/u, (letter) => letter.toUpperCase())).join(" ");
 }
 
 export function parseGoogleNewsRss(xml = "") {
   return [...String(xml).matchAll(/<item>([\s\S]*?)<\/item>/gi)].map((match) => {
     const item = match[1];
     const publishedAt = tag(item, "pubDate");
+    const titleParts = tag(item, "title").split(" - ");
+    if (titleParts.length > 1) titleParts.pop();
+    if (/\.[a-z]{2,}(?:\.[a-z]{2,})?$/i.test(titleParts.at(-1) || "")) titleParts.pop();
     return {
-      title: tag(item, "title"),
+      title: titleParts.join(" - "),
       source: tag(item, "source") || "Media Nasional",
       url: tag(item, "link"),
       publishedAt,
@@ -54,9 +64,9 @@ export function parseGoogleNewsRss(xml = "") {
 }
 
 export function findSustainedNewsTopics(items = [], options = {}) {
-  const minimumArticles = options.minimumArticles || 5;
-  const minimumSources = options.minimumSources || 3;
-  const minimumDays = options.minimumDays || 3;
+  const minimumArticles = options.minimumArticles || SUSTAINED_NEWS_CRITERIA.minimumArticles;
+  const minimumSources = options.minimumSources || SUSTAINED_NEWS_CRITERIA.minimumSources;
+  const minimumDays = options.minimumDays || SUSTAINED_NEWS_CRITERIA.minimumDays;
   const phrases = new Map();
 
   for (const item of items) {
@@ -64,7 +74,6 @@ export function findSustainedNewsTopics(items = [], options = {}) {
     for (let length = 2; length <= 4; length++) {
       for (let start = 0; start <= words.length - length; start++) {
         const phrase = words.slice(start, start + length).join(" ");
-        if (words.slice(start, start + length).every((word) => GENERIC_WORDS.has(word))) continue;
         const matches = phrases.get(phrase) || [];
         matches.push(item);
         phrases.set(phrase, matches);
@@ -88,7 +97,8 @@ export function findSustainedNewsTopics(items = [], options = {}) {
       newsUrl: unique[0]?.url || "",
       newsItems: unique.slice(0, 12)
     };
-  }).filter((topic) => topic.articles >= minimumArticles && topic.sources >= minimumSources && topic.days >= minimumDays);
+  }).filter((topic) => !GENERIC_HEADLINE_PHRASES.has(topic.phrase) &&
+    topic.articles >= minimumArticles && topic.sources >= minimumSources && topic.days >= minimumDays);
 
   for (const topic of candidates) {
     const longer = candidates
@@ -100,17 +110,23 @@ export function findSustainedNewsTopics(items = [], options = {}) {
 
   return candidates
     .filter((topic) => !topic.canonicalPhrase)
-    .sort((a, b) => (b.days * 100 + b.sources * 10 + Math.min(b.articles, 30)) -
-      (a.days * 100 + a.sources * 10 + Math.min(a.articles, 30)));
+    .sort((a, b) => (b.articles * 100 + b.days * 10 + b.sources) -
+      (a.articles * 100 + a.days * 10 + a.sources));
 }
 
 export async function fetchSustainedNewsTopics(fetchImpl = fetch) {
-  const response = await fetchImpl(FEED_URL, {
-    headers: { "User-Agent": "yt-longform-studio/1.0" },
-    signal: AbortSignal.timeout(15_000)
-  });
-  if (!response.ok) throw new Error(`Google News HTTP ${response.status}`);
-  return findSustainedNewsTopics(parseGoogleNewsRss(await response.text()));
+  const results = await Promise.allSettled(FEED_URLS.map(async (url) => {
+    const response = await fetchImpl(url, {
+      headers: { "User-Agent": "yt-longform-studio/1.0" },
+      signal: AbortSignal.timeout(15_000)
+    });
+    if (!response.ok) throw new Error(`Google News HTTP ${response.status}`);
+    const domain = new URL(url).searchParams.get("q").split(" ")[0].slice(5);
+    return parseGoogleNewsRss(await response.text()).map((item) => ({ ...item, source: domain }));
+  }));
+  const items = results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+  if (!items.length) throw new Error("semua feed Google News gagal");
+  return findSustainedNewsTopics(items);
 }
 
 export async function fetchTopSustainedNewsTopic(fetchImpl = fetch) {

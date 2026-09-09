@@ -270,8 +270,7 @@ export async function createLongformDraft(rawInput) {
 
 function normalizeInput(input) {
   const durationSec = clamp(Number(input.durationSec || 300), 300, 900);
-  // Long video butuh storyboard lebih banyak agar alurnya terasa dokumenter, bukan Shorts yang dipanjangin.
-  const sceneCount = clamp(Number(input.sceneCount || Math.round(durationSec / 18)), 10, 28);
+  const sceneCount = clamp(Number(input.sceneCount || 26), 26, 28);
 
   return {
     topic: cleanText(input.topic || "Fakta menarik yang jarang diketahui orang", 260),
@@ -280,7 +279,7 @@ function normalizeInput(input) {
     formatType: cleanText(input.formatType || "dokumenter_klasik", 40),
     viralAngleId: cleanText(input.viralAngleId || "", 40),
     viralAngleLabel: simplifyForLayAudience(input.viralAngleLabel || "", 80),
-    trend: input.trend || null,
+    trend: normalizeTrend(input.trend),
     tone: cleanText(input.tone || "narrator, serius tapi menarik, informatif, mendalam, seperti video dokumenter Vox atau Lemmino", 180),
     durationSec,
     sceneCount,
@@ -288,6 +287,61 @@ function normalizeInput(input) {
     imageSize: "1536x1024", // Default landscape
     imageQuality: cleanText(input.imageQuality || "standard", 20)
   };
+}
+
+function normalizeTrend(trend) {
+  if (!trend || typeof trend !== "object") return null;
+  const newsItems = (Array.isArray(trend.newsItems) ? trend.newsItems : [])
+    .map((item) => ({
+      headline: cleanText(item?.headline || item?.title || "", 240),
+      outlet: cleanText(item?.outlet || item?.source || "", 100),
+      url: cleanText(item?.url || "", 500),
+      publishedAt: cleanText(item?.publishedAt || "", 80)
+    }))
+    .filter((item) => item.headline && item.outlet)
+    .slice(0, 12);
+  if (!newsItems.length) return null;
+  return {
+    title: cleanText(trend.title || "", 180),
+    articles: Math.max(0, Number(trend.articles) || 0),
+    sources: Math.max(0, Number(trend.sources) || 0),
+    days: Math.max(0, Number(trend.days) || 0),
+    newsItems
+  };
+}
+
+function normalizedOutletKey(value) {
+  return cleanText(value || "", 100).toLocaleLowerCase("id-ID");
+}
+
+function normalizedHeadlineKey(value) {
+  return cleanText(value || "", 240)
+    .toLocaleLowerCase("id-ID")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function narrationNamesOutlet(narration, outlet) {
+  const narrationKey = String(narration || "").toLocaleLowerCase("id-ID");
+  const outletKey = normalizedOutletKey(outlet);
+  return Boolean(outletKey && narrationKey.includes(outletKey));
+}
+
+function trendPromptBlock(trend) {
+  if (!trend?.newsItems?.length) return "";
+  const headlines = trend.newsItems.map((item, index) =>
+    `${index + 1}. [${item.outlet}] ${item.headline}${item.publishedAt ? ` (${item.publishedAt})` : ""}`
+  ).join("\n");
+  return [
+    "",
+    `BERITA RSS TERKAIT TOPIK (${trend.title || "tren terpilih"}):`,
+    headlines,
+    "Aturan sumber media:",
+    "- Gunakan hanya headline di atas; jangan mengarang isi artikel karena yang tersedia hanya metadata RSS.",
+    "- Pada 2-4 scene image yang benar-benar membahas headline, sebut outlet secara eksplisit dalam narration, misalnya 'Menurut Kompas.com, ...'.",
+    "- Scene tersebut WAJIB memiliki mediaSource: { outlet, headline, url, publishedAt } yang disalin dari SATU item di atas.",
+    "- Jangan menambahkan mediaSource pada scene yang narasinya tidak menyebut outlet itu."
+  ].join("\n");
 }
 
 function buildPrompt(input, wiki = null) {
@@ -314,6 +368,7 @@ function buildPrompt(input, wiki = null) {
         "- Isi factCheckNote bahwa fakta inti dirujuk dari Wikipedia dan tetap perlu verifikasi akhir sebelum publikasi."
       ].join("\n")
     : "";
+  const trendBlock = trendPromptBlock(input.trend);
   return [
     `FORMAT VIDEO: ${input.formatType}. ${formatDesc}`,
     `PANDUAN NARASI FORMAT: ${formatCue}`,
@@ -372,7 +427,7 @@ function buildPrompt(input, wiki = null) {
     `KEMASAN VIRAL UTAMA:\n${viralBlock}`,
     "Gunakan kemasan viral ini sebagai tulang punggung judul, hook 30 detik pertama, dan transisi antar babak. Jangan hanya menempelkannya di judul.",
     "Kembalikan JSON valid saja dengan format:",
-    "{ title, hook, summary, importantPoints:[string], factCheckNote, scenes:[{ index, sceneType:'image'|'reaction'|'summary', durationSec, narration, screenText, visualKeywords, imagePrompt, visualSegments:[{ imagePrompt, visualKeywords, pexelsQuery, mustMatchTerms:[string], narrativeContext }], chapter, beatPurpose, reactionCue, spotlight }] }",
+    "{ title, hook, summary, importantPoints:[string], factCheckNote, scenes:[{ index, sceneType:'image'|'reaction'|'summary', durationSec, narration, screenText, visualKeywords, imagePrompt, visualSegments:[{ imagePrompt, visualKeywords, pexelsQuery, mustMatchTerms:[string], narrativeContext }], chapter, beatPurpose, reactionCue, spotlight, mediaSource:{ outlet, headline, url, publishedAt } }] }",
     "",
     "JUDUL (cadangan): Buat judul singkat (maksimal 60 karakter), spesifik dengan subjek konkret yang jelas, dan memancing rasa penasaran tanpa terasa template. Judul final akan disempurnakan terpisah, jadi cukup sediakan satu judul layak pakai.",
     "",
@@ -403,6 +458,7 @@ function buildPrompt(input, wiki = null) {
     `Jumlah Scene: ${input.sceneCount}`,
     `Target Jumlah Kata: sekitar ${Math.round(input.durationSec * 2.1)} kata bahasa Indonesia secara keseluruhan.`,
     wikiBlock,
+    trendBlock,
     "",
     "PENTING: pexelsQuery pada setiap visualSegment adalah query utama untuk MENCARI VIDEO STOCK di Pexels. visualKeywords tetap wajib sebagai fallback kompatibilitas.",
     "KATA KUNCI VISUAL (visualKeywords) untuk scene image/summary wajib:",
@@ -440,6 +496,18 @@ function buildPrompt(input, wiki = null) {
     "Setiap sub-visual HARUS relevan dengan bagian narasi yang sedang dibacakan saat itu.",
     "Field visualKeywords dan imagePrompt di level scene tetap wajib diisi sebagai fallback."
   ].join("\n");
+}
+
+function normalizeMediaSource(value, narration, trend) {
+  if (!value || typeof value !== "object" || !trend?.newsItems?.length) return null;
+  const outlet = cleanText(value.outlet || value.source || "", 100);
+  const headline = cleanText(value.headline || value.title || "", 240);
+  const match = trend.newsItems.find((item) =>
+    normalizedOutletKey(item.outlet) === normalizedOutletKey(outlet)
+      && normalizedHeadlineKey(item.headline) === normalizedHeadlineKey(headline)
+  );
+  if (!match) return null;
+  return narrationNamesOutlet(narration, match.outlet) ? { ...match } : null;
 }
 
 /**
@@ -724,7 +792,8 @@ function normalizePlan(plan, input) {
       beatPurpose: cleanText(scene?.beatPurpose || beatPurpose(index, input.sceneCount), 180),
       reactionCue: cleanText(scene?.reactionCue || reactionCue(index), 120),
       // Opsional; render akan membuang kartu yang frasanya tidak ketemu di audio.
-      spotlight: sceneType === "image" ? normalizeSpotlight(scene?.spotlight) : null
+      spotlight: sceneType === "image" ? normalizeSpotlight(scene?.spotlight) : null,
+      mediaSource: sceneType === "image" ? normalizeMediaSource(scene?.mediaSource, narration, input.trend) : null
     };
   });
 
@@ -754,7 +823,9 @@ function normalizePlan(plan, input) {
       ),
       chapter: chapterName(index, input.sceneCount),
       beatPurpose: beatPurpose(index, input.sceneCount),
-      reactionCue: reactionCue(index)
+      reactionCue: reactionCue(index),
+      spotlight: null,
+      mediaSource: null
     });
   }
 
@@ -764,6 +835,8 @@ function normalizePlan(plan, input) {
     summaryScene.sceneType = "summary";
     summaryScene.screenText = "Ringkasan Inti";
     summaryScene.narration = completeSummaryNarration(summaryScene.narration, summary);
+    summaryScene.spotlight = null;
+    summaryScene.mediaSource = null;
   }
 
   let normalized = {
@@ -841,6 +914,7 @@ export function buildLongformStoryboard(plan) {
     visualPrompt: scene.imagePrompt,
     visualSegments: scene.visualSegments || [],
     reactionCue: scene.reactionCue || "",
+    mediaSource: scene.mediaSource || null,
     narrationPreview: cleanText(scene.narration, 240)
   }));
 }
