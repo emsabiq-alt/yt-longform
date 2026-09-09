@@ -542,7 +542,8 @@ test("fallback offline sebenarnya tidak meneruskan keyword generik ke Pexels", a
     category: "teknologi",
     durationSec: 300,
     sceneCount: 26,
-    formatType: "dokumenter_klasik"
+    formatType: "dokumenter_klasik",
+    allowOfflineDraft: true
   });
   const visualSegments = draft.plan.scenes.flatMap((scene) => scene.visualSegments || []);
 

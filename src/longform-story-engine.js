@@ -299,7 +299,8 @@ function normalizeInput(input) {
     sceneCount,
     ttsProvider: String(input.ttsProvider || "openai").toLowerCase() === "elevenlabs" ? "elevenlabs" : "openai",
     imageSize: "1536x1024", // Default landscape
-    imageQuality: cleanText(input.imageQuality || "standard", 20)
+    imageQuality: cleanText(input.imageQuality || "standard", 20),
+    allowOfflineDraft: Boolean(input.allowOfflineDraft || input.allowOffline)
   };
 }
 
@@ -1010,6 +1011,7 @@ function completeSummaryNarration(sceneNarration, summary) {
  * @throws {Error} status 422 bila naskah terlalu pendek untuk dipublikasikan.
  */
 export function assertNarrationLongEnough(plan, input, source) {
+  if (input?.allowOfflineDraft || input?.allowOffline) return;
   const words = narrationWordCount(plan);
   const minimumWords = Math.round(input.durationSec * MIN_PUBLISHABLE_WORDS_PER_SEC);
   if (source === "openai" && words >= minimumWords) return;

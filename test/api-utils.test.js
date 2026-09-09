@@ -66,9 +66,9 @@ test("issueSessionToken: format v1.<exp>.<sig> dengan kedaluwarsa ~30 hari ke de
   assert.ok(parts[2].length > 0); // ada signature
 });
 
-test("buildQueueItem: durasi di-clamp ke rentang [300, 900]", () => {
+test("buildQueueItem: durasi di-clamp ke rentang [300, 1200]", () => {
   assert.equal(buildQueueItem({ durationSec: 100 }).durationSec, 300);  // dinaikkan ke min
-  assert.equal(buildQueueItem({ durationSec: 5000 }).durationSec, 900); // dipotong ke max
+  assert.equal(buildQueueItem({ durationSec: 5000 }).durationSec, 1200); // dipotong ke max
   assert.equal(buildQueueItem({ durationSec: 420 }).durationSec, 420);  // di dalam rentang
 });
 

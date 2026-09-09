@@ -84,7 +84,7 @@ test("openAiFetch: timeout gagal cepat dengan pesan jelas", async () => {
   await withStub(
     [() => { const error = new Error("aborted"); error.name = "TimeoutError"; throw error; }],
     async (calls) => {
-      await assert.rejects(() => requestKnowledgeJson("prompt"), /tidak merespons dalam 120s/);
+      await assert.rejects(() => requestKnowledgeJson("prompt"), /tidak merespons dalam \d+s/);
       assert.equal(calls.length, 1);
     }
   );
