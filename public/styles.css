@@ -125,8 +125,7 @@ b { font-weight: 600; }
    SHELL LAYOUT
    ============================================================ */
 .shell {
-  display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
+  display: block;
   min-height: 100dvh;
 }
 .shell.hidden { display: none; }
