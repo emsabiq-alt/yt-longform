@@ -1,561 +1,842 @@
 "use strict";
 
-const PIN_KEY = "yt_dashboard_pin";
+/* ============================================================
+   BanyakTau Studio – Dashboard v2
+   ============================================================ */
+
+const PIN_KEY = "bt_pin_v2";
 let PIN = sessionStorage.getItem(PIN_KEY) || "";
 let STATE = { items: [], queue: [], config: {}, activeRun: null, recentRuns: [], stats: {} };
-let POLL = null;
-let TRENDS = null;
+let POLL_TIMER = null;
 let SELECTED_TREND = null;
+let TRENDS_LOADED = false;
+let CMD_ACTIVE_IDX = -1;
 
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+/* ============================================================
+   UTILITY
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const fmt = {
+  dur: s => {
+    s = Math.round(s || 0);
+    const m = Math.floor(s / 60), ss = s % 60;
+    return m ? `${m}m ${ss}s` : `${s}s`;
+  },
+  date: ts => {
+    if (!ts) return "—";
+    const d = new Date(ts);
+    return d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+  },
+  time: ts => {
+    if (!ts) return "—";
+    return new Date(ts).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  },
+  usd: n => `$${(n || 0).toFixed(2)}`,
+  rel: ts => {
+    if (!ts) return "—";
+    const d = Date.now() - new Date(ts).getTime();
+    if (d < 60e3) return "baru saja";
+    if (d < 3600e3) return `${Math.floor(d / 60e3)} mnt lalu`;
+    if (d < 86400e3) return `${Math.floor(d / 3600e3)} jam lalu`;
+    return `${Math.floor(d / 86400e3)} hari lalu`;
+  },
+  num: n => (n || 0).toLocaleString("id-ID")
+};
 
-function esc(v) {
-  return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-function fmtDate(v) {
-  if (!v) return "-";
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? "-" : d.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
-}
-function fmtDur(s) { return s ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : "-"; }
-
-function toast(msg, type = "") {
-  const el = $("#toast");
+function toast(msg, type = "info", dur = 3500) {
+  const el = $("toast");
   el.textContent = msg;
   el.className = `toast ${type}`;
-  setTimeout(() => el.classList.add("hidden"), 3500);
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.add("hidden"), dur);
 }
 
-async function api(path, options = {}) {
-  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-  if (PIN) headers["x-dashboard-pin"] = PIN;
-  const res = await fetch(path, { ...options, headers });
-  if (res.status === 401 || res.status === 403) {
-    showAuth();
-    throw new Error("Auth diperlukan");
-  }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  return data;
+function h(tag, cls, inner = "") {
+  return `<${tag} class="${cls}">${inner}</${tag}>`;
 }
 
-// ---------- Auth ----------
-function showAuth() {
-  $("#authOverlay").classList.add("active");
-  $("#app").classList.add("hidden");
-  if (POLL) clearInterval(POLL);
-}
-function hideAuth() {
-  $("#authOverlay").classList.remove("active");
-  $("#app").classList.remove("hidden");
+/* ============================================================
+   AUTH
+   ============================================================ */
+function checkAuth() {
+  if (PIN) { showApp(); return; }
+  $("authOverlay").classList.add("active");
 }
 
-$("#authForm").addEventListener("submit", async (e) => {
+$("authForm").addEventListener("submit", e => {
   e.preventDefault();
-  const pin = $("#authPin").value.trim();
-  try {
-    const res = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) });
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
-      $("#authError").textContent = d.error || "PIN salah.";
-      return;
-    }
-    PIN = pin;
-    sessionStorage.setItem(PIN_KEY, pin);
-    $("#authError").textContent = "";
-    hideAuth();
-    boot();
-  } catch (err) {
-    $("#authError").textContent = err.message;
-  }
+  const pin = $("authPin").value.trim();
+  if (!pin) return;
+  PIN = pin;
+  sessionStorage.setItem(PIN_KEY, pin);
+  $("authError").textContent = "";
+  showApp();
+  loadData();
 });
 
-$("#logoutBtn").addEventListener("click", async () => {
-  await fetch("/api/auth", { method: "DELETE" }).catch(() => {});
-  sessionStorage.removeItem(PIN_KEY);
+$("logoutBtn").addEventListener("click", () => {
   PIN = "";
-  showAuth();
+  sessionStorage.removeItem(PIN_KEY);
+  location.reload();
 });
 
-// ---------- Navigation ----------
-const VIEW_TITLES = {
-  overview: ["Ringkasan", "Operational Overview"],
-  create: ["Buat Video", "Generator Video Panjang"],
-  library: ["Pustaka", "Semua Video"],
-  queue: ["Antrian", "Daftar Antrian Produksi"],
-  runs: ["Proses", "Riwayat GitHub Actions"],
-  trends: ["Tren", "Pemantau Berita Mingguan"],
-  health: ["Diagnostik", "Health Check Sistem"]
+function showApp() {
+  $("authOverlay").classList.remove("active");
+  $("app").classList.remove("hidden");
+  startPolling();
+  initMobileTabs();
+  initCountdown();
+  initClock();
+}
+
+/* ============================================================
+   NAVIGATION
+   ============================================================ */
+const VIEW_META = {
+  overview: { kicker: "Beranda", title: "Operational Overview" },
+  create:   { kicker: "Produksi", title: "Generate Video Baru" },
+  library:  { kicker: "Konten", title: "Pustaka Video" },
+  queue:    { kicker: "Antrian", title: "Jadwal Produksi" },
+  runs:     { kicker: "CI/CD", title: "Riwayat Workflow" },
+  trends:   { kicker: "Intelijen", title: "Tren Berita Bertahan" },
+  health:   { kicker: "Sistem", title: "Diagnostik" },
 };
-function switchView(view) {
-  $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
-  $$(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === view));
-  const [k, t] = VIEW_TITLES[view] || ["", ""];
-  $("#viewKicker").textContent = k;
-  $("#viewTitle").textContent = t;
-  if (view === "trends" && !TRENDS) refreshTrends();
-  
-  // Close sidebar drawer on mobile
-  $("#sidebar")?.classList.remove("active");
-  $("#sidebarOverlay")?.classList.remove("active");
-}
-$$(".nav-item").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.view)));
-document.addEventListener("click", (e) => {
-  const goto = e.target.closest("[data-goto]");
-  if (goto) switchView(goto.dataset.goto);
+
+let currentView = "overview";
+
+document.querySelectorAll(".nav-item").forEach(btn => {
+  btn.addEventListener("click", () => gotoView(btn.dataset.view));
 });
 
-// Mobile drawer toggle bindings
-const menuBtn = $("#menuBtn");
-const sidebar = $("#sidebar");
-const sidebarOverlay = $("#sidebarOverlay");
-if (menuBtn && sidebar && sidebarOverlay) {
-  menuBtn.addEventListener("click", () => {
-    sidebar.classList.toggle("active");
-    sidebarOverlay.classList.toggle("active");
-  });
-  sidebarOverlay.addEventListener("click", () => {
-    sidebar.classList.remove("active");
-    sidebarOverlay.classList.remove("active");
-  });
+document.querySelectorAll("[data-goto]").forEach(btn => {
+  btn.addEventListener("click", () => gotoView(btn.dataset.goto));
+});
+
+function gotoView(view) {
+  if (!VIEW_META[view]) return;
+  currentView = view;
+  document.querySelectorAll(".nav-item").forEach(b => b.classList.toggle("active", b.dataset.view === view));
+  document.querySelectorAll(".bt-item").forEach(b => b.classList.toggle("active", b.dataset.view === view));
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.dataset.view === view));
+  const m = VIEW_META[view];
+  $("viewKicker").textContent = m.kicker;
+  $("viewTitle").textContent = m.title;
+  if (view === "trends" && !TRENDS_LOADED) loadTrends();
+  if (view === "health") renderHealth([]);
+  renderCurrentView();
 }
 
-// ---------- Render ----------
-let configLoaded = false;
+/* ============================================================
+   MOBILE BOTTOM TABS
+   ============================================================ */
+function initMobileTabs() {
+  const tabData = [
+    { view: "overview", icon: `<svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11h7V2H2v9zm0 7h7v-5H2v5zm9 0h7v-9h-7v9zm0-16v5h7V2h-7z"/></svg>`, label: "Beranda" },
+    { view: "create",   icon: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10" cy="10" r="8"/><path d="M10 6v8M6 10h8"/></svg>`, label: "Buat" },
+    { view: "library",  icon: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="7" height="12" rx="1.5"/><rect x="11" y="4" width="7" height="12" rx="1.5"/></svg>`, label: "Pustaka" },
+    { view: "trends",   icon: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 14l6-6 3 3 7-7"/><path d="M14 4h4v4"/></svg>`, label: "Tren" },
+    { view: "health",   icon: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 3l6 3v5c0 3.5-2.5 6-6 7-3.5-1-6-3.5-6-7V6l6-3z"/></svg>`, label: "Sistem" },
+  ];
+  const bar = document.createElement("nav");
+  bar.className = "bottom-tabs";
+  bar.innerHTML = tabData.map(t =>
+    `<button class="bt-item${t.view === "overview" ? " active" : ""}" data-view="${t.view}">${t.icon}<span>${t.label}</span></button>`
+  ).join("");
+  document.body.appendChild(bar);
+  bar.querySelectorAll(".bt-item").forEach(b => b.addEventListener("click", () => gotoView(b.dataset.view)));
+}
 
-function render() {
-  renderMetrics();
-  renderRun();
-  renderConsole();
-  renderLibrary();
-  renderRecent();
-  renderQueue();
-  renderRuns();
-  renderConfigLine();
-
-  if (!configLoaded && STATE.config && Object.keys(STATE.config).length > 0) {
-    initFormDefaults();
-    configLoaded = true;
+/* ============================================================
+   CLOCK & COUNTDOWN
+   ============================================================ */
+function initClock() {
+  function tick() {
+    const now = new Date();
+    $("clock").textContent = now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
   }
+  tick(); setInterval(tick, 10000);
 }
 
-function renderTrends() {
-  if (!TRENDS) return;
-  const topics = TRENDS.topics || [];
-  const criteria = TRENDS.criteria || {};
-  $("#trendUpdated").textContent = `Diperbarui ${fmtDate(TRENDS.fetchedAt)} · jendela 7 hari`;
-  $("#trendCriteria").innerHTML = [
-    `${criteria.minimumArticles || 5}+ artikel`, `${criteria.minimumSources || 3}+ media`, `${criteria.minimumDays || 3}+ hari`
-  ].map((value) => `<span class="badge neutral">${esc(value)}</span>`).join("");
-  $("#trendMedia").innerHTML = (TRENDS.media || []).map((media) => `<span>${esc(media)}</span>`).join("");
-  $("#trendList").innerHTML = topics.length ? topics.map((topic, index) => `
-    <article class="trend-card ${SELECTED_TREND === topic ? "selected" : ""}">
-      <div class="trend-rank">${index + 1}</div>
-      <div class="trend-body">
-        <div class="trend-title"><h3>${esc(topic.title)}</h3>${index === 0 ? '<span class="badge ok">Pilihan mesin</span>' : ""}</div>
-        <div class="trend-stats"><b>${Number(topic.articles) || 0}</b> artikel <span>·</span> <b>${Number(topic.sources) || 0}</b> media <span>·</span> <b>${Number(topic.days) || 0}</b> hari</div>
-        <button type="button" class="btn ghost tiny trend-use" data-trend-index="${index}">${SELECTED_TREND === topic ? "Dipilih" : "Gunakan tren"}</button>
-        <details>
-          <summary>Lihat contoh berita</summary>
-          <ul>${(topic.newsItems || []).slice(0, 5).map((item) => `<li><a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.title)}</a><small>${esc(item.source)} · ${fmtDate(item.publishedAt)}</small></li>`).join("")}</ul>
-        </details>
-      </div>
-    </article>`).join("") : '<div class="panel empty">Belum ada topik yang lolos kriteria minggu ini.</div>';
+function initCountdown() {
+  function computeNext() {
+    const now = new Date();
+    const next = new Date(now);
+    next.setUTCHours(21, 15, 0, 0); // 04:15 WIB = 21:15 UTC prev day
+    if (next <= now) next.setDate(next.getDate() + 1);
+    return next;
+  }
+  function tick() {
+    const diff = computeNext() - Date.now();
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    $("nextRunCountdown").textContent =
+      `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    $("nextRunLocal").textContent = computeNext().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) + " WIB";
+  }
+  tick(); setInterval(tick, 1000);
 }
 
-async function refreshTrends() {
-  const button = $("#refreshTrendsBtn");
-  button.disabled = true;
-  $("#trendList").innerHTML = '<div class="panel muted">Mengambil Google News dari enam media…</div>';
+/* ============================================================
+   DATA LOADING
+   ============================================================ */
+async function loadData() {
   try {
-    TRENDS = await api("/api/trends");
-    renderTrends();
-  } catch (error) {
-    $("#trendList").innerHTML = `<div class="panel form-error">${esc(error.message)}</div>`;
-  } finally {
-    button.disabled = false;
+    const headers = PIN ? { "x-pin": PIN } : {};
+    const res = await fetch("/api/state", { headers });
+    if (res.status === 401) { toast("PIN salah atau expired.", "err"); return; }
+    if (!res.ok) return;
+    const data = await res.json();
+    STATE = { items: [], queue: [], recentRuns: [], stats: {}, ...data };
+    renderCurrentView();
+    updateQueueBadge();
+    updateConfigLine();
+  } catch (e) {
+    console.warn("loadData error:", e);
   }
 }
 
-function updateVoiceDropdown() {
-  const f = $("#createForm");
-  if (!f) return;
-  const provider = f.ttsProvider.value;
-  const voiceSelect = $("#ttsVoiceSelect");
-  if (!voiceSelect) return;
+function startPolling() {
+  loadData();
+  POLL_TIMER = setInterval(loadData, 15000);
+}
 
-  const currentVal = voiceSelect.value;
-
-  if (provider === "elevenlabs") {
-    voiceSelect.innerHTML = `
-      <option value="wUrGnU2Kx934kbDdOWDo">Default ElevenLabs (Baru)</option>
-      <option value="hgr2kw1PROld0DDezSZ6">Sabiq (Cloned)</option>
-      <option value="KKXAp01L2aZHbsBTR7QG">Sabiq (Podcast/Voice over)</option>
-      <option value="4163SRsAG711aPjxNcPF">Sabiq (Instant)</option>
-      <option value="pFZP5JQG7iQjIQuC4Bku">Lily (Premade)</option>
-    `;
-    const voiceIds = ["wUrGnU2Kx934kbDdOWDo", "hgr2kw1PROld0DDezSZ6", "KKXAp01L2aZHbsBTR7QG", "4163SRsAG711aPjxNcPF", "pFZP5JQG7iQjIQuC4Bku"];
-    if (voiceIds.includes(currentVal)) {
-      voiceSelect.value = currentVal;
-    } else {
-      voiceSelect.value = STATE.config?.elevenlabsVoiceId || "wUrGnU2Kx934kbDdOWDo";
-    }
-  } else {
-    voiceSelect.innerHTML = `
-      <option value="cedar">cedar</option>
-      <option value="ash">ash</option>
-      <option value="ballad">ballad</option>
-      <option value="shimmer">shimmer</option>
-      <option value="verse">verse</option>
-    `;
-    const openaiVoices = ["cedar", "ash", "ballad", "shimmer", "verse"];
-    if (openaiVoices.includes(currentVal)) {
-      voiceSelect.value = currentVal;
-    } else {
-      voiceSelect.value = STATE.config?.ttsVoice || "cedar";
-    }
+function renderCurrentView() {
+  switch (currentView) {
+    case "overview": renderOverview(); break;
+    case "library":  renderLibrary(); break;
+    case "queue":    renderQueue(); break;
+    case "runs":     renderRuns(); break;
   }
 }
 
-function initFormDefaults() {
+function updateQueueBadge() {
+  const n = (STATE.queue || []).length;
+  const badge = $("queueBadge");
+  badge.textContent = n;
+  badge.classList.toggle("hidden", n === 0);
+}
+
+function updateConfigLine() {
   const c = STATE.config || {};
-  const f = $("#createForm");
-  if (!f) return;
-
-  if (c.ttsProvider) {
-    f.ttsProvider.value = c.ttsProvider;
-  }
-
-  updateVoiceDropdown();
-
-  if (c.ttsProvider === "elevenlabs" && c.elevenlabsVoiceId) {
-    const voiceSelect = $("#ttsVoiceSelect");
-    if (voiceSelect) voiceSelect.value = c.elevenlabsVoiceId;
-  } else if (c.ttsProvider === "openai" && c.ttsVoice) {
-    const voiceSelect = $("#ttsVoiceSelect");
-    if (voiceSelect) voiceSelect.value = c.ttsVoice;
-  }
-
-  if (c.durationSec) f.durationSec.value = String(c.durationSec);
-  if (c.sceneCount) f.sceneCount.value = String(c.sceneCount);
-  if (c.resolution) f.resolution.value = String(c.resolution);
+  $("configLine").textContent = [c.resolution, c.ttsProvider].filter(Boolean).join(" · ");
 }
 
-function renderConfigLine() {
-  const c = STATE.config || {};
-  $("#configLine").textContent = `${c.repo || ""} · ${c.workflow || ""} · YT limit ${c.youtubeDailyUploadLimit ?? "-"}/hari`;
+/* ============================================================
+   OVERVIEW
+   ============================================================ */
+function renderOverview() {
+  renderMetrics();
+  renderActiveRun();
+  renderRecentItems();
 }
 
 function renderMetrics() {
   const s = STATE.stats || {};
   const cards = [
-    ["Total Video", s.total ?? 0],
-    ["Terupload", s.uploaded ?? 0],
-    ["Rendered", s.rendered ?? 0],
-    ["Hari Ini", s.todayCount ?? 0],
-    ["Total Durasi", fmtDur(s.totalDurationSec || 0)],
-    ["Biaya (USD)", `$${(s.totalCostUsd || 0).toFixed(2)}`]
+    { icon: "🎬", label: "Total Video", val: fmt.num(s.total), color: "var(--accent-bg)", trend: null },
+    { icon: "✅", label: "Terupload", val: fmt.num(s.uploaded), color: "var(--green-bg)", trend: s.todayCount ? `+${s.todayCount} hari ini` : null, tDir: "up" },
+    { icon: "🎞️", label: "Rendered", val: fmt.num(s.rendered), color: "var(--blue-bg)", trend: null },
+    { icon: "❌", label: "Gagal", val: fmt.num(s.failed), color: "var(--red-bg)", trend: null, tDir: s.failed > 0 ? "dn" : null },
+    { icon: "💰", label: "Total Biaya", val: fmt.usd(s.totalCostUsd), color: "var(--yellow-bg)", trend: null },
+    { icon: "⏱️", label: "Total Durasi", val: fmt.dur(s.totalDurationSec), color: "var(--accent-bg)", trend: null },
   ];
-  $("#metrics").innerHTML = cards.map(([l, v]) => `<div class="metric"><div class="val">${esc(v)}</div><div class="lbl">${esc(l)}</div></div>`).join("");
+  $("metrics").innerHTML = cards.map(c => `
+    <div class="metric-card">
+      <div class="metric-top">
+        <div class="metric-icon" style="background:${c.color}">${c.icon}</div>
+        ${c.trend ? `<span class="metric-trend ${c.tDir || ""}">${c.trend}</span>` : ""}
+      </div>
+      <div class="metric-val">${c.val}</div>
+      <div class="metric-label">${c.label}</div>
+    </div>
+  `).join("");
 }
 
-function statusBadge(it) {
-  if (it?.publish?.youtube?.url) return '<span class="badge ok">Terupload</span>';
-  if (it?.status === "rendered" || it?.assets?.video?.url) return '<span class="badge running">Rendered</span>';
-  if (it?.publish?.errors?.youtube) return '<span class="badge err">Gagal</span>';
-  return '<span class="badge idle">Draft</span>';
-}
+function renderActiveRun() {
+  const run = STATE.activeRun;
+  const badge = $("runBadge");
+  const bar = $("progressBar");
+  const pct = $("progressPct");
+  const detail = $("runDetail");
+  const steps = $("runSteps");
+  const link = $("runLink");
 
-function renderRun() {
-  const r = STATE.activeRun;
-  const badge = $("#runBadge");
-  if (!r) {
+  if (!run) {
     badge.className = "badge idle"; badge.textContent = "Idle";
-    $("#progressBar").style.width = "0%";
-    $("#runDetail").textContent = "Belum ada workflow berjalan.";
-    $("#runSteps").innerHTML = "";
-    $("#liveDot").className = "live-dot";
+    bar.style.width = "0%"; pct.textContent = "0%";
+    detail.textContent = "Belum ada workflow berjalan.";
+    steps.innerHTML = ""; link.classList.add("hidden");
     return;
   }
-  const running = r.status === "running";
-  badge.className = `badge ${running ? "running" : (r.conclusion === "success" ? "ok" : r.conclusion === "failure" ? "err" : "idle")}`;
-  badge.textContent = running ? "Running" : (r.conclusion || r.status || "Idle");
-  $("#progressBar").style.width = `${r.progress ?? (running ? 10 : 100)}%`;
-  $("#runDetail").textContent = r.detail || "";
-  $("#liveDot").className = `live-dot ${running ? "" : "stale"}`;
-  const steps = (r.logs || []).slice(-8);
-  $("#runSteps").innerHTML = steps.map((l) => `<div class="run-step ${l.level}"><span class="ic"></span><span>${esc(l.text)}</span></div>`).join("");
-}
 
-function renderConsole() {
-  const r = STATE.activeRun;
-  const logs = r?.logs || [];
-  $("#console").textContent = logs.length
-    ? logs.map((l) => `[${new Date(l.at).toLocaleTimeString("id-ID")}] ${l.text}`).join("\n")
-    : "Belum ada output.";
-}
+  const isRunning = run.status === "in_progress";
+  badge.className = `badge ${isRunning ? "running" : run.status === "success" ? "done" : "failed"}`;
+  badge.textContent = isRunning ? "Berjalan" : run.status === "success" ? "Selesai" : "Gagal";
 
-// ID video YouTube dari item (field langsung atau diekstrak dari URL).
-function ytVideoId(it) {
-  const direct = it?.publish?.youtube?.videoId;
-  if (direct) return String(direct);
-  const url = it?.publish?.youtube?.url || "";
-  const m = String(url).match(/(?:[?&]v=|youtu\.be\/|\/embed\/)([\w-]{6,})/);
-  return m ? m[1] : "";
-}
+  const progress = run.progress || 0;
+  bar.style.width = `${progress}%`;
+  pct.textContent = `${progress}%`;
+  detail.textContent = run.step || (isRunning ? "Memproses..." : "Selesai.");
 
-// Thumbnail preview: utamakan thumbnail LIVE dari YouTube bila video sudah upload,
-// jika belum pakai thumbnail lokal hasil render.
-function previewThumb(it) {
-  const id = ytVideoId(it);
-  if (id) return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-  return it?.assets?.thumbnail?.url || "";
-}
+  const STEPS = ["Inisialisasi", "Skrip & Audio", "Aset Visual", "Render Video", "Upload YouTube"];
+  const curStep = Math.min(Math.floor(progress / 20), 4);
+  steps.innerHTML = STEPS.map((s, i) => {
+    const cls = i < curStep ? "done" : i === curStep ? "active" : "pending";
+    return `<div class="run-step ${cls}"><span class="step-dot"></span>${s}</div>`;
+  }).join("");
 
-// Daftar sumber fakta (mis. Wikipedia) yang valid.
-function itemSources(it) {
-  return (Array.isArray(it?.plan?.sources) ? it.plan.sources : [])
-    .filter((s) => s && s.url);
-}
-
-function cardHtml(it) {
-  const thumb = previewThumb(it);
-  const fromYt = Boolean(ytVideoId(it));
-  const dur = it?.assets?.video?.durationSec;
-  const hasWiki = itemSources(it).length > 0;
-  return `<article class="card" data-id="${esc(it.id)}">
-    <div class="thumb">${thumb ? `<img loading="lazy" src="${esc(thumb)}" alt="">` : '<div class="noimg">no thumbnail</div>'}${hasWiki ? '<span class="src-badge wiki">📖 Wikipedia</span>' : ""}${fromYt ? '<span class="src-badge yt">YouTube</span>' : ""}${dur ? `<span class="dur">${Math.round(dur)}s</span>` : ""}</div>
-    <div class="body"><div class="top">${statusBadge(it)}</div>
-    <h4>${esc(it.title || "(tanpa judul)")}</h4>
-    <p class="muted" style="font-size:12px">${esc(it.input?.category || "")} · ${esc(fmtDate(it.createdAt))}</p></div>
-  </article>`;
-}
-
-function bindCards(container) {
-  container.querySelectorAll("[data-id]").forEach((n) => n.addEventListener("click", () => openDrawer(n.dataset.id)));
-}
-
-function renderRecent() {
-  const items = (STATE.items || []).slice(0, 6);
-  const el = $("#recentList");
-  el.innerHTML = items.length ? items.map(cardHtml).join("") : '<p class="muted">Belum ada video.</p>';
-  bindCards(el);
-}
-
-function renderLibrary() {
-  const q = ($("#librarySearch").value || "").toLowerCase().trim();
-  const filter = $("#libraryFilter").value;
-  let items = STATE.items || [];
-  if (q) items = items.filter((it) => `${it.title} ${it.input?.topic || ""}`.toLowerCase().includes(q));
-  if (filter !== "all") {
-    items = items.filter((it) => {
-      if (filter === "uploaded") return it?.publish?.youtube?.url;
-      if (filter === "rendered") return (it?.status === "rendered" || it?.assets?.video?.url) && !it?.publish?.youtube?.url;
-      if (filter === "failed") return it?.publish?.errors?.youtube;
-      return true;
-    });
+  if (run.url) {
+    link.classList.remove("hidden");
+    link.innerHTML = `<a href="${run.url}" target="_blank" rel="noopener">Lihat di GitHub Actions →</a>`;
   }
-  const el = $("#libraryGrid");
-  el.innerHTML = items.map(cardHtml).join("");
-  bindCards(el);
-  $("#libraryEmpty").classList.toggle("hidden", items.length > 0);
+
+  // Append to console
+  if (run.log) {
+    const cons = $("console");
+    cons.textContent = run.log.slice(-3000);
+    cons.scrollTop = cons.scrollHeight;
+  }
 }
 
-function renderQueue() {
-  const q = STATE.queue || [];
-  const el = $("#queueList");
-  el.innerHTML = q.map((item) => `
-    <div class="queue-row">
-      <div class="meta"><b>${esc(item.topic || "(AI memilih topik)")}</b><br>
-      <small>${esc(item.category)} · ${item.durationSec}s · ${item.sceneCount} scene · ${esc(item.ttsVoice)} · ${esc(item.resolution || "720p")} · <span class="badge ${item.status === "dispatched" ? "running" : "idle"}">${esc(item.status)}</span></small></div>
-      <div class="acts">
-        <button class="btn primary tiny" data-q-run="${esc(item.id)}">Generate</button>
-        <button class="btn ghost tiny" data-q-del="${esc(item.id)}">Hapus</button>
+function renderRecentItems() {
+  const items = (STATE.items || []).slice(0, 8);
+  if (!items.length) { $("recentList").innerHTML = `<div class="empty-state" style="grid-column:1/-1"><p class="muted">Belum ada video.</p></div>`; return; }
+  $("recentList").innerHTML = items.map(item => videoCardHTML(item)).join("");
+  $("recentList").querySelectorAll(".video-card").forEach((card, i) => {
+    card.addEventListener("click", () => openDrawer(items[i]));
+  });
+}
+
+/* ============================================================
+   LIBRARY
+   ============================================================ */
+function renderLibrary() {
+  const search = ($("librarySearch").value || "").toLowerCase();
+  const filter = $("libraryFilter").value;
+  const sort   = $("librarySort").value;
+
+  let items = (STATE.items || []).filter(it => {
+    if (filter !== "all" && it.status !== filter) return false;
+    if (search && !(it.title || "").toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  if (sort === "oldest")   items = [...items].reverse();
+  else if (sort === "duration") items = [...items].sort((a, b) => (b.durationSec || 0) - (a.durationSec || 0));
+  else if (sort === "cost") items = [...items].sort((a, b) => (b.costUsd || 0) - (a.costUsd || 0));
+
+  const uploaded = (STATE.items || []).filter(x => x.status === "uploaded").length;
+  const rendered = (STATE.items || []).filter(x => x.status === "rendered").length;
+  const failed   = (STATE.items || []).filter(x => x.status === "failed").length;
+
+  $("libStats").innerHTML = [
+    `<span class="lib-stat"><b>${(STATE.items||[]).length}</b> total</span>`,
+    `<span class="lib-stat"><b>${uploaded}</b> terupload</span>`,
+    `<span class="lib-stat"><b>${rendered}</b> rendered</span>`,
+    failed ? `<span class="lib-stat" style="color:var(--red)"><b>${failed}</b> gagal</span>` : "",
+  ].join("");
+
+  if (!items.length) {
+    $("libraryGrid").innerHTML = "";
+    $("libraryEmpty").classList.remove("hidden");
+    return;
+  }
+  $("libraryEmpty").classList.add("hidden");
+  $("libraryGrid").innerHTML = items.map(it => videoCardHTML(it)).join("");
+  $("libraryGrid").querySelectorAll(".video-card").forEach((card, i) => {
+    card.addEventListener("click", () => openDrawer(items[i]));
+  });
+}
+
+[$("librarySearch"), $("libraryFilter"), $("librarySort")].forEach(el => {
+  el.addEventListener("input", renderLibrary);
+});
+
+/* ============================================================
+   VIDEO CARD
+   ============================================================ */
+function videoCardHTML(item) {
+  const thumb = item.thumbnailUrl ? `<img class="vc-thumb-img" src="${item.thumbnailUrl}" loading="lazy" alt="">` :
+    `<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.2" width="40" height="40" opacity=".15"><rect x="4" y="8" width="40" height="28" rx="3"/><path d="M18 18l14 6-14 6V18z"/></svg>`;
+  const status = item.status || "pending";
+  return `
+    <div class="video-card">
+      <div class="vc-thumb">
+        ${thumb}
+        <div class="vc-play"><svg viewBox="0 0 20 20" fill="currentColor"><path d="M7 5l10 5-10 5V5z"/></svg></div>
+        <span class="vc-status-dot ${status}"></span>
       </div>
-    </div>`).join("");
-  $("#queueEmpty").classList.toggle("hidden", q.length > 0);
-  el.querySelectorAll("[data-q-run]").forEach((b) => b.addEventListener("click", () => runQueueItem(b.dataset.qRun)));
-  el.querySelectorAll("[data-q-del]").forEach((b) => b.addEventListener("click", () => deleteQueueItem(b.dataset.qDel)));
+      <div class="vc-body">
+        <div class="vc-title">${escHtml(item.title || "Tanpa judul")}</div>
+        <div class="vc-meta">
+          ${item.durationSec ? `<span class="vc-chip">⏱ ${fmt.dur(item.durationSec)}</span>` : ""}
+          ${item.costUsd ? `<span class="vc-chip">💰 ${fmt.usd(item.costUsd)}</span>` : ""}
+          <span class="vc-chip">${statusLabel(status)}</span>
+        </div>
+      </div>
+    </div>`;
 }
 
+function statusLabel(s) {
+  return { uploaded: "✅ Upload", rendered: "🎞️ Rendered", failed: "❌ Gagal", pending: "⏳ Antri" }[s] || s;
+}
+
+/* ============================================================
+   QUEUE
+   ============================================================ */
+function renderQueue() {
+  const queue = STATE.queue || [];
+  if (!queue.length) {
+    $("queueList").innerHTML = "";
+    $("queueEmpty").classList.remove("hidden");
+    return;
+  }
+  $("queueEmpty").classList.add("hidden");
+  $("queueList").innerHTML = queue.map((it, i) => `
+    <div class="queue-item">
+      <span class="qi-num">#${i + 1}</span>
+      <div class="qi-body">
+        <div class="qi-title">${escHtml(it.topic || "(AI memilih topik)")}</div>
+        <div class="qi-meta">${it.durationSec ? fmt.dur(it.durationSec) : ""} · ${it.ttsProvider || "openai"} · ${it.resolution || "1080p"}</div>
+      </div>
+      <div class="qi-actions">
+        <button class="btn ghost tiny" data-qi="${i}" data-action="remove">Hapus</button>
+      </div>
+    </div>
+  `).join("");
+  $("queueList").querySelectorAll("[data-action='remove']").forEach(btn => {
+    btn.addEventListener("click", () => removeFromQueue(+btn.dataset.qi));
+  });
+}
+
+async function removeFromQueue(idx) {
+  const queue = STATE.queue || [];
+  if (!queue[idx]) return;
+  try {
+    await apiFetch("/api/queue", { method: "DELETE", body: JSON.stringify({ index: idx }) });
+    toast("Item dihapus dari antrian.", "ok");
+    await loadData();
+  } catch { toast("Gagal menghapus.", "err"); }
+}
+
+/* ============================================================
+   RUNS
+   ============================================================ */
 function renderRuns() {
   const runs = STATE.recentRuns || [];
-  $("#runsList").innerHTML = runs.length ? runs.map((r) => `
-    <div class="run-row">
-      <div class="meta"><b>${esc(r.display_title || r.name)}</b><br>
-      <small>${esc(r.event)} · ${esc(fmtDate(r.created_at))}</small></div>
-      <div class="acts">
-        <span class="badge ${r.conclusion || r.status}">${esc(r.conclusion || r.status)}</span>
-        <a class="btn ghost tiny" href="${esc(r.html_url)}" target="_blank" rel="noopener">Buka</a>
+  if (!runs.length) {
+    $("runsList").innerHTML = "";
+    $("runsEmpty").classList.remove("hidden");
+    return;
+  }
+  $("runsEmpty").classList.add("hidden");
+  $("runsList").innerHTML = runs.map(r => {
+    const cls = r.conclusion === "success" ? "success" : r.status === "in_progress" ? "in_progress" : "failure";
+    return `
+    <div class="run-item">
+      <span class="ri-status ${cls}"></span>
+      <div class="ri-body">
+        <div class="ri-title">${escHtml(r.name || "GitHub Actions Run")}</div>
+        <div class="ri-meta">${fmt.date(r.created_at)} ${fmt.time(r.created_at)} · ${r.conclusion || r.status || "—"}</div>
       </div>
-    </div>`).join("") : '<p class="muted">Belum ada run.</p>';
+      <div class="ri-link">${r.html_url ? `<a href="${r.html_url}" target="_blank" rel="noopener">Lihat →</a>` : ""}</div>
+    </div>`;
+  }).join("");
 }
 
-// ---------- Drawer ----------
-function openDrawer(id) {
-  const it = (STATE.items || []).find((x) => x.id === id);
-  if (!it) return;
-  const yt = it?.publish?.youtube?.url;
-  const video = it?.assets?.video?.url;
-  const thumb = previewThumb(it);
-  const points = (it.plan?.importantPoints || []).map((p) => `<li>${esc(p)}</li>`).join("");
-  const sources = itemSources(it);
-  const sourcesHtml = sources.length ? `
-    <h4>Sumber Fakta · Wikipedia</h4>
-    <ul class="sources">${sources.map((s) => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title || s.url)}</a></li>`).join("")}</ul>
-    <p class="muted" style="font-size:12px">Sebagian fakta dirangkum dari Wikipedia · lisensi CC BY-SA.</p>` : "";
-  $("#drawerBody").innerHTML = `
-    <h2>${esc(it.title || "")}</h2>
-    <p class="muted">${esc(it.id)} · ${esc(fmtDate(it.createdAt))}</p>
-    ${video ? `
-      <div class="video-preview" style="margin:12px 0;border-radius:8px;overflow:hidden;background:#000;aspect-ratio:16/9;max-width:100%;">
-        <video controls src="${esc(video)}" style="width:100%;height:100%;display:block;"></video>
-      </div>
-    ` : (thumb ? `<img class="detail-thumb" src="${esc(thumb)}" alt="">` : "")}
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
-      ${statusBadge(it)}
-      ${yt ? `<a class="btn primary tiny" href="${esc(yt)}" target="_blank" rel="noopener">▶ YouTube</a>` : ""}
-      ${video ? `<a class="btn ghost tiny" href="${esc(video)}" target="_blank" rel="noopener">Video mentah</a>` : ""}
-    </div>
-    ${it.publish?.errors?.youtube ? `<p style="color:var(--err)">Error: ${esc(it.publish.errors.youtube)}</p>` : ""}
-    ${it.plan?.hook ? `<h4>Hook</h4><p>${esc(it.plan.hook)}</p>` : ""}
-    ${it.plan?.summary ? `<h4>Ringkasan</h4><p>${esc(it.plan.summary)}</p>` : ""}
-    ${points ? `<h4>Poin Penting</h4><ul>${points}</ul>` : ""}
-    ${sourcesHtml}
-    <h4>Detail</h4>
-    <ul class="kv">
-      <li><span>Durasi</span><b>${fmtDur(it.assets?.video?.durationSec)}</b></li>
-      <li><span>Scene</span><b>${it.plan?.scenes?.length || "-"}</b></li>
-      <li><span>TTS</span><b>${esc(it.assets?.audio?.provider || it.input?.ttsProvider || "-")}</b></li>
-      <li><span>Kategori</span><b>${esc(it.input?.category || "-")}</b></li>
-      <li><span>Resolusi</span><b>${esc(it.input?.resolution || "720p")}</b></li>
-      <li><span>Biaya</span><b>$${Number(it.cost?.totalUsd || 0).toFixed(4)}</b></li>
-    </ul>`;
-  $("#drawer").classList.remove("hidden");
-}
-$("#closeDrawer").addEventListener("click", () => $("#drawer").classList.add("hidden"));
-$("#drawer").addEventListener("click", (e) => { if (e.target === $("#drawer")) $("#drawer").classList.add("hidden"); });
-
-// ---------- Actions ----------
-function formData() {
-  const f = $("#createForm");
-  return {
-    topic: f.topic.value.trim(),
-    category: f.category.value,
-    durationSec: Number(f.durationSec.value),
-    sceneCount: Number(f.sceneCount.value),
-    ttsProvider: f.ttsProvider.value,
-    ttsVoice: f.ttsVoice.value,
-    imageQuality: f.imageQuality.value,
-    resolution: f.resolution.value,
-    force: f.force.checked,
-    trend: SELECTED_TREND
-  };
-}
-
-$("#btnGenerate").addEventListener("click", async () => {
-  const btn = $("#btnGenerate");
-  btn.disabled = true; btn.textContent = "Mengirim…";
+/* ============================================================
+   TRENDS
+   ============================================================ */
+async function loadTrends() {
+  TRENDS_LOADED = true;
+  $("trendList").innerHTML = `<div class="empty-state"><p class="muted">Memuat tren...</p></div>`;
   try {
-    const payload = formData();
-    await api("/api/run", { method: "POST", body: JSON.stringify(payload) });
-    toast(`Workflow ter-trigger (Paksa: ${payload.force ? "ON ✅" : "OFF"}). Pantau di tab Proses.`, "ok");
-    switchView("overview");
-    setTimeout(refresh, 4000);
-  } catch (e) { toast(e.message, "err"); }
-  finally { btn.disabled = false; btn.textContent = "Generate Sekarang"; }
-});
-
-$("#btnQueue").addEventListener("click", async () => {
-  try {
-    await api("/api/queue", { method: "POST", body: JSON.stringify(formData()) });
-    toast("Ditambahkan ke antrian.", "ok");
-    await refresh();
-    switchView("queue");
-  } catch (e) { toast(e.message, "err"); }
-});
-
-async function runQueueItem(id) {
-  const item = (STATE.queue || []).find((q) => q.id === id);
-  if (!item) return;
-  try {
-    await api("/api/queue", { method: "POST", body: JSON.stringify({ ...item, run_now: true }) });
-    toast("Item antrian di-generate.", "ok");
-    setTimeout(refresh, 3000);
-  } catch (e) { toast(e.message, "err"); }
-}
-
-async function deleteQueueItem(id) {
-  try {
-    await api("/api/queue", { method: "DELETE", body: JSON.stringify({ id }) });
-    toast("Item dihapus.", "ok");
-    await refresh();
-  } catch (e) { toast(e.message, "err"); }
-}
-
-$("#preflightBtn").addEventListener("click", async () => {
-  $("#healthList").innerHTML = '<p class="muted">Memeriksa…</p>';
-  try {
-    const { checks } = await api("/api/preflight");
-    $("#healthList").innerHTML = checks.map((c) => `
-      <div class="health-row"><span class="dot ${c.ok ? "ok" : (c.required ? "bad" : "warn")}"></span>
-      <div><b>${esc(c.name)}</b><small>${esc(c.detail)}</small></div></div>`).join("");
-  } catch (e) { $("#healthList").innerHTML = `<p style="color:var(--err)">${esc(e.message)}</p>`; }
-});
-
-$("#copyLog").addEventListener("click", () => {
-  navigator.clipboard.writeText($("#console").textContent).then(() => toast("Log disalin.", "ok"));
-});
-
-$("#librarySearch").addEventListener("input", renderLibrary);
-$("#libraryFilter").addEventListener("change", renderLibrary);
-$("#refreshBtn").addEventListener("click", refresh);
-$("#refreshTrendsBtn").addEventListener("click", refreshTrends);
-$("#trendList").addEventListener("click", (event) => {
-  const button = event.target.closest("[data-trend-index]");
-  const trend = TRENDS?.topics?.[Number(button?.dataset.trendIndex)];
-  if (!trend) return;
-  SELECTED_TREND = trend;
-  $("#createForm").topic.value = trend.title;
-  renderTrends();
-  switchView("create");
-  toast("Tren dan metadata RSS dipilih.", "ok");
-});
-$("#createForm [name=topic]").addEventListener("input", (event) => {
-  if (SELECTED_TREND && event.target.value.trim() !== SELECTED_TREND.title) SELECTED_TREND = null;
-});
-const providerSelect = $("#createForm [name=ttsProvider]");
-if (providerSelect) {
-  providerSelect.addEventListener("change", updateVoiceDropdown);
-}
-
-// ---------- Data ----------
-async function refresh() {
-  try {
-    STATE = await api("/api/state");
-    if (Array.isArray(STATE.items)) {
-      STATE.items.sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")));
-    }
-    render();
+    const data = await apiFetch("/api/trends");
+    renderTrends(data);
   } catch (e) {
-    if (!String(e.message).includes("Auth")) toast(e.message, "err");
+    $("trendList").innerHTML = `<div class="empty-state"><p class="muted">Gagal memuat tren. Coba lagi.</p></div>`;
+    TRENDS_LOADED = false;
   }
 }
 
-function boot() {
-  refresh();
-  if (POLL) clearInterval(POLL);
-  POLL = setInterval(refresh, 15000);
+$("refreshTrendsBtn").addEventListener("click", () => { TRENDS_LOADED = false; loadTrends(); });
+
+function renderTrends(data) {
+  const items = data.trends || data.items || data || [];
+  if (data.criteria) {
+    $("trendCriteria").textContent = "Kriteria: " + data.criteria;
+    $("trendMedia").textContent = data.sources ? "Sumber: " + data.sources : "";
+    $("trendUpdated").textContent = data.updatedAt ? "Diperbarui: " + fmt.rel(data.updatedAt) : "";
+  }
+  if (!items.length) {
+    $("trendList").innerHTML = `<div class="empty-state"><p class="muted">Tidak ada tren tersedia saat ini.</p></div>`;
+    return;
+  }
+  $("trendList").innerHTML = items.map((t, i) => {
+    const hot = i < 3;
+    return `
+    <div class="trend-card">
+      <div class="trend-rank ${hot ? "hot" : ""}">#${i + 1}</div>
+      <div class="trend-body">
+        <div class="trend-title-row">
+          <span class="trend-title-text">${escHtml(t.title || t.topic || t)}</span>
+          <button class="btn ghost tiny trend-use-btn" data-idx="${i}">Gunakan</button>
+        </div>
+        <div class="trend-meta">
+          ${t.category ? `<span>${t.category}</span>` : ""}
+          ${t.score != null ? `<span class="trend-score">Skor ${Math.round(t.score)}</span>` : ""}
+          ${t.publishedAt ? `<span>${fmt.rel(t.publishedAt)}</span>` : ""}
+          ${t.source ? `<span>${escHtml(t.source)}</span>` : ""}
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+  $("trendList").querySelectorAll(".trend-use-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const t = items[+btn.dataset.idx];
+      selectTrend(t);
+    });
+  });
 }
 
-// clock
-setInterval(() => { $("#clock").textContent = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }); }, 1000);
-
-// init
-if (PIN) {
-  hideAuth();
-  boot();
-} else {
-  showAuth();
+function selectTrend(t) {
+  SELECTED_TREND = t;
+  $("trendSelectedCard").classList.remove("hidden");
+  $("trendSelTitle").textContent = t.title || t.topic || t;
+  gotoView("create");
+  const topicInput = document.querySelector("#createForm input[name='topic']");
+  if (topicInput) topicInput.value = t.title || t.topic || "";
+  updateEstimate();
+  toast("Tren dipilih. Sesuaikan lalu klik Generate.", "ok");
 }
+
+$("clearTrend").addEventListener("click", () => {
+  SELECTED_TREND = null;
+  $("trendSelectedCard").classList.add("hidden");
+  const topicInput = document.querySelector("#createForm input[name='topic']");
+  if (topicInput) topicInput.value = "";
+});
+
+/* ============================================================
+   HEALTH
+   ============================================================ */
+$("preflightBtn").addEventListener("click", runPreflight);
+
+async function runPreflight() {
+  const list = $("healthList");
+  list.innerHTML = `<div class="empty-state"><p class="muted">Memeriksa sistem...</p></div>`;
+  try {
+    const data = await apiFetch("/api/preflight");
+    const checks = data.checks || [];
+    list.innerHTML = checks.map(c => {
+      const level = c.ok ? "ok" : c.required === false ? "warn" : "error";
+      return `<div class="health-item">
+        <span class="hi-dot ${level}"></span>
+        <div class="hi-body">
+          <div class="hi-name">${escHtml(c.name)}</div>
+          <div class="hi-msg muted">${escHtml(c.detail || "")}</div>
+        </div>
+      </div>`;
+    }).join("");
+    if (!checks.length) list.innerHTML = `<div class="empty-state"><p class="muted">Tidak ada data preflight.</p></div>`;
+    toast("Diagnostik selesai.", "ok");
+  } catch (e) {
+    list.innerHTML = `<div class="empty-state"><p class="muted">Gagal menjalankan diagnostik: ${escHtml(e.message)}</p></div>`;
+    toast("Gagal diagnostik.", "err");
+  }
+}
+
+function setHealthItem(id, level, msg) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.querySelector(".hi-dot").className = `hi-dot ${level}`;
+  el.querySelector(".hi-msg").textContent = msg;
+}
+
+function renderHealth(items) {
+  if (!items.length) {
+    $("healthList").innerHTML = `<div class="empty-state"><p class="muted">Klik "Jalankan" untuk cek semua sistem.</p></div>`;
+  }
+}
+
+/* ============================================================
+   CREATE FORM
+   ============================================================ */
+const FORMATS = [
+  { value: "", label: "🤖 AI Pilih" },
+  { value: "story", label: "📖 Narasi" },
+  { value: "explainer", label: "🔬 Edukasi" },
+  { value: "listicle", label: "📋 List" },
+  { value: "documentary", label: "🎥 Dokumenter" },
+  { value: "mystery", label: "🔍 Misteri" },
+];
+
+const TTS_VOICES = {
+  openai: [
+    { value: "onyx", label: "Onyx (Dalam)" },
+    { value: "nova", label: "Nova (Jernih)" },
+    { value: "echo", label: "Echo (Natural)" },
+    { value: "fable", label: "Fable (Hangat)" },
+    { value: "shimmer", label: "Shimmer (Lembut)" },
+  ],
+  elevenlabs: [
+    { value: "Rachel", label: "Rachel" },
+    { value: "Adam", label: "Adam" },
+    { value: "Bella", label: "Bella" },
+  ],
+};
+
+function initCreateForm() {
+  // Format picker
+  $("formatPicker").innerHTML = FORMATS.map(f =>
+    `<button type="button" class="format-btn${f.value === "" ? " active" : ""}" data-val="${f.value}">${f.label}</button>`
+  ).join("");
+  $("formatPicker").querySelectorAll(".format-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      $("formatPicker").querySelectorAll(".format-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      $("formatTypeInput").value = btn.dataset.val;
+    });
+  });
+
+  // TTS provider change
+  const providerSel = document.querySelector("#createForm select[name='ttsProvider']");
+  const voiceSel = $("ttsVoiceSelect");
+  function updateVoices() {
+    const p = providerSel.value;
+    const voices = TTS_VOICES[p] || TTS_VOICES.openai;
+    voiceSel.innerHTML = voices.map(v => `<option value="${v.value}">${v.label}</option>`).join("");
+  }
+  updateVoices();
+  providerSel.addEventListener("change", updateVoices);
+
+  // Estimate
+  document.getElementById("createForm").querySelectorAll("select").forEach(s => s.addEventListener("change", updateEstimate));
+  updateEstimate();
+
+  // Generate / queue buttons
+  $("btnGenerate").addEventListener("click", () => submitCreate(false));
+  $("btnQueue").addEventListener("click", () => submitCreate(true));
+}
+
+function updateEstimate() {
+  const form = document.getElementById("createForm");
+  const dur = +(form.querySelector("[name='durationSec']")?.value || 1200);
+  const quality = form.querySelector("[name='imageQuality']")?.value || "low";
+  const provider = form.querySelector("[name='ttsProvider']")?.value || "openai";
+  const scenes = +(form.querySelector("[name='sceneCount']")?.value || 26);
+
+  const words = Math.round(dur * 2.35);
+  const ttsCost = provider === "elevenlabs" ? words * 0.00003 : words * 0.000015;
+  const imgPerScene = quality === "high" ? 3 : quality === "medium" ? 2 : 1;
+  const imgCost = scenes * imgPerScene * 0.04;
+  const total = ttsCost + imgCost;
+
+  $("estDur").textContent = `~${Math.round(dur / 60)} mnt`;
+  $("estWords").textContent = `~${fmt.num(words)}`;
+  $("estCost").textContent = `~${fmt.usd(ttsCost)}`;
+  $("estImg").textContent = `~${fmt.usd(imgCost)}`;
+  $("estTotal").textContent = `~${fmt.usd(total)}`;
+}
+
+async function submitCreate(queue) {
+  const form = document.getElementById("createForm");
+  const data = Object.fromEntries(new FormData(form));
+  data.formatType = $("formatTypeInput").value;
+  if (data.force === "on") data.force = true;
+
+  if (SELECTED_TREND) data.trendContext = SELECTED_TREND;
+
+  const btn = queue ? $("btnQueue") : $("btnGenerate");
+  btn.disabled = true;
+  btn.textContent = queue ? "Menambahkan..." : "Memulai...";
+  try {
+    const endpoint = queue ? "/api/queue" : "/api/run";
+    const method = queue ? "POST" : "POST";
+    await apiFetch(endpoint, { method, body: JSON.stringify(data) });
+    toast(queue ? "Ditambahkan ke antrian." : "Workflow dimulai! Pantau di Proses.", "ok");
+    if (!queue) gotoView("overview");
+    else gotoView("queue");
+    await loadData();
+  } catch (e) {
+    toast("Gagal: " + (e.message || "error"), "err");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = queue ? "Tambah ke Antrian" : "Generate Sekarang";
+  }
+}
+
+/* ============================================================
+   DRAWER
+   ============================================================ */
+function openDrawer(item) {
+  const b = $("drawerBody");
+  const thumb = item.thumbnailUrl
+    ? `<div class="drawer-thumb"><img src="${item.thumbnailUrl}" alt=""></div>`
+    : `<div class="drawer-thumb" style="display:flex;align-items:center;justify-content:center;color:var(--text-3)">No thumbnail</div>`;
+
+  b.innerHTML = `
+    ${thumb}
+    <div class="drawer-title">${escHtml(item.title || "Tanpa judul")}</div>
+    <div class="drawer-meta">
+      <span class="vc-chip">${statusLabel(item.status)}</span>
+      ${item.durationSec ? `<span class="vc-chip">⏱ ${fmt.dur(item.durationSec)}</span>` : ""}
+      ${item.costUsd ? `<span class="vc-chip">💰 ${fmt.usd(item.costUsd)}</span>` : ""}
+    </div>
+    <div class="drawer-section">
+      <div class="drawer-section-label">Detail</div>
+      ${drawerRow("ID", item.id || "—")}
+      ${drawerRow("Dibuat", fmt.date(item.createdAt))}
+      ${drawerRow("TTS", item.ttsProvider || "—")}
+      ${drawerRow("Resolusi", item.resolution || "—")}
+      ${drawerRow("Adegan", item.sceneCount || "—")}
+      ${drawerRow("Format", item.formatType || "—")}
+    </div>
+    <div class="drawer-actions">
+      ${item.youtubeUrl ? `<a href="${item.youtubeUrl}" target="_blank" rel="noopener" class="btn primary tiny">▶ Tonton di YouTube</a>` : ""}
+      ${item.videoPath ? `<button class="btn ghost tiny" onclick="copyToClip('${escHtml(item.videoPath || "")}')">Salin Path</button>` : ""}
+    </div>`;
+  $("drawer").classList.remove("hidden");
+}
+
+function drawerRow(label, val) {
+  return `<div class="drawer-row"><span class="muted">${label}</span><b>${escHtml(String(val))}</b></div>`;
+}
+
+$("closeDrawer").addEventListener("click", () => $("drawer").classList.add("hidden"));
+$("drawer").addEventListener("click", e => { if (e.target === $("drawer")) $("drawer").classList.add("hidden"); });
+
+/* ============================================================
+   COMMAND PALETTE
+   ============================================================ */
+const CMD_ITEMS = [
+  { label: "Ringkasan", action: () => gotoView("overview"), icon: "🏠" },
+  { label: "Buat Video Baru", action: () => gotoView("create"), icon: "🎬" },
+  { label: "Pustaka Video", action: () => gotoView("library"), icon: "📚" },
+  { label: "Antrian Produksi", action: () => gotoView("queue"), icon: "📋" },
+  { label: "Riwayat Proses", action: () => gotoView("runs"), icon: "⚡" },
+  { label: "Tren Berita", action: () => { gotoView("trends"); if (!TRENDS_LOADED) loadTrends(); }, icon: "📈" },
+  { label: "Diagnostik Sistem", action: () => { gotoView("health"); runPreflight(); }, icon: "🛡️" },
+  { label: "Refresh Data", action: () => { loadData(); toast("Data diperbarui.", "ok"); }, icon: "🔄" },
+  { label: "Keluar", action: () => { PIN = ""; sessionStorage.removeItem(PIN_KEY); location.reload(); }, icon: "🚪" },
+];
+
+$("cmdBtn").addEventListener("click", openCmd);
+document.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); openCmd(); }
+  if (e.key === "Escape") { closeCmd(); closeKbd(); }
+  if ($("cmdPalette").classList.contains("hidden") && !e.target.closest("input, select, textarea")) {
+    if (e.key === "?") { e.preventDefault(); openKbd(); }
+    if (e.key === "r" || e.key === "R") { e.preventDefault(); triggerRefresh(); }
+    const n = parseInt(e.key);
+    if (n >= 1 && n <= 7) { const views = ["overview","create","library","queue","runs","trends","health"]; gotoView(views[n-1]); }
+  }
+  if (!$("cmdPalette").classList.contains("hidden")) {
+    if (e.key === "ArrowDown") { e.preventDefault(); moveCmdSel(1); }
+    if (e.key === "ArrowUp") { e.preventDefault(); moveCmdSel(-1); }
+    if (e.key === "Enter") { e.preventDefault(); execCmdSel(); }
+  }
+});
+
+function openCmd() {
+  $("cmdPalette").classList.remove("hidden");
+  $("cmdInput").value = "";
+  CMD_ACTIVE_IDX = -1;
+  renderCmdItems(CMD_ITEMS);
+  requestAnimationFrame(() => $("cmdInput").focus());
+}
+function closeCmd() { $("cmdPalette").classList.add("hidden"); }
+
+$("cmdPalette").addEventListener("click", e => { if (e.target === $("cmdPalette")) closeCmd(); });
+
+$("cmdInput").addEventListener("input", () => {
+  const q = $("cmdInput").value.toLowerCase();
+  const filtered = q
+    ? CMD_ITEMS.filter(c => c.label.toLowerCase().includes(q))
+      .concat((STATE.items || []).filter(it => it.title && it.title.toLowerCase().includes(q)).slice(0,4).map(it => ({
+        label: it.title, icon: "🎞️", action: () => openDrawer(it)
+      })))
+    : CMD_ITEMS;
+  CMD_ACTIVE_IDX = -1;
+  renderCmdItems(filtered);
+});
+
+function renderCmdItems(items) {
+  $("cmdResults").innerHTML = (items.length ? items : [{ label: "Tidak ditemukan.", icon: "—", action: null }])
+    .map((c, i) => `<div class="cmd-item" data-idx="${i}">${c.icon ? `<span class="cmd-item-icon">${c.icon}</span>` : ""}<span>${escHtml(c.label)}</span></div>`)
+    .join("");
+  $("cmdResults").querySelectorAll(".cmd-item").forEach((el, i) => {
+    el.addEventListener("click", () => { if (items[i]?.action) { items[i].action(); closeCmd(); } });
+    el.addEventListener("mouseenter", () => { CMD_ACTIVE_IDX = i; highlightCmd(i); });
+  });
+}
+
+function moveCmdSel(dir) {
+  const items = $("cmdResults").querySelectorAll(".cmd-item");
+  CMD_ACTIVE_IDX = Math.max(0, Math.min(items.length - 1, CMD_ACTIVE_IDX + dir));
+  highlightCmd(CMD_ACTIVE_IDX);
+}
+function highlightCmd(idx) {
+  $("cmdResults").querySelectorAll(".cmd-item").forEach((el, i) => el.classList.toggle("active", i === idx));
+}
+function execCmdSel() {
+  const el = $("cmdResults").querySelector(".cmd-item.active");
+  if (el) el.click();
+}
+
+/* ============================================================
+   KEYBOARD SHORTCUT MODAL
+   ============================================================ */
+$("kbdHintBtn").addEventListener("click", openKbd);
+$("closeKbd").addEventListener("click", closeKbd);
+$("kbdModal").addEventListener("click", e => { if (e.target === $("kbdModal")) closeKbd(); });
+function openKbd() { $("kbdModal").classList.remove("hidden"); }
+function closeKbd() { $("kbdModal").classList.add("hidden"); }
+
+/* ============================================================
+   REFRESH BUTTON
+   ============================================================ */
+$("refreshBtn").addEventListener("click", triggerRefresh);
+function triggerRefresh() {
+  $("refreshBtn").classList.add("spinning");
+  loadData().finally(() => setTimeout(() => $("refreshBtn").classList.remove("spinning"), 600));
+}
+
+/* ============================================================
+   CONSOLE CONTROLS
+   ============================================================ */
+$("clearLog").addEventListener("click", () => { $("console").textContent = ""; });
+$("copyLog").addEventListener("click", () => {
+  navigator.clipboard?.writeText($("console").textContent || "").then(() => toast("Log disalin.", "ok"));
+});
+
+/* ============================================================
+   API HELPER
+   ============================================================ */
+async function apiFetch(url, opts = {}) {
+  const headers = { "Content-Type": "application/json", ...(PIN ? { "x-pin": PIN } : {}), ...(opts.headers || {}) };
+  const res = await fetch(url, { ...opts, headers });
+  if (res.status === 401) throw new Error("Tidak terotorisasi.");
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json().catch(() => ({}));
+}
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+function escHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function slugify(s) { return s.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""); }
+function copyToClip(text) { navigator.clipboard?.writeText(text).then(() => toast("Disalin.", "ok")); }
+
+/* ============================================================
+   INIT
+   ============================================================ */
+initCreateForm();
+checkAuth();
