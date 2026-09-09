@@ -270,31 +270,31 @@ function renderActiveRun() {
     return;
   }
 
-  const isRunning = run.status === "in_progress";
+  const isRunning = run.status === "running";
   badge.className = `badge ${isRunning ? "running" : run.status === "success" ? "done" : "failed"}`;
   badge.textContent = isRunning ? "Berjalan" : run.status === "success" ? "Selesai" : "Gagal";
 
-  const progress = run.progress || 0;
+  const progress = run.progress ?? 0;
   bar.style.width = `${progress}%`;
   pct.textContent = `${progress}%`;
-  detail.textContent = run.step || (isRunning ? "Memproses..." : "Selesai.");
+  detail.textContent = run.detail || (isRunning ? "Memproses..." : "Selesai.");
 
-  const STEPS = ["Inisialisasi", "Skrip & Audio", "Aset Visual", "Render Video", "Upload YouTube"];
-  const curStep = Math.min(Math.floor(progress / 20), 4);
-  steps.innerHTML = STEPS.map((s, i) => {
-    const cls = i < curStep ? "done" : i === curStep ? "active" : "pending";
-    return `<div class="run-step ${cls}"><span class="step-dot"></span>${s}</div>`;
+  steps.innerHTML = (run.logs || []).slice(-6).map(log => {
+    const cls = log.level === "done" ? "done" : log.level === "running" ? "active" : log.level === "error" ? "done" : "pending";
+    const icon = log.level === "done" ? "✓" : log.level === "error" ? "✗" : "·";
+    return `<div class="run-step ${cls}"><span class="step-dot"></span>${icon} ${escHtml(log.text || "")}</div>`;
   }).join("");
 
-  if (run.url) {
+  if (run.htmlUrl) {
     link.classList.remove("hidden");
-    link.innerHTML = `<a href="${run.url}" target="_blank" rel="noopener">Lihat di GitHub Actions →</a>`;
+    link.innerHTML = `<a href="${run.htmlUrl}" target="_blank" rel="noopener">Lihat di GitHub Actions →</a>`;
   }
 
-  // Append to console
-  if (run.log) {
+  // Console
+  if (run.logs?.length) {
     const cons = $("console");
-    cons.textContent = run.log.slice(-3000);
+    const text = run.logs.map(l => `[${l.level?.toUpperCase() || "LOG"}] ${l.text}`).join("\n");
+    cons.textContent = text;
     cons.scrollTop = cons.scrollHeight;
   }
 }
@@ -356,22 +356,46 @@ function renderLibrary() {
 /* ============================================================
    VIDEO CARD
    ============================================================ */
+function getItemThumb(item) {
+  if (item.thumbnailUrl) return item.thumbnailUrl;
+  const ytUrl = item.publish?.youtube?.url || item.youtubeUrl || "";
+  if (ytUrl) {
+    const m = ytUrl.match(/[?&]v=([^&]+)|youtu\.be\/([^?&]+)/);
+    const id = m?.[1] || m?.[2];
+    if (id) return `https://img.youtube.com/vi/${id}/mqdefault.jpg`;
+  }
+  return null;
+}
+function getItemDuration(item) { return item.durationSec || item.assets?.video?.durationSec || 0; }
+function getItemCost(item)     { return item.costUsd || item.cost?.totalUsd || 0; }
+function getItemYoutubeUrl(item) { return item.youtubeUrl || item.publish?.youtube?.url || ""; }
+function getItemStatus(item) {
+  if (item.publish?.youtube?.url || item.youtubeUrl) return "uploaded";
+  if (item.publish?.errors?.youtube || item.status === "failed") return "failed";
+  if (item.assets?.video?.url || item.status === "rendered") return "rendered";
+  return item.status || "pending";
+}
+
 function videoCardHTML(item) {
-  const thumb = item.thumbnailUrl ? `<img class="vc-thumb-img" src="${item.thumbnailUrl}" loading="lazy" alt="">` :
-    `<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.2" width="40" height="40" opacity=".15"><rect x="4" y="8" width="40" height="28" rx="3"/><path d="M18 18l14 6-14 6V18z"/></svg>`;
-  const status = item.status || "pending";
+  const thumb = getItemThumb(item);
+  const thumbHtml = thumb
+    ? `<img class="vc-thumb-img" src="${thumb}" loading="lazy" alt="" onerror="this.style.display='none'">`
+    : `<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.2" width="40" height="40" opacity=".15"><rect x="4" y="8" width="40" height="28" rx="3"/><path d="M18 18l14 6-14 6V18z"/></svg>`;
+  const status = getItemStatus(item);
+  const dur = getItemDuration(item);
+  const cost = getItemCost(item);
   return `
     <div class="video-card">
       <div class="vc-thumb">
-        ${thumb}
+        ${thumbHtml}
         <div class="vc-play"><svg viewBox="0 0 20 20" fill="currentColor"><path d="M7 5l10 5-10 5V5z"/></svg></div>
         <span class="vc-status-dot ${status}"></span>
       </div>
       <div class="vc-body">
         <div class="vc-title">${escHtml(item.title || "Tanpa judul")}</div>
         <div class="vc-meta">
-          ${item.durationSec ? `<span class="vc-chip">⏱ ${fmt.dur(item.durationSec)}</span>` : ""}
-          ${item.costUsd ? `<span class="vc-chip">💰 ${fmt.usd(item.costUsd)}</span>` : ""}
+          ${dur ? `<span class="vc-chip">⏱ ${fmt.dur(dur)}</span>` : ""}
+          ${cost ? `<span class="vc-chip">💰 ${fmt.usd(cost)}</span>` : ""}
           <span class="vc-chip">${statusLabel(status)}</span>
         </div>
       </div>
@@ -379,7 +403,7 @@ function videoCardHTML(item) {
 }
 
 function statusLabel(s) {
-  return { uploaded: "✅ Upload", rendered: "🎞️ Rendered", failed: "❌ Gagal", pending: "⏳ Antri" }[s] || s;
+  return { uploaded: "✅ YouTube", rendered: "🎞️ Rendered", failed: "❌ Gagal", pending: "⏳ Antri" }[s] || s;
 }
 
 /* ============================================================
@@ -496,11 +520,16 @@ function renderTrends(data) {
       </div>
     </div>`;
   }).join("");
+  $("trendList").querySelectorAll(".trend-card").forEach((card, i) => {
+    card.addEventListener("click", e => {
+      if (e.target.closest(".trend-use-btn")) return;
+      openTrendDrawer(items[i]);
+    });
+  });
   $("trendList").querySelectorAll(".trend-use-btn").forEach(btn => {
     btn.addEventListener("click", e => {
       e.stopPropagation();
-      const t = items[+btn.dataset.idx];
-      selectTrend(t);
+      selectTrend(items[+btn.dataset.idx]);
     });
   });
 }
@@ -673,40 +702,110 @@ async function submitCreate(queue) {
 }
 
 /* ============================================================
-   DRAWER
+   DRAWER – VIDEO DETAIL
    ============================================================ */
 function openDrawer(item) {
   const b = $("drawerBody");
-  const thumb = item.thumbnailUrl
-    ? `<div class="drawer-thumb"><img src="${item.thumbnailUrl}" alt=""></div>`
-    : `<div class="drawer-thumb" style="display:flex;align-items:center;justify-content:center;color:var(--text-3)">No thumbnail</div>`;
+  const thumb = getItemThumb(item);
+  const ytUrl = getItemYoutubeUrl(item);
+  const status = getItemStatus(item);
+  const dur = getItemDuration(item);
+  const cost = getItemCost(item);
+
+  const thumbHtml = thumb
+    ? `<div class="drawer-thumb"><img src="${thumb}" alt="" onerror="this.parentElement.style.display='none'"></div>`
+    : "";
 
   b.innerHTML = `
-    ${thumb}
+    ${thumbHtml}
     <div class="drawer-title">${escHtml(item.title || "Tanpa judul")}</div>
     <div class="drawer-meta">
-      <span class="vc-chip">${statusLabel(item.status)}</span>
-      ${item.durationSec ? `<span class="vc-chip">⏱ ${fmt.dur(item.durationSec)}</span>` : ""}
-      ${item.costUsd ? `<span class="vc-chip">💰 ${fmt.usd(item.costUsd)}</span>` : ""}
+      <span class="vc-chip">${statusLabel(status)}</span>
+      ${dur ? `<span class="vc-chip">⏱ ${fmt.dur(dur)}</span>` : ""}
+      ${cost ? `<span class="vc-chip">💰 ${fmt.usd(cost)}</span>` : ""}
     </div>
+
     <div class="drawer-section">
-      <div class="drawer-section-label">Detail</div>
+      <div class="drawer-section-label">Produksi</div>
       ${drawerRow("ID", item.id || "—")}
-      ${drawerRow("Dibuat", fmt.date(item.createdAt))}
-      ${drawerRow("TTS", item.ttsProvider || "—")}
-      ${drawerRow("Resolusi", item.resolution || "—")}
-      ${drawerRow("Adegan", item.sceneCount || "—")}
-      ${drawerRow("Format", item.formatType || "—")}
+      ${drawerRow("Dibuat", fmt.date(item.createdAt || item.updatedAt))}
+      ${drawerRow("TTS", item.ttsProvider || item.config?.ttsProvider || "—")}
+      ${drawerRow("Suara", item.ttsVoice || item.config?.ttsVoice || "—")}
+      ${drawerRow("Resolusi", item.resolution || item.config?.resolution || "—")}
+      ${drawerRow("Format", item.formatType || item.config?.formatType || "—")}
+      ${drawerRow("Adegan", item.sceneCount || item.scenes?.length || "—")}
     </div>
+
+    ${item.description ? `<div class="drawer-section">
+      <div class="drawer-section-label">Deskripsi</div>
+      <p style="font-size:.8rem;line-height:1.6;color:var(--text-2)">${escHtml(item.description)}</p>
+    </div>` : ""}
+
+    ${item.tags?.length ? `<div class="drawer-section">
+      <div class="drawer-section-label">Tags</div>
+      <div class="vc-meta" style="margin-top:4px">${item.tags.map(t => `<span class="vc-chip">#${escHtml(t)}</span>`).join("")}</div>
+    </div>` : ""}
+
     <div class="drawer-actions">
-      ${item.youtubeUrl ? `<a href="${item.youtubeUrl}" target="_blank" rel="noopener" class="btn primary tiny">▶ Tonton di YouTube</a>` : ""}
-      ${item.videoPath ? `<button class="btn ghost tiny" onclick="copyToClip('${escHtml(item.videoPath || "")}')">Salin Path</button>` : ""}
+      ${ytUrl ? `<a href="${ytUrl}" target="_blank" rel="noopener" class="btn primary tiny">▶ Tonton di YouTube</a>` : ""}
+      ${item.assets?.video?.url ? `<button class="btn ghost tiny" onclick="copyToClip('${escHtml(item.assets.video.url)}')">Salin URL Video</button>` : ""}
     </div>`;
   $("drawer").classList.remove("hidden");
 }
 
+/* ============================================================
+   DRAWER – TREND DETAIL
+   ============================================================ */
+function openTrendDrawer(topic) {
+  const b = $("drawerBody");
+  const news = topic.newsItems || [];
+  b.innerHTML = `
+    <div class="drawer-title" style="margin-top:8px">${escHtml(topic.title)}</div>
+    <div class="drawer-meta">
+      <span class="vc-chip">📰 ${topic.articles} artikel</span>
+      <span class="vc-chip">🗂️ ${topic.sources} sumber</span>
+      <span class="vc-chip">📅 ${topic.days} hari</span>
+    </div>
+
+    <div class="drawer-section">
+      <div class="drawer-section-label">Kenapa Topik Ini Bertahan?</div>
+      <p style="font-size:.8rem;color:var(--text-2);line-height:1.6">
+        Topik ini muncul di <b>${topic.sources}</b> media berbeda selama <b>${topic.days} hari</b>
+        dengan total <b>${topic.articles} artikel</b> — memenuhi kriteria tren bertahan untuk dibahas dalam video panjang.
+      </p>
+    </div>
+
+    <div class="drawer-section">
+      <div class="drawer-section-label">Artikel Terkait (${news.length})</div>
+      <div class="news-list">
+        ${news.map(a => `
+          <div class="news-item">
+            <div class="news-title">${escHtml(a.title)}</div>
+            <div class="news-meta">
+              <span class="news-source">${escHtml(a.source)}</span>
+              <span class="news-date">${fmt.rel(a.publishedAt)}</span>
+              ${a.url ? `<a href="${escHtml(a.url)}" target="_blank" rel="noopener" class="news-link">Buka ↗</a>` : ""}
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+
+    <div class="drawer-actions">
+      <button class="btn primary tiny" onclick="selectTrendFromDrawer()">🎬 Gunakan Topik Ini</button>
+    </div>`;
+
+  window._drawerTrend = topic;
+  $("drawer").classList.remove("hidden");
+}
+
+window.selectTrendFromDrawer = function() {
+  if (window._drawerTrend) selectTrend(window._drawerTrend);
+  $("drawer").classList.add("hidden");
+};
+
 function drawerRow(label, val) {
-  return `<div class="drawer-row"><span class="muted">${label}</span><b>${escHtml(String(val))}</b></div>`;
+  return `<div class="drawer-row"><span class="muted">${label}</span><b>${escHtml(String(val ?? "—"))}</b></div>`;
 }
 
 $("closeDrawer").addEventListener("click", () => $("drawer").classList.add("hidden"));
