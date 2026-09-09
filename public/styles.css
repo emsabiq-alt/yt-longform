@@ -402,20 +402,19 @@ b { font-weight: 600; }
   background: var(--bg-2); border: 1px solid var(--border);
   border-radius: var(--rad); padding: 14px 16px;
   display: flex; align-items: flex-start; gap: 14px;
-  cursor: pointer; transition: border-color var(--t), background var(--t);
+  transition: border-color var(--t);
 }
-.trend-card:hover { border-color: var(--border-2); background: var(--bg-3); }
+.trend-card:hover { border-color: var(--border-2); }
 .trend-rank {
   font-size: .72rem; font-weight: 700; color: var(--text-3);
-  min-width: 24px; padding-top: 2px; font-variant-numeric: tabular-nums;
+  min-width: 24px; padding-top: 3px; font-variant-numeric: tabular-nums;
 }
 .trend-rank.hot { color: var(--red); }
-.trend-body { flex: 1; min-width: 0; }
-.trend-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-.trend-title-text { font-size: .88rem; font-weight: 600; line-height: 1.35; }
-.trend-use-btn { flex-shrink: 0; }
-.trend-meta { font-size: .73rem; color: var(--text-2); margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap; }
+.trend-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.trend-title-text { font-size: .88rem; font-weight: 600; line-height: 1.4; }
+.trend-meta { font-size: .73rem; color: var(--text-2); display: flex; gap: 10px; flex-wrap: wrap; }
 .trend-score { font-size: .7rem; padding: 2px 8px; border-radius: 20px; background: var(--accent-bg); color: var(--accent-h); font-weight: 600; }
+.trend-actions { display: flex; gap: 7px; margin-top: 2px; }
 
 /* ============================================================
    HEALTH
@@ -546,39 +545,42 @@ input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; accent-colo
 @keyframes slide-in { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 /* ============================================================
-   DRAWER
+   POPUP MODAL (detail video & tren)
    ============================================================ */
 .drawer {
   position: fixed; inset: 0; z-index: 100;
-  background: rgba(0,0,0,.6); backdrop-filter: blur(4px);
+  background: rgba(0,0,0,.72); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
 }
 .drawer.hidden { display: none; }
 .drawer-inner {
-  position: absolute; right: 0; top: 0; bottom: 0;
-  width: min(520px, 96vw); background: var(--bg-2);
-  border-left: 1px solid var(--border);
-  overflow-y: auto; padding: 24px 24px 40px;
-  animation: slide-from-right .22s ease;
+  position: relative;
+  width: min(580px, 100%); max-height: min(88vh, 780px);
+  background: var(--bg-2); border: 1px solid var(--border-2);
+  border-radius: var(--rad); box-shadow: var(--shadow);
+  overflow-y: auto; padding: 28px 26px 32px;
+  animation: pop-in .2s ease;
 }
-@keyframes slide-from-right { from { transform: translateX(32px); opacity: 0; } to { transform: none; opacity: 1; } }
 .drawer-close {
-  position: absolute; top: 16px; right: 16px;
+  position: absolute; top: 14px; right: 14px;
   width: 30px; height: 30px; border-radius: var(--rad-xs);
   background: var(--bg-3); border: 1px solid var(--border); color: var(--text-2);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
+  z-index: 1;
 }
 .drawer-close svg { width: 14px; height: 14px; }
 .drawer-close:hover { background: var(--red-bg); color: var(--red); }
 
 .drawer-thumb { aspect-ratio: 16/9; border-radius: var(--rad-sm); overflow: hidden; background: var(--bg-3); margin-bottom: 18px; }
 .drawer-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.drawer-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 4px; line-height: 1.3; }
+.drawer-title { font-size: 1.08rem; font-weight: 700; margin-bottom: 6px; line-height: 1.35; padding-right: 32px; }
 .drawer-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
 .drawer-section { margin-bottom: 16px; }
 .drawer-section-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; color: var(--text-3); margin-bottom: 6px; }
 .drawer-row { display: flex; justify-content: space-between; align-items: center; font-size: .8rem; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .drawer-row:last-child { border-bottom: none; }
-.drawer-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.drawer-actions { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 4px; }
 
 /* ============================================================
    COMMAND PALETTE

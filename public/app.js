@@ -508,29 +508,24 @@ function renderTrends(data) {
     <div class="trend-card">
       <div class="trend-rank ${hot ? "hot" : ""}">#${i + 1}</div>
       <div class="trend-body">
-        <div class="trend-title-row">
-          <span class="trend-title-text">${escHtml(t.title || t.topic || t)}</span>
-          <button class="btn ghost tiny trend-use-btn" data-idx="${i}">Gunakan</button>
-        </div>
+        <div class="trend-title-text">${escHtml(t.title || t.topic || t)}</div>
         <div class="trend-meta">
           ${t.articles != null ? `<span class="trend-score">${t.articles} artikel</span>` : ""}
-          ${t.sources != null ? `<span>${t.sources} sumber</span>` : ""}
-          ${t.days != null ? `<span>${t.days} hari</span>` : ""}
+          ${t.sources != null ? `<span>🗂 ${t.sources} sumber</span>` : ""}
+          ${t.days != null ? `<span>📅 ${t.days} hari</span>` : ""}
+        </div>
+        <div class="trend-actions">
+          <button class="btn ghost tiny trend-detail-btn" data-idx="${i}">Lihat Detail</button>
+          <button class="btn primary tiny trend-use-btn" data-idx="${i}">Gunakan →</button>
         </div>
       </div>
     </div>`;
   }).join("");
-  $("trendList").querySelectorAll(".trend-card").forEach((card, i) => {
-    card.addEventListener("click", e => {
-      if (e.target.closest(".trend-use-btn")) return;
-      openTrendDrawer(items[i]);
-    });
+  $("trendList").querySelectorAll(".trend-detail-btn").forEach(btn => {
+    btn.addEventListener("click", () => openTrendDrawer(items[+btn.dataset.idx]));
   });
   $("trendList").querySelectorAll(".trend-use-btn").forEach(btn => {
-    btn.addEventListener("click", e => {
-      e.stopPropagation();
-      selectTrend(items[+btn.dataset.idx]);
-    });
+    btn.addEventListener("click", () => selectTrend(items[+btn.dataset.idx]));
   });
 }
 
