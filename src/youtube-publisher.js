@@ -195,14 +195,15 @@ export async function updateYoutubeLocalizations({
   accessToken,
   snippet = {}
 }) {
-  const normalized = normalizeLocalizations(localizations);
-  if (!videoId || !Object.keys(normalized).length) {
+  if (!videoId) {
     return { ok: true, skipped: true, languages: [] };
   }
 
+  const normalized = normalizeLocalizations(localizations);
   const current = snippet.title && snippet.categoryId
     ? snippet
     : (await getYoutubeVideo({ videoId, accessToken })).snippet || {};
+  const hasLocalizations = Object.keys(normalized).length > 0;
   const body = {
     id: videoId,
     snippet: {
@@ -215,10 +216,10 @@ export async function updateYoutubeLocalizations({
       defaultAudioLanguage: config.youtube.defaultAudioLanguage,
       tags: normalizeTags(current.tags || [])
     },
-    localizations: normalized
+    ...(hasLocalizations ? { localizations: normalized } : {})
   };
   const url = new URL(videoApiUrl);
-  url.searchParams.set("part", "snippet,localizations");
+  url.searchParams.set("part", hasLocalizations ? "snippet,localizations" : "snippet");
   const { data } = await fetchJson(url, {
     method: "PUT",
     headers: {
@@ -227,11 +228,15 @@ export async function updateYoutubeLocalizations({
     },
     body: JSON.stringify(body)
   });
+  const confirmedSnippet = data?.snippet || {};
+  console.log(`[YouTube] Bahasa video terverifikasi: defaultAudioLanguage=${confirmedSnippet.defaultAudioLanguage || config.youtube.defaultAudioLanguage}, defaultLanguage=${confirmedSnippet.defaultLanguage || config.youtube.defaultLanguage}`);
   return {
     ok: true,
     skipped: false,
-    languages: Object.keys(data.localizations || normalized),
-    localizations: data.localizations || normalized
+    defaultLanguage: confirmedSnippet.defaultLanguage || config.youtube.defaultLanguage,
+    defaultAudioLanguage: confirmedSnippet.defaultAudioLanguage || config.youtube.defaultAudioLanguage,
+    languages: Object.keys(data?.localizations || normalized),
+    localizations: data?.localizations || normalized
   };
 }
 
@@ -412,18 +417,16 @@ export async function publishToYoutube({
       })
     : { ok: false, skipped: true, error: "" };
 
-  let localization = { ok: true, skipped: true, languages: [], error: "" };
-  if (Object.keys(localizations).length) {
-    try {
-      localization = await updateYoutubeLocalizations({
-        videoId,
-        accessToken,
-        localizations,
-        snippet: metadata.snippet
-      });
-    } catch (error) {
-      localization = { ok: false, skipped: false, languages: [], error: error.message };
-    }
+  let localization = { ok: true, skipped: false, languages: [], error: "" };
+  try {
+    localization = await updateYoutubeLocalizations({
+      videoId,
+      accessToken,
+      localizations,
+      snippet: metadata.snippet
+    });
+  } catch (error) {
+    localization = { ok: false, skipped: false, languages: [], error: error.message };
   }
 
   return {
