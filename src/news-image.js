@@ -25,30 +25,38 @@ const OVERLAY_DURATION = 4.2; // detik ditampilkan per scene
 const FADE_DUR = 0.35;
 
 /**
- * Konfigurasi layar dalam template greenscreen (koordinat pixel di template 1500×1000).
- * Sesuaikan jika template berbeda dimensi atau posisi layar berbeda.
+ * Konfigurasi layar dalam template greenscreen (koordinat pixel di dimensi asli file,
+ * 2816×1536 untuk kedua template saat ini). Ukur ulang (mis. dengan scratch/detect_screen2.mjs)
+ * kalau file template diganti — templateW/H harus sama persis dengan resolusi asli PNG-nya,
+ * jika tidak, `scale` di makeDeviceMockupClip akan menstretch gambar secara non-proporsional.
  */
 const DEVICE_CONFIG = {
   phone: {
     templateFile: "phone-mockup.png",
-    templateW: 1500,
-    templateH: 1000,
-    // Area layar hitam di dalam template (perlu sedikit inset dari tepi layar)
-    screen: { x: 598, y: 55, w: 305, h: 675 }
+    templateW: 2816,
+    templateH: 1536,
+    // Area layar hitam di dalam template (sudah di-inset dari tepi layar asli)
+    screen: { x: 1132, y: 201, w: 606, h: 1026 }
   },
   tablet: {
     templateFile: "tablet-mockup.png",
-    templateW: 1500,
-    templateH: 1000,
+    templateW: 2816,
+    templateH: 1536,
     // Area layar hitam di dalam template tablet
-    screen: { x: 403, y: 55, w: 694, h: 725 }
+    screen: { x: 972, y: 198, w: 847, h: 1106 }
   }
 };
 
-// Warna chroma key green yang dipakai di template
-const CHROMA_COLOR = "0x3ECC52";
-const CHROMA_SIMILARITY = "0.30";
-const CHROMA_BLEND = "0.08";
+// Warna chroma key green yang dipakai di template (rata-rata terukur dari background asli,
+// yang punya vignette dari hijau terang di tengah ke lebih gelap di pojok).
+const CHROMA_COLOR = "0x3D9149";
+const CHROMA_SIMILARITY = "0.06";
+const CHROMA_BLEND = "0.04";
+
+// Pastikan dimensi genap — filter scale/pad + encode yuva420p menolak lebar/tinggi ganjil.
+function even(n) {
+  return Math.round(n / 2) * 2;
+}
 
 /**
  * Download og:image dari newsItems yang cocok dengan mediaSource tiap scene.
@@ -143,7 +151,7 @@ export async function applyNewsImageOverlays(inputVideoPath, outputVideoPath, it
       continue;
     }
 
-    const clipPath = path.join(tmpDir, `news-overlay-${i}.mp4`);
+    const clipPath = path.join(tmpDir, `news-overlay-${i}.mov`);
     try {
       await makeDeviceMockupClip({
         newsImagePath: entry.imagePath,
@@ -213,22 +221,22 @@ async function makeDeviceMockupClip({ newsImagePath, templatePath, outputPath, d
 
   // Scale template ke 80% lebar video agar tidak terlalu besar
   const videoW = is1080 ? 1920 : 1280;
-  const targetTemplateW = Math.round(videoW * 0.80);
-  const targetTemplateH = Math.round(targetTemplateW * cfg.templateH / cfg.templateW);
+  const targetTemplateW = even(Math.round(videoW * 0.80));
+  const targetTemplateH = even(Math.round(targetTemplateW * cfg.templateH / cfg.templateW));
   const scaleRatio = targetTemplateW / cfg.templateW;
 
   // Koordinat layar setelah template di-scale
   const sc = cfg.screen;
-  const sX = Math.round(sc.x * scaleRatio);
-  const sY = Math.round(sc.y * scaleRatio);
-  const sW = Math.round(sc.w * scaleRatio);
-  const sH = Math.round(sc.h * scaleRatio);
+  const sX = even(Math.round(sc.x * scaleRatio));
+  const sY = even(Math.round(sc.y * scaleRatio));
+  const sW = even(Math.round(sc.w * scaleRatio));
+  const sH = even(Math.round(sc.h * scaleRatio));
 
   // Konten di dalam layar: 72% lebar layar, di-center (jangan terlalu lebar)
-  const contentW = Math.round(sW * 0.72);
-  const contentH = Math.round(sH * 0.72);
-  const contentOffX = sX + Math.round((sW - contentW) / 2);
-  const contentOffY = sY + Math.round((sH - contentH) / 2);
+  const contentW = even(Math.round(sW * 0.72));
+  const contentH = even(Math.round(sH * 0.72));
+  const contentOffX = even(sX + Math.round((sW - contentW) / 2));
+  const contentOffY = even(sY + Math.round((sH - contentH) / 2));
 
   const filters = [
     // Scale template
@@ -244,16 +252,18 @@ async function makeDeviceMockupClip({ newsImagePath, templatePath, outputPath, d
     `[keyed]fade=t=in:st=0:d=${FADE_DUR}:alpha=1,fade=t=out:st=${(OVERLAY_DURATION - FADE_DUR).toFixed(2)}:d=${FADE_DUR}:alpha=1[out]`
   ];
 
+  // libx264 tidak mendukung alpha channel (ffmpeg akan diam-diam fallback ke yuv420p dan
+  // membuang transparansi hasil chromakey). Pakai qtrle (lossless, alpha-capable) di
+  // container .mov untuk clip transisi ini; hasilnya di-flatten ke libx264 tanpa alpha
+  // begitu di-overlay ke video utama di applyNewsImageOverlays.
   await runFfmpeg([
     "-loop", "1", "-i", newsImagePath,
     "-loop", "1", "-i", templatePath,
     "-t", String(OVERLAY_DURATION),
     "-filter_complex", filters.join(";"),
     "-map", "[out]",
-    "-c:v", "libx264",
-    "-preset", "veryfast",
-    "-crf", "20",
-    "-pix_fmt", "yuva420p",
+    "-c:v", "qtrle",
+    "-pix_fmt", "argb",
     "-y", outputPath
   ]);
 }
