@@ -39,13 +39,16 @@ export default async function handler(req, res) {
     await uploadStateFile("queue.json", queue);
 
     if (body.run_now === true || body.run_now === "true") {
+      const dynamicScenes = item.dynamicScenes === true;
+      // ponytail: workflow_dispatch tidak punya input tren terpisah; pakai envelope JSON sampai kontrak workflow boleh ditambah.
+      const envelope = item.trend ? { topic: item.topic, trend: item.trend } : null;
+      if (envelope && dynamicScenes) envelope.dynamicScenes = true;
       await dispatchWorkflow({
-        // ponytail: workflow_dispatch tidak punya input tren terpisah; pakai envelope JSON sampai kontrak workflow boleh ditambah.
-        topic: item.trend ? JSON.stringify({ topic: item.topic, trend: item.trend }) : item.topic,
+        topic: envelope ? JSON.stringify(envelope) : item.topic,
         category: item.category || "random",
         format_type: item.formatType || "",
-        duration: String(item.durationSec),
-        scenes: String(item.sceneCount),
+        duration: dynamicScenes ? "" : String(item.durationSec),
+        scenes: dynamicScenes ? "" : String(item.sceneCount),
         tts_provider: item.ttsProvider,
         tts_voice: item.ttsVoice,
         image_quality: item.imageQuality,

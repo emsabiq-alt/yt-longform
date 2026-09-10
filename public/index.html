@@ -381,6 +381,77 @@
           </div>
           <p class="ideas-hint muted">Sistem akan mencari berita terkait dari Google News dan mengambil isi artikelnya sebagai bahan video.</p>
           <div id="ideasResult" class="ideas-result"></div>
+
+          <!-- Panel workflow terpisah: generate video dari artikel terpilih -->
+          <div id="ideaCreatePanel" class="idea-create-panel hidden">
+            <div class="panel-head">
+              <button type="button" id="ideaCreateBack" class="btn ghost tiny">← Kembali ke hasil pencarian</button>
+            </div>
+            <div id="ideaSelTitle" class="tsc-title"></div>
+            <form id="ideaCreateForm" class="grid-form">
+              <label class="field">
+                <span>Kategori</span>
+                <select name="category">
+                  <option value="random">🎲 Acak (AI memilih)</option>
+                  <option value="sains">🔬 Sains</option>
+                  <option value="sejarah">🏛️ Sejarah</option>
+                  <option value="teknologi">💡 Teknologi</option>
+                  <option value="misteri">🔍 Misteri</option>
+                  <option value="bisnis">📈 Bisnis</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>TTS Provider</span>
+                <select name="ttsProvider">
+                  <option value="openai">OpenAI TTS</option>
+                  <option value="elevenlabs">ElevenLabs</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Suara Narator</span>
+                <select name="ttsVoice" id="ideaTtsVoiceSelect"></select>
+              </label>
+
+              <label class="field">
+                <span>Kualitas Gambar</span>
+                <select name="imageQuality">
+                  <option value="low" selected>Low (cepat)</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High (lambat)</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Resolusi Video</span>
+                <select name="resolution">
+                  <option value="720p">720p HD</option>
+                  <option value="1080p" selected>1080p Full HD ⭐</option>
+                </select>
+              </label>
+
+              <div class="field span2">
+                <span>Format Video <small class="muted">(kosong = AI memilih)</small></span>
+                <div id="ideaFormatPicker" class="format-picker"></div>
+                <input type="hidden" name="formatType" id="ideaFormatTypeInput" value="" />
+              </div>
+
+              <label class="field span2 check">
+                <input type="checkbox" name="force" checked />
+                <span>Paksa buat (abaikan batas harian)</span>
+              </label>
+
+              <p class="field span2 idea-auto-note muted">
+                Durasi &amp; jumlah scene dihitung otomatis dari panjang artikel — bukan target tetap seperti tab Buat.
+              </p>
+
+              <div class="form-actions span2">
+                <button type="button" id="ideaBtnGenerate" class="btn primary">Generate Sekarang</button>
+                <button type="button" id="ideaBtnQueue" class="btn ghost">Tambah ke Antrian</button>
+              </div>
+            </form>
+          </div>
         </div>
       </section>
 

@@ -730,6 +730,11 @@ a { color: var(--accent-h); }
 .idea-card-title { font-size: .88rem; font-weight: 600; line-height: 1.4; flex: 1; }
 .idea-card-meta { font-size: .72rem; color: var(--text-2); margin-bottom: 8px; display: flex; gap: 10px; flex-wrap: wrap; }
 .idea-card-meta .outlet { color: var(--accent-h); font-weight: 600; }
+
+.idea-create-panel { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.idea-create-panel .panel-head { margin-bottom: 10px; }
+.idea-create-panel .tsc-title { margin-bottom: 14px; }
+.idea-auto-note { font-size: .74rem; line-height: 1.4; }
 .idea-excerpt { font-size: .78rem; color: var(--text-2); line-height: 1.6; margin-bottom: 12px; }
 .idea-excerpt.truncated { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .idea-actions { display: flex; gap: 8px; justify-content: flex-end; }

@@ -9,6 +9,7 @@ let PIN = sessionStorage.getItem(PIN_KEY) || "";
 let STATE = { items: [], queue: [], config: {}, activeRun: null, recentRuns: [], stats: {} };
 let POLL_TIMER = null;
 let SELECTED_TREND = null;
+let SELECTED_IDEA = null;
 let TRENDS_LOADED = false;
 let CMD_ACTIVE_IDX = -1;
 
@@ -677,11 +678,6 @@ async function submitCreate(queue) {
   if (data.force === "on") data.force = true;
 
   if (SELECTED_TREND) data.trendContext = SELECTED_TREND;
-  if (window._ideaMode) {
-    data.trendContext = window._ideaMode.trendContext;
-    data.dynamicScenes = true;
-    window._ideaMode = null; // reset setelah dipakai
-  }
 
   const btn = queue ? $("btnQueue") : $("btnGenerate");
   btn.disabled = true;
@@ -1001,12 +997,8 @@ function renderIdeas(data) {
 }
 
 function useIdeaAsVideo(article, query) {
-  gotoView("create");
-  const topicEl = document.querySelector("#topicInput, #createForm [name='topic'], #createForm [name='title']");
-  if (topicEl) topicEl.value = article.title || query;
-  // Tandai mode Ide: scene auto-adjust + sertakan newsItems dengan og:image
-  window._ideaMode = {
-    dynamicScenes: true,
+  SELECTED_IDEA = {
+    topic: article.title || query,
     trendContext: {
       title: article.title || query,
       articles: ideasData?.articles?.length || 1,
@@ -1022,11 +1014,84 @@ function useIdeaAsVideo(article, query) {
       }))
     }
   };
-  toast(`Topik "${(article.title || query).slice(0, 40)}..." siap. Scene otomatis dari konten artikel.`, "ok");
+  openIdeaCreatePanel();
+}
+
+function openIdeaCreatePanel() {
+  if (!SELECTED_IDEA) return;
+  $("ideasResult").classList.add("hidden");
+  document.querySelector(".ideas-search-row").classList.add("hidden");
+  document.querySelector(".ideas-hint").classList.add("hidden");
+  $("ideaSelTitle").textContent = `Topik: ${SELECTED_IDEA.topic}`;
+  $("ideaCreatePanel").classList.remove("hidden");
+}
+
+function closeIdeaCreatePanel() {
+  SELECTED_IDEA = null;
+  $("ideaCreatePanel").classList.add("hidden");
+  $("ideasResult").classList.remove("hidden");
+  document.querySelector(".ideas-search-row").classList.remove("hidden");
+  document.querySelector(".ideas-hint").classList.remove("hidden");
+}
+
+function initIdeaCreateForm() {
+  $("ideaFormatPicker").innerHTML = FORMATS.map(f =>
+    `<button type="button" class="format-btn${f.value === "" ? " active" : ""}" data-val="${f.value}">${f.label}</button>`
+  ).join("");
+  $("ideaFormatPicker").querySelectorAll(".format-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      $("ideaFormatPicker").querySelectorAll(".format-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      $("ideaFormatTypeInput").value = btn.dataset.val;
+    });
+  });
+
+  const providerSel = document.querySelector("#ideaCreateForm select[name='ttsProvider']");
+  const voiceSel = $("ideaTtsVoiceSelect");
+  function updateVoices() {
+    const voices = TTS_VOICES[providerSel.value] || TTS_VOICES.openai;
+    voiceSel.innerHTML = voices.map(v => `<option value="${v.value}">${v.label}</option>`).join("");
+  }
+  updateVoices();
+  providerSel.addEventListener("change", updateVoices);
+
+  $("ideaCreateBack").addEventListener("click", closeIdeaCreatePanel);
+  $("ideaBtnGenerate").addEventListener("click", () => submitIdeaVideo(false));
+  $("ideaBtnQueue").addEventListener("click", () => submitIdeaVideo(true));
+}
+
+async function submitIdeaVideo(queue) {
+  if (!SELECTED_IDEA) return toast("Pilih artikel dulu.", "warn");
+  const form = document.getElementById("ideaCreateForm");
+  const data = Object.fromEntries(new FormData(form));
+  data.formatType = $("ideaFormatTypeInput").value;
+  if (data.force === "on") data.force = true;
+  data.topic = SELECTED_IDEA.topic;
+  data.trendContext = SELECTED_IDEA.trendContext;
+  data.dynamicScenes = true;
+
+  const btn = queue ? $("ideaBtnQueue") : $("ideaBtnGenerate");
+  btn.disabled = true;
+  btn.textContent = queue ? "Menambahkan..." : "Memulai...";
+  try {
+    const endpoint = queue ? "/api/queue" : "/api/run";
+    await apiFetch(endpoint, { method: "POST", body: JSON.stringify(data) });
+    toast(queue ? "Ditambahkan ke antrian." : "Workflow dimulai! Pantau di Proses.", "ok");
+    closeIdeaCreatePanel();
+    if (!queue) gotoView("overview");
+    else gotoView("queue");
+    await loadData();
+  } catch (e) {
+    toast("Gagal: " + (e.message || "error"), "err");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = queue ? "Tambah ke Antrian" : "Generate Sekarang";
+  }
 }
 
 /* ============================================================
    INIT
    ============================================================ */
 initCreateForm();
+initIdeaCreateForm();
 checkAuth();

@@ -419,7 +419,8 @@ export function buildQueueItem(input) {
     priority: clampNum(input.priority || 1, 1, 99, 1),
     status: clampStr(input.status || "pending", 40),
     notes: clampStr(input.notes || "", 500),
-    trend: normalizeTrendInput(input.trend),
+    trend: normalizeTrendInput(input.trendContext || input.trend),
+    dynamicScenes: input.dynamicScenes === true || input.dynamicScenes === "true",
     createdAt: clampStr(input.createdAt, 40) || now,
     updatedAt: now
   };
