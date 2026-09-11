@@ -161,10 +161,36 @@
           <div class="panel form-panel">
             <div class="panel-head"><h3>Generate Video Baru</h3></div>
             <form id="createForm" class="grid-form">
-              <label class="field span2">
-                <span>Topik <small class="muted">(kosong = AI memilih dari tren)</small></span>
-                <input name="topic" placeholder="cth: Kenapa kapal baja bisa mengapung?" autocomplete="off" />
-              </label>
+              <div class="field span2">
+                <div class="topic-label-row">
+                  <span>Topik <small class="muted">(kosong = AI memilih dari tren)</small></span>
+                  <button type="button" id="btnSearchFacts" class="btn ghost tiny search-facts-btn" title="Cari berita / artikel nyata untuk memperkaya storyboard">
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>
+                    <span>Cari Berita / Fakta</span>
+                  </button>
+                </div>
+                <div class="topic-input-wrap">
+                  <input name="topic" id="createTopicInput" placeholder="cth: Kenapa kapal baja bisa mengapung? atau isu terkini..." autocomplete="off" />
+                </div>
+
+                <!-- Box Hasil Pencarian Berita di Tab Buat -->
+                <div id="createFactsBox" class="create-facts-box hidden">
+                  <div class="create-facts-header">
+                    <span id="createFactsTitle" class="facts-status">Berita &amp; fakta pendukung ditemukan:</span>
+                    <div class="facts-actions">
+                      <button type="button" id="btnToggleAllFacts" class="text-btn">Batal Semua</button>
+                      <button type="button" id="btnCloseFacts" class="text-btn">Tutup</button>
+                    </div>
+                  </div>
+                  <div id="createFactsList" class="create-facts-list"></div>
+                </div>
+
+                <!-- Checkbox Grounding Otomatis -->
+                <label class="auto-facts-check">
+                  <input type="checkbox" id="autoGroundFacts" name="autoGroundFacts" checked />
+                  <span>Sertakan fakta/berita terkait secara otomatis (membuat storyboard lebih kaya)</span>
+                </label>
+              </div>
 
               <label class="field">
                 <span>Kategori</span>

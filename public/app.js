@@ -10,6 +10,8 @@ let STATE = { items: [], queue: [], config: {}, activeRun: null, recentRuns: [],
 let POLL_TIMER = null;
 let SELECTED_TREND = null;
 let SELECTED_IDEA = null;
+let CREATE_FACTS = [];
+let SELECTED_FACTS = new Set();
 let TRENDS_LOADED = false;
 let CMD_ACTIVE_IDX = -1;
 
@@ -547,6 +549,9 @@ $("clearTrend").addEventListener("click", () => {
   $("trendSelectedCard").classList.add("hidden");
   const topicInput = document.querySelector("#createForm input[name='topic']");
   if (topicInput) topicInput.value = "";
+  CREATE_FACTS = [];
+  SELECTED_FACTS.clear();
+  $("createFactsBox")?.classList.add("hidden");
 });
 
 /* ============================================================
@@ -646,9 +651,109 @@ function initCreateForm() {
   document.getElementById("createForm").querySelectorAll("select").forEach(s => s.addEventListener("change", updateEstimate));
   updateEstimate();
 
+  // Search facts button & Enter key on createTopicInput
+  $("btnSearchFacts")?.addEventListener("click", searchFactsForCreate);
+  $("createTopicInput")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      searchFactsForCreate();
+    }
+  });
+  $("btnToggleAllFacts")?.addEventListener("click", toggleAllFacts);
+  $("btnCloseFacts")?.addEventListener("click", () => $("createFactsBox")?.classList.add("hidden"));
+
   // Generate / queue buttons
   $("btnGenerate").addEventListener("click", () => submitCreate(false));
   $("btnQueue").addEventListener("click", () => submitCreate(true));
+}
+
+async function searchFactsForCreate() {
+  const topic = ($("createTopicInput")?.value || "").trim();
+  if (!topic || topic.length < 3) {
+    return toast("Ketik topik video terlebih dahulu.", "warn");
+  }
+  const btn = $("btnSearchFacts");
+  const origHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13" class="spinning"><circle cx="10" cy="10" r="7"/></svg> <span>Mencari...</span>`;
+  try {
+    const data = await apiFetch("/api/research", {
+      method: "POST",
+      body: JSON.stringify({ query: topic })
+    });
+    const articles = data.articles || [];
+    if (!articles.length) {
+      toast("Tidak ada berita spesifik ditemukan untuk topik ini.", "warn");
+      $("createFactsBox")?.classList.add("hidden");
+      return;
+    }
+    CREATE_FACTS = articles;
+    SELECTED_FACTS = new Set(articles.map((_, i) => i));
+    renderCreateFacts();
+    $("createFactsBox")?.classList.remove("hidden");
+    $("createFactsTitle").textContent = `Ditemukan ${articles.length} berita/fakta terkait "${topic.slice(0, 30)}":`;
+    toast(`Ditemukan ${articles.length} artikel berita pendukung!`, "ok");
+  } catch (err) {
+    toast("Gagal mencari berita: " + (err.message || "error"), "err");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origHtml;
+  }
+}
+
+function renderCreateFacts() {
+  const list = $("createFactsList");
+  if (!list) return;
+  if (!CREATE_FACTS.length) {
+    list.innerHTML = `<div class="muted">Tidak ada artikel.</div>`;
+    return;
+  }
+  list.innerHTML = CREATE_FACTS.map((art, i) => {
+    const checked = SELECTED_FACTS.has(i) ? "checked" : "";
+    const selectedCls = SELECTED_FACTS.has(i) ? "selected" : "";
+    const hasImg = art.imageUrl ? `<span class="has-img">📷 Gambar tersedia</span>` : "";
+    const date = art.day || art.publishedAt?.slice(0, 10) || "";
+    return `
+      <label class="fact-item ${selectedCls}" data-idx="${i}">
+        <input type="checkbox" class="fact-check" data-idx="${i}" ${checked} />
+        <div class="fact-item-body">
+          <div class="fact-item-title">${escHtml(art.title)}</div>
+          <div class="fact-item-meta">
+            <span class="outlet">${escHtml(art.outlet || "Media")}</span>
+            ${date ? `<span>${date}</span>` : ""}
+            ${hasImg}
+          </div>
+        </div>
+      </label>
+    `;
+  }).join("");
+
+  list.querySelectorAll(".fact-check").forEach((chk) => {
+    chk.addEventListener("change", (e) => {
+      const idx = Number(e.target.dataset.idx);
+      if (e.target.checked) SELECTED_FACTS.add(idx);
+      else SELECTED_FACTS.delete(idx);
+      const item = list.querySelector(`.fact-item[data-idx="${idx}"]`);
+      if (item) item.classList.toggle("selected", e.target.checked);
+      updateToggleBtnText();
+    });
+  });
+  updateToggleBtnText();
+}
+
+function updateToggleBtnText() {
+  const btn = $("btnToggleAllFacts");
+  if (!btn) return;
+  btn.textContent = SELECTED_FACTS.size === CREATE_FACTS.length ? "Batal Semua" : "Pilih Semua";
+}
+
+function toggleAllFacts() {
+  if (SELECTED_FACTS.size === CREATE_FACTS.length) {
+    SELECTED_FACTS.clear();
+  } else {
+    SELECTED_FACTS = new Set(CREATE_FACTS.map((_, i) => i));
+  }
+  renderCreateFacts();
 }
 
 function updateEstimate() {
@@ -676,15 +781,73 @@ async function submitCreate(queue) {
   const data = Object.fromEntries(new FormData(form));
   data.formatType = $("formatTypeInput").value;
   if (data.force === "on") data.force = true;
-
-  if (SELECTED_TREND) data.trendContext = SELECTED_TREND;
+  const autoGround = Boolean($("autoGroundFacts")?.checked);
+  delete data.autoGroundFacts;
 
   const btn = queue ? $("btnQueue") : $("btnGenerate");
   btn.disabled = true;
-  btn.textContent = queue ? "Menambahkan..." : "Memulai...";
+
   try {
+    // 1. Jika ada tren yang dipilih dari tab Tren
+    if (SELECTED_TREND) {
+      data.trendContext = SELECTED_TREND;
+    }
+    // 2. Jika user sudah mencari artikel di tab Buat dan memilih fakta
+    else if (CREATE_FACTS.length > 0 && SELECTED_FACTS.size > 0) {
+      const chosen = CREATE_FACTS.filter((_, i) => SELECTED_FACTS.has(i));
+      data.trendContext = {
+        title: data.topic,
+        articles: chosen.length,
+        sources: new Set(chosen.map((a) => a.outlet)).size || 1,
+        days: 1,
+        newsItems: chosen.map((a) => ({
+          title: a.title,
+          headline: a.title,
+          source: a.outlet || "Media Berita",
+          outlet: a.outlet || "Media Berita",
+          url: a.url,
+          publishedAt: a.publishedAt,
+          excerpt: a.excerpt || "",
+          imageUrl: a.imageUrl || null
+        }))
+      };
+    }
+    // 3. Grounding Otomatis: jika opsi dicentang dan ada topik, cari berita di latar belakang
+    else if (autoGround && data.topic && data.topic.trim().length >= 4) {
+      btn.textContent = "Mencari fakta pendukung...";
+      try {
+        const res = await apiFetch("/api/research", {
+          method: "POST",
+          body: JSON.stringify({ query: data.topic.trim() })
+        });
+        const articles = res.articles || [];
+        if (articles.length > 0) {
+          data.trendContext = {
+            title: data.topic,
+            articles: articles.length,
+            sources: new Set(articles.map((a) => a.outlet)).size || 1,
+            days: 1,
+            newsItems: articles.map((a) => ({
+              title: a.title,
+              headline: a.title,
+              source: a.outlet || "Media Berita",
+              outlet: a.outlet || "Media Berita",
+              url: a.url,
+              publishedAt: a.publishedAt,
+              excerpt: a.excerpt || "",
+              imageUrl: a.imageUrl || null
+            }))
+          };
+          toast(`Melampirkan ${articles.length} berita/fakta untuk storyboard!`, "ok");
+        }
+      } catch (err) {
+        console.warn("[Grounding] Auto research skip:", err.message);
+      }
+    }
+
+    btn.textContent = queue ? "Menambahkan..." : "Memulai...";
     const endpoint = queue ? "/api/queue" : "/api/run";
-    const method = queue ? "POST" : "POST";
+    const method = "POST";
     await apiFetch(endpoint, { method, body: JSON.stringify(data) });
     toast(queue ? "Ditambahkan ke antrian." : "Workflow dimulai! Pantau di Proses.", "ok");
     if (!queue) gotoView("overview");
