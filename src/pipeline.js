@@ -14,6 +14,7 @@ import {
   fetchWikimediaMediaForScene,
   WIKIMEDIA_SELECTOR_VERSION
 } from "./wikimedia.js";
+import { fetchPixabayMediaForScene } from "./pixabay.js";
 import { findPersonImage } from "./wikidata.js";
 import { ensureFigureImages } from "./person-image.js";
 import { ensureNewsImages } from "./news-image.js";
@@ -42,13 +43,18 @@ const SCENE_TTS_INSTRUCTIONS = [
 export async function ensureVisualAssets(item, options = {}) {
   const warnings = options.warnings || [];
   const pexelsRunner = options.pexelsRunner || ensurePexelsClips;
+  const pixabayRunner = options.pixabayRunner || ensurePixabayMedia;
   const wikimediaRunner = options.wikimediaRunner || ensureWikimediaMedia;
   const imageRunner = options.imageRunner || ensureImages;
   const pexelsOptions = options.pexelsOptions || {};
+  const pixabayOptions = options.pixabayOptions || {};
   const wikimediaOptions = options.wikimediaOptions || {};
   const imageOptions = options.imageOptions || {};
 
   await pexelsRunner(item, { ...pexelsOptions, warnings });
+  if (options.pixabayRunner || (!options.pexelsRunner && !options.wikimediaRunner)) {
+    await pixabayRunner(item, { ...pixabayOptions, warnings });
+  }
   await wikimediaRunner(item, { ...wikimediaOptions, warnings });
   // Openverse dihapus — API tidak stabil (sering 502). Slot gambar ditangani
   // sepenuhnya oleh Wikimedia Commons + OpenAI image generation.
@@ -818,6 +824,123 @@ export async function ensureWikimediaMedia(item, options = {}) {
     )
   )).length;
   console.log(`[Wikimedia] Total media Commons valid: ${selectedCount}/${maxAssets}.`);
+}
+
+function isPixabayMedia(asset) {
+  return asset?.provider === "pixabay" || asset?.pixabayId !== undefined;
+}
+
+/**
+ * Isi slot video/gambar yang belum terisi Pexels menggunakan Pixabay API gratis.
+ * Mendukung video MP4 (landscape 1080p/720p) dan foto horizontal resolusi tinggi.
+ */
+export async function ensurePixabayMedia(item, options = {}) {
+  const warnings = options.warnings || [];
+  const fetchMedia = options.fetchMedia || fetchPixabayMediaForScene;
+  const persistItem = options.persistItem || saveItem;
+  const mediaExists = createMediaExists(options.fileExists || pathExists);
+  const maxAssets = Math.max(0, Math.floor(Number(
+    options.maxAssets ?? config.pixabay?.maxAssetsPerVideo
+  ) || 10));
+
+  if (!config.pixabay?.enabled || !config.pixabay?.apiKey || maxAssets === 0) {
+    return;
+  }
+
+  item.assets = item.assets || {};
+  const slots = flattenPexelsSegments(item);
+  const managedSlots = new Set(slots.map((slot) => slot.slot));
+  const images = [];
+  const clips = [];
+  const occupiedSlots = new Set();
+  let prunedStaleMedia = false;
+
+  for (const image of item.assets.images || []) {
+    const slot = segmentSlot(image.sceneIndex, image.segmentIndex);
+    if (!managedSlots.has(slot)) {
+      images.push(image);
+      continue;
+    }
+    if (await mediaExists(image.path)) {
+      images.push(image);
+      occupiedSlots.add(slot);
+    } else {
+      prunedStaleMedia = true;
+    }
+  }
+
+  for (const clip of item.assets.clips || []) {
+    const slot = segmentSlot(clip.sceneIndex, clip.segmentIndex);
+    if (!managedSlots.has(slot)) {
+      clips.push(clip);
+      continue;
+    }
+    if (await mediaExists(clip.path)) {
+      clips.push(clip);
+      occupiedSlots.add(slot);
+    } else {
+      prunedStaleMedia = true;
+    }
+  }
+
+  item.assets.images = sortByScene(images);
+  item.assets.clips = sortByScene(clips);
+  if (prunedStaleMedia) {
+    item.updatedAt = nowIso();
+    await persistItem(item);
+  }
+
+  const existingPixabayCount = [...images, ...clips].filter((asset) => (
+    isPixabayMedia(asset) && managedSlots.has(segmentSlot(asset.sceneIndex, asset.segmentIndex))
+  )).length;
+
+  const remainingQuota = Math.max(0, maxAssets - existingPixabayCount);
+  if (remainingQuota === 0) return;
+
+  const jobs = slots
+    .filter((slot) => (
+      !occupiedSlots.has(slot.slot)
+      && slot.hasSearchIntent
+      && !slot.explicitImageFallback
+    ))
+    .slice(0, remainingQuota);
+
+  if (!jobs.length) return;
+
+  console.log(`[Pixabay] Mencari media untuk ${jobs.length} slot kosong.`);
+  let addedCount = 0;
+
+  for (const job of jobs) {
+    try {
+      const media = await fetchMedia({
+        itemId: item.id,
+        scene: job.segScene,
+        topicFallback: item.input?.topic || "",
+        preferVideo: config.pixabay?.preferVideo ?? true
+      });
+
+      if (media && media.path && await mediaExists(media.path, { refresh: true })) {
+        const isVideo = String(media.path).endsWith(".mp4") || Number(media.duration || 0) > 0;
+        if (isVideo) {
+          clips.push(media);
+        } else {
+          images.push(media);
+        }
+        occupiedSlots.add(job.slot);
+        addedCount++;
+      }
+    } catch (err) {
+      console.warn(`[Pixabay] Error slot ${job.slot}: ${err.message}`);
+    }
+  }
+
+  item.assets.clips = sortByScene(clips);
+  item.assets.images = sortByScene(images);
+  if (addedCount > 0) {
+    item.updatedAt = nowIso();
+    await persistItem(item);
+    console.log(`[Pixabay] Berhasil menambahkan ${addedCount} aset media ke video.`);
+  }
 }
 
 /**

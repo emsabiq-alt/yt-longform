@@ -127,7 +127,7 @@ export function buildSourcesBlock(item) {
  * provider: menambah sumber baru tanpa memperbarui daftar akan diam-diam
  * menghilangkan atribusi, dan itu melanggar syarat lisensi CC BY.
  */
-const ATTRIBUTION_PROVIDERS = new Set(["wikimedia", "openverse", "wikidata"]);
+const ATTRIBUTION_PROVIDERS = new Set(["wikimedia", "openverse", "wikidata", "pixabay"]);
 
 export function buildMediaAttributionBlock(item) {
   const rawAssets = [
@@ -140,7 +140,8 @@ export function buildMediaAttributionBlock(item) {
   const seen = new Set();
   const assets = [];
   for (const asset of rawAssets) {
-    const pageId = oneLine(asset.wikimediaPageId, 40);
+    const isPixabay = asset.provider === "pixabay";
+    const pageId = !isPixabay ? oneLine(asset.wikimediaPageId, 40) : "";
     const sourceUrl = pageId
       ? `https://commons.wikimedia.org/?curid=${encodeURIComponent(pageId)}`
       : oneLine(asset.sourceUrl, 300);
@@ -148,10 +149,10 @@ export function buildMediaAttributionBlock(item) {
     if (!key || seen.has(key)) continue;
     seen.add(key);
     assets.push({
-      title: oneLine(asset.title || asset.wikimediaPageTitle || "Media berlisensi terbuka", 100),
-      creator: oneLine(asset.creator || "Kontributor Wikimedia Commons", 90),
-      license: oneLine(asset.license || "Lisensi pada halaman sumber", 50),
-      licenseUrl: oneLine(asset.licenseUrl, 300),
+      title: oneLine(asset.title || asset.pixabayTags || asset.wikimediaPageTitle || (isPixabay ? "Media Pixabay" : "Media berlisensi terbuka"), 100),
+      creator: oneLine(asset.creator || (isPixabay ? (asset.user || "Kontributor Pixabay") : "Kontributor Wikimedia Commons"), 90),
+      license: oneLine(asset.license || (isPixabay ? "Pixabay Content License" : "Lisensi pada halaman sumber"), 50),
+      licenseUrl: oneLine(asset.licenseUrl || (isPixabay ? "https://pixabay.com/service/license-summary/" : ""), 300),
       sourceUrl
     });
   }

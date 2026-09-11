@@ -208,6 +208,15 @@ export const config = {
     blackKeySimilarity: Math.min(1, Math.max(0.01, numberEnv("PEXELS_BLACK_KEY_SIMILARITY", 0.16))),
     blackKeyBlend: Math.min(1, Math.max(0, numberEnv("PEXELS_BLACK_KEY_BLEND", 0.08)))
   },
+  pixabay: {
+    apiKey: clean(process.env.PIXABAY_API_KEY || "57557703-d564c9ce2e7c62284ab235767"),
+    enabled: boolDefault(process.env.PIXABAY_ENABLED, true),
+    preferVideo: boolDefault(process.env.PIXABAY_PREFER_VIDEO, true),
+    maxAssetsPerVideo: Math.max(0, Math.min(20, Math.floor(numberEnv("PIXABAY_MAX_ASSETS_PER_VIDEO", 10)))),
+    maxResults: Math.max(1, Math.min(50, Math.floor(numberEnv("PIXABAY_MAX_RESULTS", 15)))),
+    timeoutMs: Math.max(3000, numberEnv("PIXABAY_TIMEOUT_MS", 15000)),
+    downloadTimeoutMs: Math.max(5000, numberEnv("PIXABAY_DOWNLOAD_TIMEOUT_MS", 120000))
+  },
   wikimedia: {
     // Commons gratis dan tidak memakai API key. Default lisensi dibuat
     // konservatif: Public Domain, CC0, dan CC BY.
