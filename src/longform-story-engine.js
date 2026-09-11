@@ -12,6 +12,7 @@ import { buildScenePattern, formatTypeDescription, formatTypeNarrativeCue, pickF
 import { getViralAngleById, pickViralAngle, viralAngleSummary } from "./viral-angle-library.js";
 import { polishPlanForLayAudience, simplifyForLayAudience } from "./story-language.js";
 import { normalizeSpotlight } from "./spotlight.js";
+import { enrichTrendNewsItems, fetchNewsArticlesForTopic } from "./news-research.js";
 
 // Kontrak durasi longform, dipakai bersama config, API, workflow, dan render.
 export const DEFAULT_DURATION_SEC = 1200;
@@ -156,6 +157,27 @@ export async function createLongformDraft(rawInput) {
       }
     }
   }
+
+  // Grounding berita & fakta Google News (otomatis untuk tren cron maupun topik manual/evergreen)
+  if (seed.trend?.newsItems?.length) {
+    try {
+      await enrichTrendNewsItems(seed.trend);
+      console.log(`[NewsResearch] Memperkaya ${seed.trend.newsItems.length} artikel berita untuk topik tren.`);
+    } catch (error) {
+      console.warn(`[NewsResearch] Gagal memperkaya artikel tren: ${error.message}`);
+    }
+  } else if (!seed.trend && cleanText(seed.topic, 4)) {
+    try {
+      const autoTrend = await fetchNewsArticlesForTopic(seed.topic);
+      if (autoTrend?.newsItems?.length) {
+        seed.trend = autoTrend;
+        console.log(`[NewsResearch] Auto-grounding berhasil: ${autoTrend.newsItems.length} artikel berita untuk "${seed.topic}".`);
+      }
+    } catch (error) {
+      console.warn(`[NewsResearch] Auto-grounding lewati: ${error.message}`);
+    }
+  }
+
   const input = normalizeInput(seed);
 
   // Grounding fakta dari Wikipedia (gratis, tanpa API key). Hanya saat OpenAI aktif
@@ -322,7 +344,8 @@ function normalizeTrend(trend) {
       outlet: cleanText(item?.outlet || item?.source || "", 100),
       url: cleanText(item?.url || "", 500),
       publishedAt: cleanText(item?.publishedAt || "", 80),
-      excerpt: cleanText(item?.excerpt || "", 700)
+      excerpt: cleanText(item?.excerpt || "", 700),
+      imageUrl: cleanText(item?.imageUrl || "", 500) || null
     }))
     .filter((item) => item.headline && item.outlet)
     .slice(0, 12);

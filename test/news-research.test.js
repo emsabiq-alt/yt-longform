@@ -1,0 +1,137 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  buildQueryCandidates,
+  parseGoogleNewsXml,
+  scrapeArticleContent,
+  fetchNewsArticlesForTopic,
+  enrichTrendNewsItems
+} from "../src/news-research.js";
+
+test("buildQueryCandidates: membersihkan stopword dan kata hook YouTube", () => {
+  const query = "Misteri Danau Toba Letusan Dahsyat Supervolcano Yang Pernah Mengubah Iklim Dunia";
+  const candidates = buildQueryCandidates(query);
+
+  assert.ok(candidates.length >= 2, "Harus menghasilkan minimal 2 kandidat pencarian bertahap");
+  // Kandidat pertama membuang stopwords seperti "Misteri", "Dahsyat", "Yang", "Pernah"
+  assert.equal(candidates[0], "Danau Toba Letusan Supervolcano Mengubah Iklim Dunia");
+  // Entitas kunci 2 kata pertama tersedia
+  assert.ok(candidates.includes("Danau Toba"));
+  // Query asli utuh tetap ada sebagai fallback terakhir
+  assert.ok(candidates.includes(query));
+});
+
+test("parseGoogleNewsXml: mengekstrak judul, sumber media, dan tanggal", () => {
+  const sampleXml = `
+    <rss version="2.0">
+      <channel>
+        <item>
+          <title>Letusan Dahsyat Gunung Toba Purba - Kompas.com</title>
+          <link>https://sains.kompas.com/read/123</link>
+          <pubDate>Mon, 08 Sep 2026 12:00:00 GMT</pubDate>
+          <source url="https://kompas.com">Kompas.com</source>
+        </item>
+        <item>
+          <title>Dampak Letusan Toba Mengubah Iklim Bumi - CNN Indonesia</title>
+          <link>https://cnnindonesia.com/teknologi/456</link>
+          <pubDate>Tue, 09 Sep 2026 08:30:00 GMT</pubDate>
+          <source url="https://cnnindonesia.com">CNN Indonesia</source>
+        </item>
+      </channel>
+    </rss>
+  `;
+
+  const items = parseGoogleNewsXml(sampleXml);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].title, "Letusan Dahsyat Gunung Toba Purba");
+  assert.equal(items[0].outlet, "Kompas.com");
+  assert.equal(items[0].day, "2026-09-08");
+  assert.equal(items[1].outlet, "CNN Indonesia");
+  assert.equal(items[1].day, "2026-09-09");
+});
+
+test("scrapeArticleContent: mengekstrak excerpt dan og:image dari HTML", async () => {
+  const sampleHtml = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta property="og:image" content="https://asset.kompas.com/crop/toba.jpg" />
+      </head>
+      <body>
+        <p>Letusan Gunung Toba yang terjadi sekitar 74.000 tahun yang lalu merupakan salah satu letusan supervolcano terbesar di muka bumi yang memicu musim dingin vulkanik berkepanjangan.</p>
+      </body>
+    </html>
+  `;
+
+  const mockFetch = async () => ({
+    ok: true,
+    headers: { get: () => "text/html; charset=utf-8" },
+    text: async () => sampleHtml
+  });
+
+  const result = await scrapeArticleContent("https://kompas.com/test", { fetchImpl: mockFetch });
+  assert.ok(result);
+  assert.equal(result.imageUrl, "https://asset.kompas.com/crop/toba.jpg");
+  assert.match(result.excerpt, /Letusan Gunung Toba yang terjadi/);
+});
+
+test("enrichTrendNewsItems: memperkaya item yang belum memiliki excerpt", async () => {
+  const sampleHtml = `
+    <html>
+      <head><meta property="og:image" content="https://img.tempo.co/photo.jpg" /></head>
+      <body><p>Riset terbaru mengungkap volume material abu vulkanik mencapai ribuan kilometer kubik.</p></body>
+    </html>
+  `;
+
+  const mockFetch = async () => ({
+    ok: true,
+    headers: { get: () => "text/html" },
+    text: async () => sampleHtml
+  });
+
+  const trend = {
+    title: "Danau Toba",
+    newsItems: [
+      { headline: "Riset Toba", outlet: "Tempo.co", url: "https://tempo.co/1", excerpt: null, imageUrl: null },
+      { headline: "Fakta Toba", outlet: "Kompas.com", url: "https://kompas.com/2", excerpt: "Sudah ada excerpt", imageUrl: "https://k.com/img.jpg" }
+    ]
+  };
+
+  await enrichTrendNewsItems(trend, { fetchImpl: mockFetch });
+  assert.match(trend.newsItems[0].excerpt, /Riset terbaru mengungkap volume/);
+  assert.equal(trend.newsItems[0].imageUrl, "https://img.tempo.co/photo.jpg");
+  // Item ke-2 yang sudah punya excerpt tidak tertimpa
+  assert.equal(trend.newsItems[1].excerpt, "Sudah ada excerpt");
+});
+
+test("fetchNewsArticlesForTopic: menggunakan progressive fallback saat query pertama gagal", async () => {
+  const sampleXml = `
+    <rss version="2.0">
+      <channel>
+        <item>
+          <title>Mengenal Kaldera Danau Toba - National Geographic</title>
+          <link>https://natgeo.grid.id/toba</link>
+          <pubDate>Wed, 10 Sep 2026 10:00:00 GMT</pubDate>
+          <source>National Geographic</source>
+        </item>
+      </channel>
+    </rss>
+  `;
+
+  const mockFetch = async (url) => {
+    // Simulasi: query pertama (yang panjang/penuh) mengembalikan RSS kosong
+    if (url.includes("Danau%20Toba%20Letusan%20Supervolcano%20Mengubah%20Iklim%20Dunia")) {
+      return { ok: true, text: async () => "<rss><channel></channel></rss>" };
+    }
+    // Query kandidat kedua atau ketiga berhasil
+    return { ok: true, text: async () => sampleXml };
+  };
+
+  const trendResult = await fetchNewsArticlesForTopic("Misteri Danau Toba Letusan Dahsyat Supervolcano Yang Pernah Mengubah Iklim Dunia", {
+    fetchImpl: mockFetch
+  });
+
+  assert.ok(trendResult, "Harus menghasilkan objek trend dari kandidat berikutnya");
+  assert.equal(trendResult.newsItems.length, 1);
+  assert.equal(trendResult.newsItems[0].title, "Mengenal Kaldera Danau Toba");
+});
