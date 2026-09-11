@@ -148,3 +148,16 @@ test("remoteMissingEnv: deteksi env wajib yang kosong; privateKey menggantikan p
   });
   assert.deepEqual(withKey, []);
 });
+
+import { buildQueryCandidates } from "../api/research.js";
+
+test("buildQueryCandidates: membersihkan stopwords dan menghasilkan kandidat pencarian berita cerdas", () => {
+  const query = "Misteri Danau Toba Letusan Dahsyat Supervolcano Yang Pernah Mengubah Iklim Dunia";
+  const candidates = buildQueryCandidates(query);
+  assert.ok(candidates.length >= 2, "Harus menghasilkan lebih dari 1 kandidat");
+  assert.ok(candidates[0].includes("Danau Toba"), "Kandidat utama harus memuat Danau Toba");
+  assert.ok(!candidates[0].toLowerCase().includes("misteri"), "Stopword 'misteri' harus dibuang");
+  assert.ok(!candidates[0].toLowerCase().includes("yang"), "Stopword 'yang' harus dibuang");
+  assert.ok(candidates.includes(query), "Query asli harus tetap disertakan sebagai fallback terakhir");
+});
+

@@ -5,6 +5,39 @@
  * artikel relevan dan scrape isinya untuk dijadikan bahan video.
  */
 
+const STOPWORDS = new Set([
+  "misteri", "rahasia", "kenapa", "mengapa", "bagaimana", "apa", "fakta",
+  "dahsyat", "viral", "terbaru", "terkuak", "luar", "biasa", "heboh",
+  "yang", "dan", "di", "ke", "dari", "untuk", "pada", "dengan", "ini", "itu",
+  "pernah", "bisa", "akan", "telah", "sudah", "bikin", "membuat", "jadi", "saat",
+  "adalah", "yaitu", "sebuah", "seorang", "para", "kaum", "tentang", "kala",
+  "menurut", "hingga", "sampai", "oleh"
+]);
+
+export function buildQueryCandidates(rawQuery) {
+  const q = String(rawQuery || "").trim().slice(0, 200);
+  const words = q.split(/\s+/).filter(Boolean);
+  const meaningful = words.filter(w => !STOPWORDS.has(w.toLowerCase().replace(/[^a-z0-9à-ÿ]/gi, "")));
+
+  const candidates = [];
+  // 1. Kata kunci esensial (tanpa kata filler/hook YouTube)
+  if (meaningful.length >= 2) {
+    candidates.push(meaningful.join(" "));
+  }
+  // 2. Jika panjang, ambil 3-4 kata entitas utama
+  if (meaningful.length > 3) {
+    candidates.push(meaningful.slice(0, 4).join(" "));
+  }
+  // 3. Pasangan 2 kata kunci pertama (misal "Danau Toba")
+  if (meaningful.length >= 2) {
+    candidates.push(meaningful.slice(0, 2).join(" "));
+  }
+  // 4. Query asli utuh
+  candidates.push(q);
+
+  return [...new Set(candidates.filter(c => c && c.length >= 3))];
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: `Method ${req.method} tidak didukung.` });
 
@@ -14,23 +47,38 @@ export default async function handler(req, res) {
   }
 
   const { query } = req.body || {};
-  if (!query || typeof query !== "string" || query.trim().length < 5) {
-    return res.status(400).json({ error: "Query minimal 5 karakter." });
+  if (!query || typeof query !== "string" || query.trim().length < 3) {
+    return res.status(400).json({ error: "Query minimal 3 karakter." });
   }
 
   try {
     const q = query.trim().slice(0, 200);
+    const candidates = buildQueryCandidates(q);
+    let rawItems = [];
+    let matchedQuery = q;
 
-    // Cari di Google News RSS
-    const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(q + " when:30d")}&hl=id&gl=ID&ceid=ID%3Aid`;
-    const rssRes = await fetch(rssUrl, {
-      headers: { "User-Agent": "yt-longform-studio/1.0" },
-      signal: AbortSignal.timeout(12_000)
-    });
-    if (!rssRes.ok) throw new Error(`Google News RSS HTTP ${rssRes.status}`);
+    // Cari secara progresif: dari kata kunci esensial hingga query penuh
+    for (const queryStr of candidates) {
+      try {
+        const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(queryStr)}&hl=id&gl=ID&ceid=ID%3Aid`;
+        const rssRes = await fetch(rssUrl, {
+          headers: { "User-Agent": "yt-longform-studio/1.0" },
+          signal: AbortSignal.timeout(8_000)
+        });
+        if (rssRes.ok) {
+          const xml = await rssRes.text();
+          const items = parseRss(xml);
+          if (items.length > 0) {
+            rawItems = items;
+            matchedQuery = queryStr;
+            break;
+          }
+        }
+      } catch (err) {
+        console.warn(`[research] Query candidate "${queryStr}" error:`, err.message);
+      }
+    }
 
-    const xml = await rssRes.text();
-    const rawItems = parseRss(xml);
     if (!rawItems.length) {
       return res.status(200).json({ query: q, articles: [], message: "Tidak ada berita ditemukan untuk topik ini." });
     }
