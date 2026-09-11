@@ -365,10 +365,9 @@ function trendPromptBlock(trend) {
     `BERITA RSS TERKAIT TOPIK (${trend.title || "tren terpilih"}):`,
     headlines,
     "",
-    "ATURAN SUMBER MEDIA DAN KUTIPAN:",
-    "- Pada 2-4 scene image yang benar-benar membahas salah satu berita, sebut outlet secara eksplisit: 'Menurut Kompas.com,...', 'Tempo.co melaporkan...', 'Dilansir dari Detik.com,...'.",
-    "- Scene yang menyebut outlet tersebut WAJIB memiliki mediaSource: { outlet, headline, url, publishedAt } yang disalin PERSIS dari item di atas.",
-    "- Jangan menambahkan mediaSource pada scene yang narasinya tidak menyebut outlet itu.",
+    "ATURAN SUMBER MEDIA DAN KUTIPAN (DEVICE MOCKUP OVERLAY):",
+    "- Pada 2-4 scene image yang membahas berita atau referensi penting, sertakan field mediaSource: { outlet, headline, url, publishedAt } yang disalin dari item di atas agar tampil di mockup smartphone/tablet.",
+    "- Narasi boleh menyebut nama outlet secara alami atau langsung memaparkan faktanya secara mendalam.",
     ...(hasExcerpts ? [
       "KUTIPAN LANGSUNG (WAJIB jika ISI ARTIKEL tersedia):",
       "- Jika item memiliki 'ISI ARTIKEL', gunakan kalimat atau frasa konkret dari sana untuk memperkuat narasi scene terkait.",
@@ -458,6 +457,9 @@ function buildPrompt(input, wiki = null) {
     "- type 'figure': SELALU isi sublabel dengan jabatan/peran tokoh (misal 'Menteri ESDM', 'Gubernur Jawa Barat', 'Direktur Utama PLN').",
     "- phrase = potongan 4-8 kata yang DISALIN PERSIS dari narration scene itu, tepat pada bagian saat nama tokoh atau fakta tersebut diucapkan. Jangan parafrase; kalau tidak bisa menyalin persis, hilangkan field spotlight untuk scene itu.",
     "- Jangan memberi spotlight pada scene reaction atau summary.",
+    "",
+    "MOCKUP GADGET (SMARTPHONE / TABLET OVERLAY):",
+    "- Pada 2-3 scene bertipe image yang membahas data, riset, artikel berita, arsip dokumen, atau kutipan penting, sertakan field mediaSource: { outlet, headline } (misal outlet: 'Arsip Dokumen / Riset Ilmiah / Media', headline: 'Poin Fakta Kunci'). Sistem akan otomatis menampilkan mockup device smartphone/tablet yang estetik pada scene tersebut.",
     `CATATAN KATEGORI (${input.category}): ${categoryNote}`,
     `VARIASI CERITA UNTUK NASKAH INI: ${variation}`,
     `KEMASAN VIRAL UTAMA:\n${viralBlock}`,
@@ -545,15 +547,20 @@ function buildPrompt(input, wiki = null) {
 }
 
 function normalizeMediaSource(value, narration, trend) {
-  if (!value || typeof value !== "object" || !trend?.newsItems?.length) return null;
+  if (!value || typeof value !== "object") return null;
   const outlet = cleanText(value.outlet || value.source || "", 100);
   const headline = cleanText(value.headline || value.title || "", 240);
-  const match = trend.newsItems.find((item) =>
-    normalizedOutletKey(item.outlet) === normalizedOutletKey(outlet)
-      && normalizedHeadlineKey(item.headline) === normalizedHeadlineKey(headline)
-  );
-  if (!match) return null;
-  return narrationNamesOutlet(narration, match.outlet) ? { ...match } : null;
+  if (!outlet && !headline) return null;
+
+  if (trend?.newsItems?.length) {
+    const match = trend.newsItems.find((item) =>
+      (outlet && normalizedOutletKey(item.outlet) === normalizedOutletKey(outlet))
+        || (headline && normalizedHeadlineKey(item.headline) === normalizedHeadlineKey(headline))
+        || (outlet && String(item.outlet || item.source || "").toLowerCase().includes(outlet.toLowerCase()))
+    );
+    if (match) return { ...match };
+  }
+  return { outlet: outlet || "Media Terkait", headline: headline || "" };
 }
 
 /**

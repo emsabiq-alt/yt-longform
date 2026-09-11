@@ -98,10 +98,17 @@ async function scrapeArticleFull(url) {
       .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
       .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
       .replace(/\s{2,}/g, " ").trim();
-    // Ekstrak og:image
-    const imgMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i)
-      || html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
-    const imageUrl = imgMatch?.[1]?.trim() || null;
+    // Ekstrak og:image / twitter:image
+    const imgMatch = html.match(/<meta[^>]+(?:property|name)=["'](?:og:image|og:image:url|og:image:secure_url|twitter:image|twitter:image:src)["'][^>]*content=["']([^"']+)["']/i)
+      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image|og:image:url|og:image:secure_url|twitter:image|twitter:image:src)["']/i);
+    let imageUrl = imgMatch?.[1]?.trim() || null;
+    if (imageUrl) {
+      imageUrl = imageUrl.replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+      if (imageUrl.startsWith("//")) imageUrl = `https:${imageUrl}`;
+      if (!imageUrl.startsWith("http")) {
+        try { imageUrl = new URL(imageUrl, res.url || url).href; } catch { imageUrl = null; }
+      }
+    }
 
     if (clean.length < 100) return null;
     return { excerpt: clean.slice(0, 700).trim(), imageUrl };

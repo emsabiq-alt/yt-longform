@@ -59,34 +59,92 @@ function even(n) {
 }
 
 /**
+ * Scrape og:image atau twitter:image langsung dari URL artikel berita jika belum ada imageUrl.
+ */
+export async function scrapeOgImage(url) {
+  if (!url || typeof url !== "string" || !url.startsWith("http")) return null;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "id-ID,id;q=0.9,en;q=0.8"
+      },
+      signal: AbortSignal.timeout(10_000),
+      redirect: "follow"
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const match = html.match(/<meta[^>]+(?:property|name)=["'](?:og:image|og:image:url|og:image:secure_url|twitter:image|twitter:image:src)["'][^>]*content=["']([^"']+)["']/i)
+      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image|og:image:url|og:image:secure_url|twitter:image|twitter:image:src)["']/i);
+    let imgUrl = match?.[1]?.trim() || null;
+    if (!imgUrl) return null;
+    imgUrl = imgUrl.replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+    if (imgUrl.startsWith("//")) imgUrl = `https:${imgUrl}`;
+    if (!imgUrl.startsWith("http")) {
+      try { imgUrl = new URL(imgUrl, res.url || url).href; } catch { /* ignore */ }
+    }
+    return imgUrl.startsWith("http") ? imgUrl : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Download og:image dari newsItems yang cocok dengan mediaSource tiap scene.
+ * Mendukung mode berita (Tab Tren/Ide) dan fallback gambar scene (Tab Buat).
  * Hasil: item.assets.newsImages = [{ sceneIndex, headline, outlet, imageUrl, imagePath }]
  */
 export async function ensureNewsImages(item) {
   const scenes = item.plan?.scenes || [];
   const newsImages = [];
+  const newsItems = item.input?.trend?.newsItems || [];
 
+  // 1. Ambil scene yang secara eksplisit memiliki mediaSource
   for (const scene of scenes) {
     const src = scene.mediaSource;
-    if (!src?.outlet) continue;
+    if (!src?.outlet && !src?.headline) continue;
 
-    const newsItems = item.input?.trend?.newsItems || [];
     const match = newsItems.find((ni) =>
-      ni.imageUrl && (
-        String(ni.outlet || ni.source || "").toLowerCase().includes(String(src.outlet || "").toLowerCase()) ||
-        String(src.outlet || "").toLowerCase().includes(String(ni.outlet || ni.source || "").toLowerCase())
-      )
+      (ni.outlet && src.outlet && String(ni.outlet).toLowerCase().includes(String(src.outlet).toLowerCase())) ||
+      (ni.source && src.outlet && String(ni.source).toLowerCase().includes(String(src.outlet).toLowerCase())) ||
+      (ni.headline && src.headline && String(ni.headline).toLowerCase().includes(String(src.headline).toLowerCase()))
     );
-    if (!match?.imageUrl) continue;
+
     if (newsImages.some((n) => n.sceneIndex === Number(scene.index))) continue;
 
     newsImages.push({
       sceneIndex: Number(scene.index),
-      headline: String(src.headline || match.headline || "").slice(0, 120),
-      outlet: String(src.outlet || match.outlet || ""),
-      imageUrl: match.imageUrl,
+      headline: String(src.headline || match?.headline || match?.title || "").slice(0, 120),
+      outlet: String(src.outlet || match?.outlet || match?.source || "Media Terkait").slice(0, 60),
+      imageUrl: match?.imageUrl || src.imageUrl || null,
+      url: match?.url || src.url || null,
       imagePath: null
     });
+  }
+
+  // 2. Jika tidak ada scene dengan mediaSource (misal tab Buat, atau AI lupa menyertakan),
+  // pilih 1-2 scene bertipe image sebagai kandidat device mockup agar video tetap punya variasi visual
+  if (!newsImages.length && scenes.length >= 2) {
+    const candidateScenes = scenes.filter((s) => s.sceneType === "image" || !s.sceneType);
+    const targets = [
+      candidateScenes[1] || candidateScenes[0],
+      candidateScenes[Math.min(5, candidateScenes.length - 1)]
+    ].filter(Boolean);
+
+    const uniqueTargets = [...new Set(targets)];
+    for (let i = 0; i < uniqueTargets.length; i++) {
+      const scene = uniqueTargets[i];
+      const ni = newsItems[i] || null;
+      newsImages.push({
+        sceneIndex: Number(scene.index),
+        headline: String(ni?.headline || ni?.title || scene.screenText || item.input?.topic || "").slice(0, 120),
+        outlet: String(ni?.outlet || ni?.source || (ni ? "Berita Terkini" : "Dokumen Referensi")).slice(0, 60),
+        imageUrl: ni?.imageUrl || null,
+        url: ni?.url || null,
+        imagePath: null
+      });
+    }
   }
 
   if (!newsImages.length) return;
@@ -96,14 +154,41 @@ export async function ensureNewsImages(item) {
   await fs.mkdir(newsDir, { recursive: true });
 
   await Promise.allSettled(newsImages.map(async (entry) => {
-    try {
-      const ext = entry.imageUrl.match(/\.(jpe?g|png|webp)/i)?.[1]?.replace("jpeg", "jpg") || "jpg";
-      const dest = path.join(newsDir, `news-scene-${entry.sceneIndex}.${ext}`);
-      await downloadImage(entry.imageUrl, dest);
-      entry.imagePath = dest;
-      console.log(`[NewsImage] Scene ${entry.sceneIndex} (${entry.outlet}) → ${path.basename(dest)}`);
-    } catch (err) {
-      console.warn(`[NewsImage] Scene ${entry.sceneIndex} gagal: ${err.message}`);
+    // A. Jika belum ada imageUrl tetapi ada URL artikel, coba scraping og:image on-the-fly
+    if (!entry.imageUrl && entry.url) {
+      const scraped = await scrapeOgImage(entry.url);
+      if (scraped) {
+        entry.imageUrl = scraped;
+        console.log(`[NewsImage] Scene ${entry.sceneIndex}: og:image berhasil di-scrape → ${scraped}`);
+      }
+    }
+
+    // B. Coba download gambar berita jika ada imageUrl
+    if (entry.imageUrl) {
+      try {
+        const ext = entry.imageUrl.match(/\.(jpe?g|png|webp)/i)?.[1]?.replace("jpeg", "jpg") || "jpg";
+        const dest = path.join(newsDir, `news-scene-${entry.sceneIndex}.${ext}`);
+        await downloadImage(entry.imageUrl, dest);
+        entry.imagePath = dest;
+        console.log(`[NewsImage] Scene ${entry.sceneIndex} (${entry.outlet}) → ${path.basename(dest)}`);
+      } catch (err) {
+        console.warn(`[NewsImage] Scene ${entry.sceneIndex} download gambar berita gagal: ${err.message}`);
+      }
+    }
+
+    // C. Fallback: jika gambar berita tidak ada atau gagal unduh, gunakan aset gambar scene yang sudah ada (Tab Buat)
+    if (!entry.imagePath) {
+      const sceneImg = (item.assets?.images || []).find((img) => Number(img.sceneIndex) === entry.sceneIndex);
+      if (sceneImg?.path) {
+        entry.imagePath = sceneImg.path;
+        console.log(`[NewsImage] Scene ${entry.sceneIndex} memakai fallback gambar scene: ${path.basename(sceneImg.path)}`);
+      } else {
+        const anyImg = (item.assets?.images || [])[0];
+        if (anyImg?.path) {
+          entry.imagePath = anyImg.path;
+          console.log(`[NewsImage] Scene ${entry.sceneIndex} memakai fallback gambar alternatif: ${path.basename(anyImg.path)}`);
+        }
+      }
     }
   }));
 
@@ -241,9 +326,10 @@ async function makeDeviceMockupClip({ newsImagePath, templatePath, outputPath, d
   const filters = [
     // Scale template
     `[1:v]scale=${targetTemplateW}:${targetTemplateH}[tmpl]`,
-    // Scale & pad foto berita ke area konten (letter/pillar box dengan black)
+    // Scale & pad foto berita ke area konten (letter/pillar box dengan black) + filter grain tipis
     `[0:v]scale=${contentW}:${contentH}:force_original_aspect_ratio=decrease,` +
-      `pad=${contentW}:${contentH}:(ow-iw)/2:(oh-ih)/2:black[content]`,
+      `pad=${contentW}:${contentH}:(ow-iw)/2:(oh-ih)/2:black,` +
+      `noise=alls=6:allf=t+u[content]`,
     // Overlay konten ke template di posisi layar
     `[tmpl][content]overlay=${contentOffX}:${contentOffY}[composite]`,
     // Chroma key: hapus green → background video utama akan terlihat
@@ -270,7 +356,10 @@ async function makeDeviceMockupClip({ newsImagePath, templatePath, outputPath, d
 
 async function downloadImage(imageUrl, destPath) {
   const res = await fetch(imageUrl, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; yt-longform/1.0)" },
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+    },
     signal: AbortSignal.timeout(DL_TIMEOUT_MS),
     redirect: "follow"
   });
