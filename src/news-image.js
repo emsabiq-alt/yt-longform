@@ -16,42 +16,41 @@ import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { paths } from "./config.js";
+import { resolveGoogleNewsUrl, isGoogleLogo } from "./news-research.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, "..", "assets");
 
 const DL_TIMEOUT_MS = 15_000;
 const OVERLAY_DURATION = 4.2; // detik ditampilkan per scene
-const FADE_DUR = 0.35;
+const SLIDE_DUR = 0.45; // detik durasi animasi slide masuk (bawah->atas) dan slide keluar (atas->bawah)
 
 /**
- * Konfigurasi layar dalam template greenscreen (koordinat pixel di dimensi asli file,
- * 2816×1536 untuk kedua template saat ini). Ukur ulang (mis. dengan scratch/detect_screen2.mjs)
- * kalau file template diganti — templateW/H harus sama persis dengan resolusi asli PNG-nya,
- * jika tidak, `scale` di makeDeviceMockupClip akan menstretch gambar secara non-proporsional.
+ * Konfigurasi layar dalam template mockup (koordinat pixel di dimensi asli file,
+ * 2816×1536 untuk kedua template saat ini). Koordinat dibatasi aman ke area hitam
+ * layar murni tanpa menyentuh bezel, tangan, atau background hijau.
  */
 const DEVICE_CONFIG = {
   phone: {
     templateFile: "phone-mockup.png",
     templateW: 2816,
     templateH: 1536,
-    // Area layar hitam di dalam template (sudah di-inset dari tepi layar asli)
-    screen: { x: 1132, y: 201, w: 606, h: 1026 }
+    // Area layar hitam aman di dalam template phone
+    screen: { x: 1195, y: 240, w: 410, h: 900 }
   },
   tablet: {
     templateFile: "tablet-mockup.png",
     templateW: 2816,
     templateH: 1536,
-    // Area layar hitam di dalam template tablet
-    screen: { x: 972, y: 198, w: 847, h: 1106 }
+    // Area layar hitam aman di dalam template tablet
+    screen: { x: 1010, y: 210, w: 780, h: 1070 }
   }
 };
 
-// Warna chroma key green yang dipakai di template (rata-rata terukur dari background asli,
-// yang punya vignette dari hijau terang di tengah ke lebih gelap di pojok).
+// Warna chroma key green yang dipakai di template.
 const CHROMA_COLOR = "0x3D9149";
-const CHROMA_SIMILARITY = "0.06";
-const CHROMA_BLEND = "0.04";
+const CHROMA_SIMILARITY = "0.07";
+const CHROMA_BLEND = "0.03";
 
 // Pastikan dimensi genap — filter scale/pad + encode yuva420p menolak lebar/tinggi ganjil.
 function even(n) {
@@ -60,13 +59,19 @@ function even(n) {
 
 /**
  * Scrape og:image atau twitter:image langsung dari URL artikel berita jika belum ada imageUrl.
+ * Menyelesaikan URL redirect Google News RSS dan menolak logo Google News.
  */
 export async function scrapeOgImage(url) {
   if (!url || typeof url !== "string" || !url.startsWith("http")) return null;
   try {
-    const res = await fetch(url, {
+    let targetUrl = url;
+    if (url.includes("news.google.com")) {
+      targetUrl = await resolveGoogleNewsUrl(url);
+    }
+
+    const res = await fetch(targetUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "id-ID,id;q=0.9,en;q=0.8"
       },
@@ -82,9 +87,10 @@ export async function scrapeOgImage(url) {
     imgUrl = imgUrl.replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"');
     if (imgUrl.startsWith("//")) imgUrl = `https:${imgUrl}`;
     if (!imgUrl.startsWith("http")) {
-      try { imgUrl = new URL(imgUrl, res.url || url).href; } catch { /* ignore */ }
+      try { imgUrl = new URL(imgUrl, res.url || targetUrl).href; } catch { /* ignore */ }
     }
-    return imgUrl.startsWith("http") ? imgUrl : null;
+    if (!imgUrl.startsWith("http") || isGoogleLogo(imgUrl)) return null;
+    return imgUrl;
   } catch {
     return null;
   }
@@ -154,6 +160,11 @@ export async function ensureNewsImages(item) {
   await fs.mkdir(newsDir, { recursive: true });
 
   await Promise.allSettled(newsImages.map(async (entry) => {
+    // 0. Bersihkan imageUrl jika terisi logo Google News
+    if (entry.imageUrl && isGoogleLogo(entry.imageUrl)) {
+      entry.imageUrl = null;
+    }
+
     // A. Jika belum ada imageUrl tetapi ada URL artikel, coba scraping og:image on-the-fly
     if (!entry.imageUrl && entry.url) {
       const scraped = await scrapeOgImage(entry.url);
@@ -273,12 +284,13 @@ export async function applyNewsImageOverlays(inputVideoPath, outputVideoPath, it
     const outLabel = idx === overlayClips.length - 1 ? "outv" : `tmp${idx}`;
     const st = o.startSec.toFixed(3);
     const en = o.endSec.toFixed(3);
-    // Center overlay di video
+    // Center horizontal, rapat ke batas layar bawah (resting Y = H - overlay_h).
+    // Animasi slide masuk dari bawah ke atas, lalu slide keluar kembali dari atas ke bawah.
     const posX = `(W-overlay_w)/2`;
-    const posY = `(H-overlay_h)/2`;
+    const posY = `if(lte(t,${st}+${SLIDE_DUR}),H-overlay_h*0.5*(1-cos(PI*(t-${st})/${SLIDE_DUR})),if(gte(t,${en}-${SLIDE_DUR}),(H-overlay_h)+overlay_h*0.5*(1-cos(PI*(t-(${en}-${SLIDE_DUR}))/${SLIDE_DUR})),H-overlay_h))`;
     filters.push(
       `[${inLabel}]setpts=PTS-STARTPTS+${st}/TB[ov${idx}]`,
-      `[${prevLabel}][ov${idx}]overlay=${posX}:${posY}:enable='between(t,${st},${en})':format=auto[${outLabel}]`
+      `[${prevLabel}][ov${idx}]overlay=x='${posX}':y='${posY}':enable='between(t,${st},${en})':format=auto[${outLabel}]`
     );
     prevLabel = outLabel;
   });
@@ -298,13 +310,14 @@ export async function applyNewsImageOverlays(inputVideoPath, outputVideoPath, it
 
 /**
  * Buat satu clip device mockup (4 detik) dengan foto berita di dalam layar.
- * Chroma key menghapus background hijau → tangan & device terlihat, BG transparan.
+ * Template di-chromakey dan di-despill TERLEBIH DAHULU, baru konten berita di-overlay di atasnya.
+ * Dengan cara ini, konten berita TIDAK PERNAH kena chroma key (tidak akan tembus/transparan).
  */
 async function makeDeviceMockupClip({ newsImagePath, templatePath, outputPath, deviceType, resolution, runFfmpeg }) {
   const cfg = DEVICE_CONFIG[deviceType];
   const is1080 = resolution === "1080p";
 
-  // Scale template ke 80% lebar video agar tidak terlalu besar
+  // Scale template ke 80% lebar video agar proporsional dan menempel rapat di bawah
   const videoW = is1080 ? 1920 : 1280;
   const targetTemplateW = even(Math.round(videoW * 0.80));
   const targetTemplateH = even(Math.round(targetTemplateW * cfg.templateH / cfg.templateW));
@@ -317,25 +330,24 @@ async function makeDeviceMockupClip({ newsImagePath, templatePath, outputPath, d
   const sW = even(Math.round(sc.w * scaleRatio));
   const sH = even(Math.round(sc.h * scaleRatio));
 
-  // Konten di dalam layar: 72% lebar layar, di-center (jangan terlalu lebar)
-  const contentW = even(Math.round(sW * 0.72));
-  const contentH = even(Math.round(sH * 0.72));
-  const contentOffX = even(sX + Math.round((sW - contentW) / 2));
-  const contentOffY = even(sY + Math.round((sH - contentH) / 2));
+  // Konten di dalam layar: mengisi seluruh area layar hitam aman
+  const contentW = sW;
+  const contentH = sH;
+  const contentOffX = sX;
+  const contentOffY = sY;
 
   const filters = [
-    // Scale template
-    `[1:v]scale=${targetTemplateW}:${targetTemplateH}[tmpl]`,
-    // Scale & pad foto berita ke area konten (letter/pillar box dengan black) + filter grain tipis
+    // 1. Scale template, chromakey green background, dan hilangkan sisa green spill pada tangan/device
+    `[1:v]scale=${targetTemplateW}:${targetTemplateH},` +
+      `chromakey=color=${CHROMA_COLOR}:similarity=${CHROMA_SIMILARITY}:blend=${CHROMA_BLEND},` +
+      `despill=green:expand=0.2[tmpl_keyed]`,
+    // 2. Scale & pad foto berita ke area layar dengan letter/pillar box hitam + filter grain tipis
     `[0:v]scale=${contentW}:${contentH}:force_original_aspect_ratio=decrease,` +
       `pad=${contentW}:${contentH}:(ow-iw)/2:(oh-ih)/2:black,` +
       `noise=alls=6:allf=t+u[content]`,
-    // Overlay konten ke template di posisi layar
-    `[tmpl][content]overlay=${contentOffX}:${contentOffY}[composite]`,
-    // Chroma key: hapus green → background video utama akan terlihat
-    `[composite]chromakey=color=${CHROMA_COLOR}:similarity=${CHROMA_SIMILARITY}:blend=${CHROMA_BLEND}[keyed]`,
-    // Fade in/out
-    `[keyed]fade=t=in:st=0:d=${FADE_DUR}:alpha=1,fade=t=out:st=${(OVERLAY_DURATION - FADE_DUR).toFixed(2)}:d=${FADE_DUR}:alpha=1[out]`
+    // 3. Overlay konten ke atas layar template yang sudah di-key.
+    // PENTING: Konten foto TIDAK PERNAH kena filter chromakey sehingga warna hijau foto tidak pernah tembus!
+    `[tmpl_keyed][content]overlay=${contentOffX}:${contentOffY}[out]`
   ];
 
   // libx264 tidak mendukung alpha channel (ffmpeg akan diam-diam fallback ke yuv420p dan

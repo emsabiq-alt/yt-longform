@@ -65,14 +65,106 @@ export function parseGoogleNewsXml(xml) {
   }).filter((it) => it.title && it.title.length > 8);
 }
 
+export function isGoogleLogo(imageUrl) {
+  if (!imageUrl || typeof imageUrl !== "string") return false;
+  const lower = imageUrl.toLowerCase();
+  return (
+    lower.includes("googleusercontent.com") ||
+    lower.includes("gstatic.com") ||
+    lower.includes("google.com") ||
+    lower.includes("google_news") ||
+    lower.includes("googlenews") ||
+    lower.includes("favicon") ||
+    lower.includes("logo_google") ||
+    lower.includes("default_news")
+  );
+}
+
+/**
+ * Pecahkan redirect Google News RSS (news.google.com/rss/articles/...)
+ * ke URL artikel penerbit berita aslinya via batch execute RPC Fbv4je.
+ */
+export async function resolveGoogleNewsUrl(googleNewsUrl, options = {}) {
+  if (!googleNewsUrl || typeof googleNewsUrl !== "string") return googleNewsUrl;
+  if (!googleNewsUrl.includes("news.google.com")) return googleNewsUrl;
+
+  const fetchImpl = options.fetchImpl || fetch;
+  const timeoutMs = options.timeoutMs || 8_000;
+
+  try {
+    const res = await fetchImpl(googleNewsUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "id-ID,id;q=0.9,en;q=0.8"
+      },
+      signal: AbortSignal.timeout(timeoutMs),
+      redirect: "follow"
+    });
+    if (!res.ok) return googleNewsUrl;
+    const html = await res.text();
+
+    const token = html.match(/data-n-a-id=["']([^"']+)["']/)?.[1]
+      || googleNewsUrl.match(/\/articles\/([A-Za-z0-9_-]+)/)?.[1];
+    const ts = html.match(/data-n-a-ts=["']([^"']+)["']/)?.[1];
+    const sg = html.match(/data-n-a-sg=["']([^"']+)["']/)?.[1];
+
+    if (token && ts && sg) {
+      const innerPayload = JSON.stringify([
+        "garturlreq",
+        [["en-US", "US", ["FINANCE_TOP_INDICES", "WEB_TEST_1_0_0"], null, null, 1, 1, "US:en", null, 180, null, null, null, null, null, 0, null, null, [1608, 16, 122, 556, 241, 251, 967]], "en-US", "US", 1, [2, 3, 4, 8], 1, 0, "655000234", 0, 0, null, 0],
+        token,
+        Number(ts),
+        sg
+      ]);
+      const fReq = JSON.stringify([[["Fbv4je", innerPayload, null, "generic"]]]);
+      const body = new URLSearchParams();
+      body.append("f.req", fReq);
+
+      const rpcRes = await fetchImpl("https://news.google.com/_/DotsSplashUi/data/batchexecute", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        },
+        body: body.toString(),
+        signal: AbortSignal.timeout(Math.min(6_000, timeoutMs))
+      });
+      if (rpcRes.ok) {
+        const rpcText = await rpcRes.text();
+        const match = rpcText.match(/garturlres[^\w]+(https?:\/\/[^\\"\s]+)/);
+        if (match?.[1] && match[1].startsWith("http")) {
+          return match[1];
+        }
+      }
+    }
+
+    // Fallback: cari direct external link di dalam page Google News
+    const cLink = html.match(/<c-wiz[\s\S]*?<a[^>]+href=["'](https?:\/\/[^"']+)["']/i);
+    if (cLink?.[1] && !cLink[1].includes("google.com")) {
+      return cLink[1];
+    }
+
+    return googleNewsUrl;
+  } catch {
+    return googleNewsUrl;
+  }
+}
+
 export async function scrapeArticleContent(url, options = {}) {
   const timeoutMs = options.timeoutMs || 8_000;
   const fetchImpl = options.fetchImpl || fetch;
   try {
-    const res = await fetchImpl(url, {
+    // Selesaikan URL redirect Google News jika ada
+    let targetUrl = url;
+    if (typeof url === "string" && url.includes("news.google.com")) {
+      targetUrl = await resolveGoogleNewsUrl(url, { fetchImpl, timeoutMs });
+    }
+
+    const res = await fetchImpl(targetUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "id-ID,id;q=0.9,en;q=0.8"
       },
       signal: AbortSignal.timeout(timeoutMs),
@@ -91,7 +183,11 @@ export async function scrapeArticleContent(url, options = {}) {
       imageUrl = imageUrl.replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"');
       if (imageUrl.startsWith("//")) imageUrl = `https:${imageUrl}`;
       if (!imageUrl.startsWith("http")) {
-        try { imageUrl = new URL(imageUrl, res.url || url).href; } catch { imageUrl = null; }
+        try { imageUrl = new URL(imageUrl, res.url || targetUrl).href; } catch { imageUrl = null; }
+      }
+      // Tolak jika gambar adalah logo/ikon Google News
+      if (isGoogleLogo(imageUrl)) {
+        imageUrl = null;
       }
     }
 
@@ -107,7 +203,7 @@ export async function scrapeArticleContent(url, options = {}) {
       .replace(/\s{2,}/g, " ").trim();
     const excerpt = clean.length >= 80 ? clean.slice(0, 700).trim() : null;
 
-    return { excerpt, imageUrl };
+    return { excerpt, imageUrl, resolvedUrl: targetUrl !== url ? targetUrl : null };
   } catch {
     return null;
   }
@@ -151,6 +247,7 @@ export async function fetchNewsArticlesForTopic(topic, options = {}) {
     const scraped = await scrapeArticleContent(item.url, { fetchImpl });
     item.excerpt = scraped?.excerpt || null;
     item.imageUrl = scraped?.imageUrl || null;
+    if (scraped?.resolvedUrl) item.url = scraped.resolvedUrl;
   }));
 
   const uniqueOutlets = new Set(topItems.map(it => it.outlet || it.source).filter(Boolean));
@@ -179,5 +276,6 @@ export async function enrichTrendNewsItems(trend, options = {}) {
     const scraped = await scrapeArticleContent(item.url, { fetchImpl });
     if (scraped?.excerpt) item.excerpt = scraped.excerpt;
     if (scraped?.imageUrl && !item.imageUrl) item.imageUrl = scraped.imageUrl;
+    if (scraped?.resolvedUrl) item.url = scraped.resolvedUrl;
   }));
 }

@@ -5,7 +5,9 @@ import {
   parseGoogleNewsXml,
   scrapeArticleContent,
   fetchNewsArticlesForTopic,
-  enrichTrendNewsItems
+  enrichTrendNewsItems,
+  resolveGoogleNewsUrl,
+  isGoogleLogo
 } from "../src/news-research.js";
 
 test("buildQueryCandidates: membersihkan stopword dan kata hook YouTube", () => {
@@ -135,3 +137,59 @@ test("fetchNewsArticlesForTopic: menggunakan progressive fallback saat query per
   assert.equal(trendResult.newsItems.length, 1);
   assert.equal(trendResult.newsItems[0].title, "Mengenal Kaldera Danau Toba");
 });
+
+test("isGoogleLogo: mendeteksi dan menolak URL logo/ikon Google News", () => {
+  assert.equal(isGoogleLogo("https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw"), true);
+  assert.equal(isGoogleLogo("https://gstatic.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"), true);
+  assert.equal(isGoogleLogo("https://news.google.com/favicon.ico"), true);
+  assert.equal(isGoogleLogo("https://sumbarsatu.com/assets/foto/berita/26/09/11211126601700394.jpg"), false);
+  assert.equal(isGoogleLogo("https://asset.kompas.com/crops/123/danau-toba.jpg"), false);
+});
+
+test("resolveGoogleNewsUrl: memecahkan token Google News ke URL artikel asli penerbit", async () => {
+  const fakeGnewsUrl = "https://news.google.com/rss/articles/CBMi12345";
+  const fakePublisherUrl = "https://sumbarsatu.com/berita/danau-toba-festival";
+
+  const mockFetch = async (url) => {
+    if (url.includes("batchexecute")) {
+      return {
+        ok: true,
+        text: async () => `)]}'\n\n[["wrb.fr","Fbv4je","[\\"garturlres\\",\\"${fakePublisherUrl}\\",1]"]]`
+      };
+    }
+    // Halaman redirect awal
+    return {
+      ok: true,
+      text: async () => `<div data-n-a-id="CBMi12345" data-n-a-ts="1789182626" data-n-a-sg="Ae5Wzi-XFU-p5C0jEaImjyq90iO9"></div>`
+    };
+  };
+
+  const resolved = await resolveGoogleNewsUrl(fakeGnewsUrl, { fetchImpl: mockFetch });
+  assert.equal(resolved, fakePublisherUrl);
+
+  // URL non-Google dikembalikan tanpa perubahan
+  const directUrl = "https://detik.com/berita/123";
+  assert.equal(await resolveGoogleNewsUrl(directUrl, { fetchImpl: mockFetch }), directUrl);
+});
+
+test("scrapeArticleContent: menolak og:image jika hanya berisi logo Google News", async () => {
+  const gnewsHtml = `
+    <html>
+      <head>
+        <meta property="og:image" content="https://lh3.googleusercontent.com/J6_coFbogxhRI9iM864NL_liGXvsQp2AupsKei7z0cNNfDvGUmWUy20nuUhkREQyrpY4bEeIBuc=s0-w300-rw" />
+      </head>
+      <body><p>Isi artikel berita pengujian Google News redirect.</p></body>
+    </html>
+  `;
+
+  const mockFetch = async () => ({
+    ok: true,
+    headers: { get: () => "text/html" },
+    text: async () => gnewsHtml
+  });
+
+  const res = await scrapeArticleContent("https://test.com/sample", { fetchImpl: mockFetch });
+  assert.ok(res);
+  assert.equal(res.imageUrl, null, "Logo Google News harus ditolak dan menghasilkan null");
+});
+

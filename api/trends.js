@@ -54,8 +54,9 @@ export default async function handler(req, res) {
         topic.newsItems.slice(0, 3).map(async (item) => {
           if (!item.url) return;
           const sc = await scrapeArticleFull(item.url);
-      item.excerpt = sc?.excerpt || null;
-      item.imageUrl = sc?.imageUrl || null;
+          item.excerpt = sc?.excerpt || null;
+          item.imageUrl = sc?.imageUrl || null;
+          if (sc?.resolvedUrl) item.url = sc.resolvedUrl;
         })
       )
     );
@@ -73,9 +74,91 @@ export default async function handler(req, res) {
   }
 }
 
+function isGoogleLogo(imageUrl) {
+  if (!imageUrl || typeof imageUrl !== "string") return false;
+  const lower = imageUrl.toLowerCase();
+  return (
+    lower.includes("googleusercontent.com") ||
+    lower.includes("gstatic.com") ||
+    lower.includes("google.com") ||
+    lower.includes("google_news") ||
+    lower.includes("googlenews") ||
+    lower.includes("favicon") ||
+    lower.includes("logo_google") ||
+    lower.includes("default_news")
+  );
+}
+
+async function resolveGoogleNewsUrl(googleNewsUrl) {
+  if (!googleNewsUrl || typeof googleNewsUrl !== "string") return googleNewsUrl;
+  if (!googleNewsUrl.includes("news.google.com")) return googleNewsUrl;
+  try {
+    const res = await fetch(googleNewsUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "id-ID,id;q=0.9,en;q=0.8"
+      },
+      signal: AbortSignal.timeout(8_000),
+      redirect: "follow"
+    });
+    if (!res.ok) return googleNewsUrl;
+    const html = await res.text();
+
+    const token = html.match(/data-n-a-id=["']([^"']+)["']/)?.[1]
+      || googleNewsUrl.match(/\/articles\/([A-Za-z0-9_-]+)/)?.[1];
+    const ts = html.match(/data-n-a-ts=["']([^"']+)["']/)?.[1];
+    const sg = html.match(/data-n-a-sg=["']([^"']+)["']/)?.[1];
+
+    if (token && ts && sg) {
+      const innerPayload = JSON.stringify([
+        "garturlreq",
+        [["en-US", "US", ["FINANCE_TOP_INDICES", "WEB_TEST_1_0_0"], null, null, 1, 1, "US:en", null, 180, null, null, null, null, null, 0, null, null, [1608, 16, 122, 556, 241, 251, 967]], "en-US", "US", 1, [2, 3, 4, 8], 1, 0, "655000234", 0, 0, null, 0],
+        token,
+        Number(ts),
+        sg
+      ]);
+      const fReq = JSON.stringify([[["Fbv4je", innerPayload, null, "generic"]]]);
+      const body = new URLSearchParams();
+      body.append("f.req", fReq);
+
+      const rpcRes = await fetch("https://news.google.com/_/DotsSplashUi/data/batchexecute", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        },
+        body: body.toString(),
+        signal: AbortSignal.timeout(6_000)
+      });
+      if (rpcRes.ok) {
+        const rpcText = await rpcRes.text();
+        const match = rpcText.match(/garturlres[^\w]+(https?:\/\/[^\\"\s]+)/);
+        if (match?.[1] && match[1].startsWith("http")) {
+          return match[1];
+        }
+      }
+    }
+
+    const cLink = html.match(/<c-wiz[\s\S]*?<a[^>]+href=["'](https?:\/\/[^"']+)["']/i);
+    if (cLink?.[1] && !cLink[1].includes("google.com")) {
+      return cLink[1];
+    }
+
+    return googleNewsUrl;
+  } catch {
+    return googleNewsUrl;
+  }
+}
+
 async function scrapeArticleFull(url) {
   try {
-    const res = await fetch(url, {
+    let targetUrl = url;
+    if (typeof url === "string" && url.includes("news.google.com")) {
+      targetUrl = await resolveGoogleNewsUrl(url);
+    }
+
+    const res = await fetch(targetUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -106,12 +189,15 @@ async function scrapeArticleFull(url) {
       imageUrl = imageUrl.replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"');
       if (imageUrl.startsWith("//")) imageUrl = `https:${imageUrl}`;
       if (!imageUrl.startsWith("http")) {
-        try { imageUrl = new URL(imageUrl, res.url || url).href; } catch { imageUrl = null; }
+        try { imageUrl = new URL(imageUrl, res.url || targetUrl).href; } catch { imageUrl = null; }
+      }
+      if (isGoogleLogo(imageUrl)) {
+        imageUrl = null;
       }
     }
 
     if (clean.length < 100) return null;
-    return { excerpt: clean.slice(0, 700).trim(), imageUrl };
+    return { excerpt: clean.slice(0, 700).trim(), imageUrl, resolvedUrl: targetUrl !== url ? targetUrl : null };
   } catch {
     return null;
   }
