@@ -179,4 +179,25 @@ test("extractSceneRealEntityQuery: mengekstrak nama tempat dan entitas konkret d
   assert.equal(q3, "BJ Habibie");
 });
 
+test("extractSceneRealEntityQuery: menangani visualKeywords string dan visualSegments tanpa error", () => {
+  const sceneStr = {
+    screenText: "Scene 1",
+    visualKeywords: "krakatau caldera eruption, volcanic ash",
+    visualSegments: [
+      { visualKeywords: "danau toba supervolcano" }
+    ]
+  };
+  const q = extractSceneRealEntityQuery(sceneStr, "Gunung Purba");
+  assert.equal(q, "krakatau caldera eruption");
+
+  const sceneSegStr = {
+    screenText: "Scene 2",
+    visualSegments: [
+      { visualKeywords: "candi borobudur megah" }
+    ]
+  };
+  const q2 = extractSceneRealEntityQuery(sceneSegStr, "Sejarah");
+  assert.equal(q2, "candi borobudur megah");
+});
+
 

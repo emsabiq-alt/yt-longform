@@ -108,11 +108,23 @@ export function extractSceneRealEntityQuery(scene, topic = "") {
   }
 
   // 2. Cek visualKeywords konkret (nama tempat, objek alam, fenomena)
-  const keywords = Array.isArray(scene.visualKeywords)
-    ? scene.visualKeywords
-    : (scene.visualSegments?.[0]?.visualKeywords || []);
-  if (keywords.length) {
-    const concreteKw = keywords.find((kw) => kw && !isGenericPlaceholderQuery(kw) && kw.length >= 4);
+  const kwCandidates = [];
+  const collectKw = (val) => {
+    if (!val) return;
+    if (Array.isArray(val)) {
+      kwCandidates.push(...val);
+    } else if (typeof val === "string") {
+      kwCandidates.push(...val.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean));
+    }
+  };
+  collectKw(scene.visualKeywords);
+  if (Array.isArray(scene.visualSegments)) {
+    for (const seg of scene.visualSegments) {
+      collectKw(seg?.visualKeywords);
+    }
+  }
+  if (kwCandidates.length) {
+    const concreteKw = kwCandidates.find((kw) => kw && typeof kw === "string" && !isGenericPlaceholderQuery(kw) && kw.length >= 4);
     if (concreteKw) return concreteKw;
   }
 
@@ -161,27 +173,31 @@ export async function ensureNewsImages(item) {
 
   // 1. Ambil scene yang secara eksplisit memiliki mediaSource
   for (const scene of scenes) {
-    const src = scene.mediaSource;
-    if (!src?.outlet && !src?.headline) continue;
+    try {
+      const src = scene.mediaSource;
+      if (!src?.outlet && !src?.headline) continue;
 
-    const match = newsItems.find((ni) =>
-      (ni.outlet && src.outlet && String(ni.outlet).toLowerCase().includes(String(src.outlet).toLowerCase())) ||
-      (ni.source && src.outlet && String(ni.source).toLowerCase().includes(String(src.outlet).toLowerCase())) ||
-      (ni.headline && src.headline && String(ni.headline).toLowerCase().includes(String(src.headline).toLowerCase()))
-    );
+      const match = newsItems.find((ni) =>
+        (ni.outlet && src.outlet && String(ni.outlet).toLowerCase().includes(String(src.outlet).toLowerCase())) ||
+        (ni.source && src.outlet && String(ni.source).toLowerCase().includes(String(src.outlet).toLowerCase())) ||
+        (ni.headline && src.headline && String(ni.headline).toLowerCase().includes(String(src.headline).toLowerCase()))
+      );
 
-    if (newsImages.some((n) => n.sceneIndex === Number(scene.index))) continue;
+      if (newsImages.some((n) => n.sceneIndex === Number(scene.index))) continue;
 
-    const entityQuery = extractSceneRealEntityQuery(scene, item.input?.topic);
-    newsImages.push({
-      sceneIndex: Number(scene.index),
-      searchQuery: entityQuery || src.headline || "",
-      headline: String(src.headline || match?.headline || match?.title || entityQuery || "Dokumen Referensi").slice(0, 120),
-      outlet: String(src.outlet || match?.outlet || match?.source || "Media Terkait").slice(0, 60),
-      imageUrl: match?.imageUrl || src.imageUrl || null,
-      url: match?.url || src.url || null,
-      imagePath: null
-    });
+      const entityQuery = extractSceneRealEntityQuery(scene, item.input?.topic);
+      newsImages.push({
+        sceneIndex: Number(scene.index),
+        searchQuery: entityQuery || src.headline || "",
+        headline: String(src.headline || match?.headline || match?.title || entityQuery || "Dokumen Referensi").slice(0, 120),
+        outlet: String(src.outlet || match?.outlet || match?.source || "Media Terkait").slice(0, 60),
+        imageUrl: match?.imageUrl || src.imageUrl || null,
+        url: match?.url || src.url || null,
+        imagePath: null
+      });
+    } catch (err) {
+      console.warn(`[NewsImage] Gagal parsing mediaSource scene ${scene.index}: ${err.message}`);
+    }
   }
 
   // 2. Tambahkan scene bertipe image sebagai kandidat device mockup
@@ -196,28 +212,32 @@ export async function ensureNewsImages(item) {
     }
 
     for (let i = 0; i < targetScenes.length; i++) {
-      const scene = targetScenes[i];
-      const sIdx = Number(scene.index);
-      if (newsImages.some((n) => n.sceneIndex === sIdx)) continue;
-      const ni = newsItems[i] || null;
-      const entityQuery = extractSceneRealEntityQuery(scene, item.input?.topic);
-      const headline = String(
-        ni?.headline || ni?.title
-        || (entityQuery && !isGenericPlaceholderQuery(entityQuery) ? entityQuery : scene.screenText)
-        || item.input?.topic
-        || "Dokumen Referensi"
-      ).slice(0, 120);
-      const outlet = String(ni?.outlet || ni?.source || (ni ? "Dokumen Referensi" : "Arsip Dokumentasi")).slice(0, 60);
+      try {
+        const scene = targetScenes[i];
+        const sIdx = Number(scene.index);
+        if (newsImages.some((n) => n.sceneIndex === sIdx)) continue;
+        const ni = newsItems[i] || null;
+        const entityQuery = extractSceneRealEntityQuery(scene, item.input?.topic);
+        const headline = String(
+          ni?.headline || ni?.title
+          || (entityQuery && !isGenericPlaceholderQuery(entityQuery) ? entityQuery : scene.screenText)
+          || item.input?.topic
+          || "Dokumen Referensi"
+        ).slice(0, 120);
+        const outlet = String(ni?.outlet || ni?.source || (ni ? "Dokumen Referensi" : "Arsip Dokumentasi")).slice(0, 60);
 
-      newsImages.push({
-        sceneIndex: sIdx,
-        searchQuery: entityQuery || headline,
-        headline,
-        outlet,
-        imageUrl: ni?.imageUrl || null,
-        url: ni?.url || null,
-        imagePath: null
-      });
+        newsImages.push({
+          sceneIndex: sIdx,
+          searchQuery: entityQuery || headline,
+          headline,
+          outlet,
+          imageUrl: ni?.imageUrl || null,
+          url: ni?.url || null,
+          imagePath: null
+        });
+      } catch (err) {
+        console.warn(`[NewsImage] Gagal parsing kandidat mockup scene ${targetScenes[i]?.index}: ${err.message}`);
+      }
     }
   }
 
