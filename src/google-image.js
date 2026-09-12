@@ -52,6 +52,8 @@ export function cleanSearchQuery(rawQuery) {
     .slice(0, 150);
 }
 
+let googleCseBlocked = false;
+
 /**
  * Cari gambar di Google Images via Google Custom Search JSON API.
  * @param {string} query
@@ -59,6 +61,7 @@ export function cleanSearchQuery(rawQuery) {
  * @returns {Promise<Array<{imageUrl: string, thumbnail: string|null, title: string, source: string, contextUrl: string, width: number, height: number}>>}
  */
 async function searchViaGoogleCse(query, options = {}) {
+  if (googleCseBlocked) return [];
   const apiKey = process.env.GOOGLE_CSE_KEY || process.env.GOOGLE_SEARCH_API_KEY;
   const cx = process.env.GOOGLE_CSE_CX || process.env.GOOGLE_SEARCH_ENGINE_ID;
   if (!apiKey || !cx) return [];
@@ -86,7 +89,12 @@ async function searchViaGoogleCse(query, options = {}) {
     });
 
     if (!res.ok) {
-      console.warn(`[GoogleImage] Google CSE HTTP ${res.status} untuk query "${query}": ${res.statusText}`);
+      if (res.status === 403) {
+        googleCseBlocked = true;
+        console.warn(`[GoogleImage] Google CSE HTTP 403 (layanan ditutup Google untuk akun baru). Mengalihkan otomatis ke Serper.`);
+      } else {
+        console.warn(`[GoogleImage] Google CSE HTTP ${res.status} untuk query "${query}": ${res.statusText}`);
+      }
       return [];
     }
 

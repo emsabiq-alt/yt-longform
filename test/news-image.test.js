@@ -6,6 +6,11 @@ import path from "node:path";
 import { ensureNewsImages, scrapeOgImage, applyNewsImageOverlays } from "../src/news-image.js";
 
 test("ensureNewsImages: memakai fallback gambar scene saat imageUrl tidak ada (Tab Buat)", async () => {
+  const origSerper = process.env.SERPER_API_KEY;
+  const origCseKey = process.env.GOOGLE_CSE_KEY;
+  delete process.env.SERPER_API_KEY;
+  delete process.env.GOOGLE_CSE_KEY;
+
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "news-test-"));
   const fakeImgPath = path.join(tmpDir, "scene-2.jpg");
   await fs.writeFile(fakeImgPath, "fake image data");
@@ -33,6 +38,8 @@ test("ensureNewsImages: memakai fallback gambar scene saat imageUrl tidak ada (T
     assert.equal(item.assets.newsImages[0].imagePath, fakeImgPath);
     assert.equal(item.assets.newsImages[0].outlet, "Jurnal Sains");
   } finally {
+    if (origSerper) process.env.SERPER_API_KEY = origSerper;
+    if (origCseKey) process.env.GOOGLE_CSE_KEY = origCseKey;
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 });
