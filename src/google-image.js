@@ -34,7 +34,7 @@ export function isGoogleImageApiAvailable() {
     (process.env.GOOGLE_CSE_KEY || process.env.GOOGLE_SEARCH_API_KEY) &&
     (process.env.GOOGLE_CSE_CX || process.env.GOOGLE_SEARCH_ENGINE_ID)
   );
-  const hasSerper = Boolean(process.env.SERPER_API_KEY);
+  const hasSerper = getSerperKeys().length > 0;
   const hasSerpApi = Boolean(process.env.SERPAPI_API_KEY);
   return hasGoogleCse || hasSerper || hasSerpApi;
 }
@@ -127,61 +127,94 @@ async function searchViaGoogleCse(query, options = {}) {
   }
 }
 
+let serperKeyIndex = 0;
+const exhaustedSerperKeys = new Set();
+
+export function getSerperKeys() {
+  const raw = process.env.SERPER_API_KEYS || process.env.SERPER_API_KEY || "";
+  return raw.split(",").map(k => k.trim()).filter(Boolean);
+}
+
 /**
  * Cari gambar via Serper.dev (Google Images search API alternatif).
+ * Mendukung Round-Robin dan auto-failover multi-akun/multi-kunci (dipisahkan koma).
  */
 async function searchViaSerper(query, options = {}) {
-  const apiKey = process.env.SERPER_API_KEY;
-  if (!apiKey) return [];
+  const allKeys = getSerperKeys();
+  if (!allKeys.length) return [];
 
   const fetchImpl = options.fetchImpl || fetch;
   const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
   const num = Math.min(10, Math.max(1, options.num || 5));
 
-  try {
-    const res = await fetchImpl("https://google.serper.dev/images", {
-      method: "POST",
-      headers: {
-        "X-API-KEY": apiKey,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        q: query,
-        gl: options.gl?.toLowerCase() || "id",
-        hl: options.hl || "id",
-        num
-      }),
-      signal: AbortSignal.timeout(timeoutMs)
-    });
-
-    if (!res.ok) return [];
-    const data = await res.json();
-    const images = Array.isArray(data.images) ? data.images : [];
-    const results = [];
-
-    for (const item of images) {
-      const link = item.imageUrl;
-      if (!link || typeof link !== "string" || !link.startsWith("http")) continue;
-      const lower = link.toLowerCase();
-      if (lower.endsWith(".svg") || lower.endsWith(".ico") || lower.includes("favicon")) continue;
-      if (isGoogleLogo(link)) continue;
-
-      results.push({
-        imageUrl: link,
-        thumbnail: item.thumbnailUrl || null,
-        title: String(item.title || "").trim(),
-        source: String(item.source || "").trim(),
-        contextUrl: item.link || "",
-        width: Number(item.imageWidth) || 0,
-        height: Number(item.imageHeight) || 0
-      });
-    }
-
-    return results;
-  } catch (err) {
-    console.warn(`[GoogleImage] Serper error untuk query "${query}": ${err.message}`);
-    return [];
+  // Ambil key yang belum tercatat habis, atau reset jika semua tercatat habis
+  let availableKeys = allKeys.filter(k => !exhaustedSerperKeys.has(k));
+  if (!availableKeys.length) {
+    exhaustedSerperKeys.clear();
+    availableKeys = allKeys;
   }
+
+  // Putar kunci secara Round-Robin dengan failover otomatis
+  for (let attempt = 0; attempt < availableKeys.length; attempt++) {
+    const key = availableKeys[(serperKeyIndex + attempt) % availableKeys.length];
+
+    try {
+      const res = await fetchImpl("https://google.serper.dev/images", {
+        method: "POST",
+        headers: {
+          "X-API-KEY": key,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          q: query,
+          gl: options.gl?.toLowerCase() || "id",
+          hl: options.hl || "id",
+          num
+        }),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+
+      if (!res.ok) {
+        if (res.status === 400 || res.status === 403 || res.status === 429) {
+          exhaustedSerperKeys.add(key);
+          console.warn(`[GoogleImage] Serper key (${key.slice(0, 8)}...) HTTP ${res.status} (kredit habis/invalid). Auto-failover ke key berikutnya...`);
+          continue;
+        }
+        continue;
+      }
+
+      // Majukan index round-robin untuk panggilan berikutnya
+      serperKeyIndex = (serperKeyIndex + attempt + 1) % availableKeys.length;
+
+      const data = await res.json();
+      const images = Array.isArray(data.images) ? data.images : [];
+      const results = [];
+
+      for (const item of images) {
+        const link = item.imageUrl;
+        if (!link || typeof link !== "string" || !link.startsWith("http")) continue;
+        const lower = link.toLowerCase();
+        if (lower.endsWith(".svg") || lower.endsWith(".ico") || lower.includes("favicon")) continue;
+        if (isGoogleLogo(link)) continue;
+
+        results.push({
+          imageUrl: link,
+          thumbnail: item.thumbnailUrl || null,
+          title: String(item.title || "").trim(),
+          source: String(item.source || "").trim(),
+          contextUrl: item.link || "",
+          width: Number(item.imageWidth) || 0,
+          height: Number(item.imageHeight) || 0
+        });
+      }
+
+      if (results.length) return results;
+    } catch (err) {
+      console.warn(`[GoogleImage] Serper error dengan key (${key.slice(0, 8)}...) untuk query "${query}": ${err.message}`);
+    }
+  }
+
+  return [];
 }
 
 /**

@@ -146,3 +146,40 @@ test("downloadImageWithCandidates: fallback ke kandidat berikutnya atau thumbnai
 
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
+
+test("searchGoogleImages: Round-Robin rotasi kunci Serper dan auto-failover saat kredit habis", async () => {
+  const origSerper = process.env.SERPER_API_KEY;
+  const origCseKey = process.env.GOOGLE_CSE_KEY;
+  delete process.env.GOOGLE_CSE_KEY;
+  process.env.SERPER_API_KEY = "key_habis,key_aktif";
+
+  const calls = [];
+  const mockFetch = async (urlStr, init) => {
+    const key = init?.headers?.["X-API-KEY"];
+    calls.push(key);
+    if (key === "key_habis") {
+      return { ok: false, status: 403 }; // Kredit habis
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        images: [
+          {
+            imageUrl: "https://media.com/foto.jpg",
+            title: "Foto Berita",
+            source: "media.com"
+          }
+        ]
+      })
+    };
+  };
+
+  const res = await searchGoogleImages("Berita Baru", { fetchImpl: mockFetch });
+  assert.equal(res.length, 1);
+  assert.equal(res[0].imageUrl, "https://media.com/foto.jpg");
+  assert.ok(calls.includes("key_habis"));
+  assert.ok(calls.includes("key_aktif"));
+
+  if (origSerper) process.env.SERPER_API_KEY = origSerper; else delete process.env.SERPER_API_KEY;
+  if (origCseKey) process.env.GOOGLE_CSE_KEY = origCseKey; else delete process.env.GOOGLE_CSE_KEY;
+});
