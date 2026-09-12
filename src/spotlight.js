@@ -34,6 +34,61 @@ export function normalizeSpotlight(raw) {
   return { type, label, sublabel: cleanShort(raw.sublabel, 52), phrase };
 }
 
+/**
+ * Ekstraksi otomatis Spotlight jika AI tidak mengisi field spotlight.
+ * Menjamin 8-18 spotlight muncul konsisten per video pada scene informatif.
+ */
+export function extractAutoSpotlight(scene) {
+  if (!scene || scene.sceneType === "reaction" || scene.sceneType === "summary") return null;
+  const narration = String(scene.narration || "").trim();
+  if (!narration) return null;
+
+  const rawScreenText = String(scene.screenText || "").trim();
+  const isGeneric = /^(babak|scene|bagian|fakta|segmen)\s*\d*$/i.test(rawScreenText);
+
+  // 1. Cari angka, persentase, tahun, atau satuan kuantitatif di narasi
+  const statMatch =
+    narration.match(/\b((?:(?:satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|sebelas|belas|puluh|ratus|ribu|juta|miliar|triliun|puluhan|ratusan|ribuan|jutaan|miliaran|\d+[\d,.]*)\s+)+(?:persen|%|ribu|juta|miliar|triliun|meter|kilometer|km|ton|kg|derajat|jam|tahun|kali(?: lipat)?|sm|masehi|dolar|rupiah))\b/i) ||
+    narration.match(/\b(tahun\s+\d{4}|\d{4}\s*sm|abad\s+ke-?\w+)\b/i);
+
+  const words = narration.split(/\s+/).map((w) => w.replace(/[.,/#!$%^&*;:{}=\-_`~()?"']/g, "").trim()).filter(Boolean);
+  if (words.length < 3) return null;
+
+  let label = "";
+  let sublabel = "";
+  let phrase = "";
+
+  if (statMatch && statMatch.index !== undefined) {
+    const matchIdx = statMatch.index;
+    const beforeWords = narration.slice(0, matchIdx).split(/\s+/).map((w) => w.replace(/[.,/#!$%^&*;:{}=\-_`~()?"']/g, "").trim()).filter(Boolean);
+    const startWordIdx = Math.max(0, beforeWords.length - 1);
+    const phraseWords = words.slice(startWordIdx, startWordIdx + 4);
+    phrase = phraseWords.join(" ");
+
+    if (!isGeneric && rawScreenText.length >= 3 && rawScreenText.length <= 42) {
+      label = rawScreenText;
+      sublabel = statMatch[0].trim();
+    } else {
+      label = statMatch[0].trim();
+      sublabel = "Fakta Kunci";
+    }
+  } else if (!isGeneric && rawScreenText.length >= 3 && rawScreenText.length <= 42) {
+    const phraseWords = words.slice(0, Math.min(4, words.length));
+    phrase = phraseWords.join(" ");
+    label = rawScreenText;
+    sublabel = "Poin Utama";
+  }
+
+  if (!label || !phrase) return null;
+
+  return {
+    type: "keypoint",
+    label: cleanShort(label, 42),
+    sublabel: cleanShort(sublabel, 52),
+    phrase: cleanShort(phrase, 90)
+  };
+}
+
 function cleanShort(value, max) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (text.length <= max) return text;
@@ -53,7 +108,7 @@ export function planSceneSpotlights(scenes, options = {}) {
 
   for (const scene of scenes || []) {
     if (scene?.sceneType === "reaction" || scene?.sceneType === "summary") continue;
-    const spotlight = normalizeSpotlight(scene?.spotlight);
+    const spotlight = normalizeSpotlight(scene?.spotlight) || extractAutoSpotlight(scene);
     if (!spotlight) continue;
     stats.candidates += 1;
 

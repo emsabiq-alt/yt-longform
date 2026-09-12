@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { planSceneSpotlights, normalizeSpotlight, spotlightDialogueLines } from "../src/spotlight.js";
+import { planSceneSpotlights, normalizeSpotlight, extractAutoSpotlight, spotlightDialogueLines } from "../src/spotlight.js";
 import { buildWordTimeline, findPhraseTime, tokenizeMatchText } from "../src/word-timeline.js";
 import { polishPlanForLayAudience } from "../src/story-language.js";
 
@@ -120,3 +120,55 @@ test("findPhraseTime memberi skor penuh untuk frasa yang cocok persis", () => {
   const match = findPhraseTime(timeline, tokenizeMatchText("beta gamma"));
   assert.equal(match.score, 1);
 });
+
+test("extractAutoSpotlight mengekstrak statistik dan frasa narasi saat spotlight kosong", () => {
+  const sc = {
+    index: 2,
+    sceneType: "image",
+    screenText: "Letusan Purba Toba",
+    narration: "Letusan purba ini mengeluarkan lebih dari dua ribu delapan ratus kilometer kubik magma ke atmosfer."
+  };
+  const extracted = extractAutoSpotlight(sc);
+  assert.ok(extracted, "harus menghasilkan spotlight");
+  assert.equal(extracted.type, "keypoint");
+  assert.equal(extracted.label, "Letusan Purba Toba");
+  assert.ok(extracted.sublabel.includes("kilometer"));
+  assert.ok(extracted.phrase.length > 0);
+});
+
+test("extractAutoSpotlight fallback ke screenText dan awal narasi bila tidak ada angka", () => {
+  const sc = {
+    index: 3,
+    sceneType: "image",
+    screenText: "Teknologi Fusi Nuklir",
+    narration: "Reaktor fusi masa depan menggunakan plasma hidrogen bersuhu ekstrem untuk menghasilkan listrik bersih."
+  };
+  const extracted = extractAutoSpotlight(sc);
+  assert.ok(extracted, "harus menghasilkan spotlight");
+  assert.equal(extracted.label, "Teknologi Fusi Nuklir");
+  assert.equal(extracted.sublabel, "Poin Utama");
+  assert.ok(extracted.phrase.includes("Reaktor"));
+});
+
+test("planSceneSpotlights memakai extractAutoSpotlight bila scene.spotlight tidak diisi AI", () => {
+  const sc = {
+    index: 1,
+    sceneType: "image",
+    startSec: 0,
+    durationSec: 15,
+    screenText: "Teknologi Fusi",
+    narration: "Reaktor fusi masa depan menggunakan plasma hidrogen.",
+    sceneCaptions: [{
+      start: 0,
+      end: 5,
+      text: "Reaktor fusi masa depan menggunakan plasma hidrogen.",
+      words: words(["reaktor", "fusi", "masa", "depan", "menggunakan", "plasma", "hidrogen"])
+    }],
+    spotlight: null
+  };
+  const placed = planSceneSpotlights([sc]);
+  assert.equal(placed.length, 1);
+  assert.equal(placed[0].label, "Teknologi Fusi");
+  assert.equal(placed[0].sublabel, "Poin Utama");
+});
+
