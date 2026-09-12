@@ -1,14 +1,11 @@
 /**
- * Script: Organize YouTube Playlists for BanyakTau
+ * Script: Organize YouTube Playlists for BanyakTau (Strict Existing Playlists)
  *
- * Fungsi:
- * 1. Menarik seluruh playlist yang ada di channel YouTube.
- * 2. Menarik seluruh video yang diunggah di channel.
- * 3. Mengambil daftar video yang sudah ada di masing-masing playlist (mencegah duplikat).
- * 4. Mempelajari dan mengklasifikasikan setiap video HANYA dari JUDULNYA (AI + fallback semantik).
- * 5. Membuat playlist kategori otomatis jika belum tersedia.
- * 6. Memasukkan setiap video ke playlist yang sesuai.
- * 7. Menampilkan rekapitulasi lengkap hasil penataan playlist.
+ * Aturan:
+ * 1. ROLLBACK: Hapus semua playlist baru ("BanyakTau: ...") yang sempat dibuat sebelumnya.
+ * 2. HANYA gunakan playlist yang SUDAH ADA di channel (Sains, Sejarah, Teknologi, Misteri & Konspirasi, Bisnis, Umum).
+ * 3. Pelajari setiap video HANYA DARI JUDULNYA lalu masukkan ke playlist yang sudah ada tersebut.
+ * 4. Mencegah duplikasi video di playlist yang sama.
  */
 
 import dotenv from "dotenv";
@@ -24,147 +21,68 @@ const CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Taksonomi kategori BanyakTau untuk klasifikasi berbasis judul
-const CATEGORY_DEFINITIONS = [
+// Aturan pemetaan kata kunci judul video ke playlist eksisting
+const KEYWORD_MAPPING = [
   {
-    key: "alam_semesta",
-    title: "BanyakTau: Alam Semesta & Luar Angkasa",
-    description: "Kumpulan video eksplorasi misteri alam semesta, tata surya, planet, galaksi, dan astronomi.",
+    target: "Misteri & Konspirasi",
     keywords: [
-      "alam semesta", "tata surya", "luar angkasa", "planet", "bintang", "galaksi", "matahari",
-      "bulan", "mars", "jupiter", "saturnus", "meteor", "komet", "asteroid", "lubang hitam",
-      "supernova", "antariksa", "astronot", "roket", "nasa", "apollo", "satelit", "teleskop",
-      "kosmis", "alien", "hampa udara", "milky way", "bima sakti", "orbit", "gravitasi bumi"
+      "misteri", "konspirasi", "teka-teki", "hilang", "lenyap", "aneh", "belum terpecahkan",
+      "rahasia", "tak terduga", "tersembunyi", "segitiga bermuda", "sinyal wow", "atlantis",
+      "mitos", "ganjil", "tabu", "rahasia besar", "paradoks", "kutukan", "teori", "alien", "ufo"
     ]
   },
   {
-    key: "fenomena_alam",
-    title: "BanyakTau: Fenomena Alam & Bencana Purba",
-    description: "Kumpulan video fenomena alam dahsyat, gunung api, letusan purba, tsunami, dan iklim ekstrem.",
+    target: "Bisnis",
     keywords: [
-      "gunung", "letusan", "erupsi", "toba", "krakatau", "merapi", "lahar", "gempa",
-      "tsunami", "badai", "tornado", "siklon", "petir", "kilat", "banjir", "tanah longsor",
-      "gurun", "laut", "samudra", "palung", "kutub", "zaman es", "iklim", "magma", "vulkanik",
-      "supervolcano", "kawah", "danau toba", "anak krakatau", "bencana", "bumi"
+      "bisnis", "ekonomi", "uang", "mata uang", "inflasi", "krisis moneter", "saham", "pasar modal",
+      "bank", "perusahaan", "industri", "perdagangan", "kekayaan", "triliun", "miliarder",
+      "utang", "pajak", "kebijakan", "kapitalisme", "omset", "kuota haji", "rupiah", "juta rupiah",
+      "harga", "mahal", "dibanderol"
     ]
   },
   {
-    key: "sains",
-    title: "BanyakTau: Sains & Eksplorasi Ilmiah",
-    description: "Kumpulan video sains, fisika, kimia, biologi, dan fakta ilmiah menarik sehari-hari.",
+    target: "Teknologi",
     keywords: [
-      "sains", "fisika", "kimia", "biologi", "sel", "atom", "molekul", "gaya", "magnet",
-      "kuantum", "cahaya", "gelombang", "suhu", "panas", "dingin", "es", "air", "gas",
-      "tekanan", "evolusi", "dna", "genetika", "bakteri", "virus", "mikroba", "madu",
-      "zat", "ilmiah", "eksperimen", "mengapa", "kenapa", "alasan", "bukti", "hukum archimedes"
+      "teknologi", "komputer", "internet", "microchip", "chip", "robot", "ai", "kecerdasan buatan",
+      "mesin", "algoritma", "radar", "baterai", "listrik", "nuklir", "inovasi", "kamera", "ponsel",
+      "gadget", "software", "hardware", "iphone", "apple", "steve jobs", "barcode", "microwave",
+      "arsitektur", "infrastruktur", "bangunan", "jembatan", "gedung", "menara", "menara pisa",
+      "terowongan", "bendungan", "st. francis", "pipa", "kanal", "konstruksi", "teknik sipil",
+      "kapal", "perahu", "pesawat", "terbang", "helikopter", "mobil", "kereta", "lokomotif",
+      "rel", "kapal selam", "mesin uap", "pelabuhan", "bandara", "boeing", "titanic", "diciptakan", "penemuan"
     ]
   },
   {
-    key: "sejarah",
-    title: "BanyakTau: Sejarah & Peradaban Dunia",
-    description: "Kumpulan video sejarah masa lalu, peradaban kuno, kerajaan, perang, dan jejak arkeologi.",
+    target: "Sejarah",
     keywords: [
       "sejarah", "zaman", "purba", "kuno", "peradaban", "kekaisaran", "kerajaan", "raja",
       "ratu", "kaisar", "firaun", "mesir", "piramida", "romawi", "yunani", "sumeria",
       "dinasti", "perang", "kolonial", "revolusi", "abad", "arkeolog", "fosil", "prasasti",
-      "candi", "artefak", "tiongkok", "nusantara", "majapahit", "voc", "masa lalu"
+      "candi", "artefak", "tiongkok", "nusantara", "majapahit", "voc", "masa lalu",
+      "nikola tesla", "tesla", "tokoh", "sosok", "biografi", "habibie", "einstein", "da vinci",
+      "fakta nikola tesla", "pesan rahasia", "dunia perang"
     ]
   },
   {
-    key: "misteri",
-    title: "BanyakTau: Misteri & Hal Tak Terpecahkan",
-    description: "Kumpulan video misteri dunia, fakta ganjil, teka-teki sejarah, dan anomali sains.",
+    target: "Sains",
     keywords: [
-      "misteri", "teka-teki", "konspirasi", "hilang", "lenyap", "aneh", "belum terpecahkan",
-      "rahasia", "tak terduga", "tersembunyi", "segitiga bermuda", "sinyal wow", "atlantis",
-      "mitos", "ganjil", "tabu", "rahasia besar", "paradoks", "kutukan", "teori"
-    ]
-  },
-  {
-    key: "teknologi",
-    title: "BanyakTau: Teknologi & Penemuan Modern",
-    description: "Kumpulan video inovasi teknologi canggih, komputer, AI, dan penemuan masa depan.",
-    keywords: [
-      "teknologi", "penemuan", "diciptakan", "penemu", "komputer", "internet", "microchip",
-      "chip", "robot", "ai", "kecerdasan buatan", "mesin", "algoritma", "radar", "baterai",
-      "listrik", "nuklir", "inovasi", "kamera", "ponsel", "gadget", "software", "hardware"
-    ]
-  },
-  {
-    key: "infrastruktur",
-    title: "BanyakTau: Arsitektur & Rekayasa Bangunan",
-    description: "Kumpulan video mega struktur, jembatan, terowongan, bendungan, dan keajaiban teknik sipil.",
-    keywords: [
-      "arsitektur", "infrastruktur", "bangunan", "jembatan", "gedung", "menara", "menara pisa",
-      "terowongan", "bendungan", "st. francis", "pipa", "kanal", "konstruksi", "teknik sipil",
-      "fondasi", "megastruktur", "roboh", "runtuh", "jalan tol"
-    ]
-  },
-  {
-    key: "transportasi",
-    title: "BanyakTau: Transportasi & Mesin Raksasa",
-    description: "Kumpulan video kapal, pesawat terbang, kereta api, dan kendaraan raksasa penakluk jarak.",
-    keywords: [
-      "kapal", "perahu", "pesawat", "terbang", "helikopter", "mobil", "kereta", "lokomotif",
-      "rel", "sepeda", "kapal selam", "mesin uap", "mesin diesel", "pelabuhan", "bandara",
-      "penerbangan", "boeing", "airbus", "titanic"
-    ]
-  },
-  {
-    key: "tubuh_manusia",
-    title: "BanyakTau: Tubuh Manusia & Misteri Medis",
-    description: "Kumpulan video cara kerja organ tubuh, otak, sistem imun, dan keajaiban biologis manusia.",
-    keywords: [
+      "sains", "fisika", "kimia", "biologi", "sel", "atom", "molekul", "gaya", "magnet",
+      "kuantum", "cahaya", "gelombang", "suhu", "panas", "dingin", "es", "air", "gas",
+      "tekanan", "evolusi", "dna", "genetika", "bakteri", "virus", "mikroba", "madu",
+      "zat", "ilmiah", "eksperimen", "mengapa", "kenapa", "alasan", "bukti", "hukum archimedes",
+      "alam semesta", "tata surya", "luar angkasa", "planet", "bintang", "galaksi", "matahari",
+      "bulan", "mars", "jupiter", "saturnus", "venus", "meteor", "komet", "asteroid", "lubang hitam",
+      "supernova", "antariksa", "astronot", "roket", "nasa", "apollo", "satelit", "teleskop", "materi gelap",
+      "gunung", "letusan", "erupsi", "toba", "krakatau", "merapi", "lahar", "gempa",
+      "tsunami", "badai", "petir", "kilat", "banjir", "danau toba", "anak krakatau",
       "tubuh", "manusia", "otak", "memori", "tidur", "mimpi", "mata", "telinga", "jantung",
-      "darah", "paru-paru", "otot", "tulang", "lambung", "penyakit", "imun", "kekebalan",
-      "obat", "vaksin", "racun", "umur", "kematian", "sel kanker", "organ"
-    ]
-  },
-  {
-    key: "hewan_ekologi",
-    title: "BanyakTau: Dunia Hewan & Kehidupan Liar",
-    description: "Kumpulan video keajaiban fauna, strategi bertahan hidup hewan, dan ekosistem alam liar.",
-    keywords: [
+      "darah", "paru-paru", "otot", "tulang", "bau badan", "patah", "penyakit", "imun", "kekebalan",
       "hewan", "binatang", "satwa", "mamalia", "reptil", "burung", "ikan", "paus", "hiu",
-      "serangga", "lebah", "semut", "laba-laba", "dinosaurus", "predator", "punah",
-      "habitat", "ekosistem", "hutan", "tumbuhan", "pohon", "fauna", "flora"
-    ]
-  },
-  {
-    key: "ekonomi_bisnis",
-    title: "BanyakTau: Ekonomi, Bisnis & Uang Global",
-    description: "Kumpulan video sejarah ekonomi, perputaran uang, perusahaan raksasa, dan krisis moneter.",
-    keywords: [
-      "ekonomi", "bisnis", "uang", "mata uang", "inflasi", "krisis", "saham", "pasar",
-      "bank", "perusahaan", "industri", "perdagangan", "kekayaan", "triliun", "miliarder",
-      "utang", "pajak", "kebijakan", "kapitalisme", "moneter"
-    ]
-  },
-  {
-    key: "tokoh_dunia",
-    title: "BanyakTau: Tokoh & Kisah Pengubah Dunia",
-    description: "Kumpulan video biografi singkat tokoh bersejarah, penemu hebat, dan figur legendaris.",
-    keywords: [
-      "tokoh", "sosok", "biografi", "bj habibie", "habibie", "einstein", "newton", "tesla",
-      "da vinci", "galileo", "edison", "presiden", "penjelajah", "kisah hidup"
-    ]
-  },
-  {
-    key: "makanan_dapur",
-    title: "BanyakTau: Makanan, Dapur & Sains Kuliner",
-    description: "Kumpulan video fakta sains di balik makanan, minuman, bumbu dapur, dan cara pengawetan.",
-    keywords: [
-      "makanan", "kuliner", "dapur", "masak", "bumbu", "rempah", "kopi", "teh", "cokelat",
-      "gula", "garam", "roti", "daging", "susu", "keju", "fermentasi", "basi", "awet", "resep"
+      "serangga", "lebah", "semut", "dinosaurus", "habitat", "ekosistem", "hutan", "tumbuhan",
+      "makanan", "kuliner", "dapur", "masak", "kopi", "teh", "cokelat", "gula", "garam", "fermentasi", "basi", "awet"
     ]
   }
 ];
-
-const DEFAULT_CATEGORY = {
-  key: "edukasi_umum",
-  title: "BanyakTau: Fakta Menarik & Pengetahuan Umum",
-  description: "Kumpulan video edukasi dan fakta menarik dari channel BanyakTau."
-};
 
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, options);
@@ -183,7 +101,7 @@ async function fetchJson(url, options = {}) {
 }
 
 /**
- * 1. Ambil playlist uploads channel
+ * Ambil playlist uploads channel
  */
 async function getUploadsPlaylistId(accessToken) {
   const url = new URL(CHANNELS_URL);
@@ -191,7 +109,7 @@ async function getUploadsPlaylistId(accessToken) {
   url.searchParams.set("mine", "true");
   const data = await fetchJson(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   const channel = data.items?.[0];
-  if (!channel) throw new Error("Channel YouTube tidak ditemukan untuk token ini.");
+  if (!channel) throw new Error("Channel YouTube tidak ditemukan.");
   console.log(`\n📺 Channel: "${channel.snippet?.title}" (ID: ${channel.id})`);
   const uploadsId = channel.contentDetails?.relatedPlaylists?.uploads;
   if (!uploadsId) throw new Error("Uploads playlist tidak ditemukan.");
@@ -199,7 +117,7 @@ async function getUploadsPlaylistId(accessToken) {
 }
 
 /**
- * 2. Ambil seluruh playlist yang dimiliki channel
+ * Ambil seluruh playlist yang dimiliki channel
  */
 async function getAllPlaylists(accessToken) {
   const playlists = [];
@@ -227,7 +145,25 @@ async function getAllPlaylists(accessToken) {
 }
 
 /**
- * 3. Ambil seluruh video yang diunggah ke channel
+ * Hapus playlist dari YouTube
+ */
+async function deletePlaylist(accessToken, playlistId) {
+  const url = new URL(PLAYLISTS_URL);
+  url.searchParams.set("id", playlistId);
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  if (!res.ok && res.status !== 204) {
+    const text = await res.text();
+    throw new Error(`Delete failed: ${text} [HTTP ${res.status}]`);
+  }
+}
+
+/**
+ * Ambil seluruh video yang diunggah ke channel
  */
 async function getAllUploadedVideos(accessToken, uploadsPlaylistId) {
   const videos = [];
@@ -257,7 +193,7 @@ async function getAllUploadedVideos(accessToken, uploadsPlaylistId) {
 }
 
 /**
- * 4. Ambil video-video yang SUDAH ada di masing-masing playlist (menghindari duplikasi)
+ * Ambil video-video yang sudah ada di masing-masing playlist (menghindari duplikasi)
  */
 async function getPlaylistItemsMap(accessToken, playlists) {
   const map = new Map(); // playlistId -> Set<videoId>
@@ -293,54 +229,26 @@ async function getPlaylistItemsMap(accessToken, playlists) {
 }
 
 /**
- * 5. Buat playlist baru di YouTube
+ * Klasifikasi judul video menggunakan AI (HANYA ke playlist yang tersedia)
  */
-async function createPlaylist(accessToken, title, description) {
-  const res = await fetch(`${PLAYLISTS_URL}?part=snippet,status`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      snippet: {
-        title,
-        description: description || `Kumpulan video edukasi dari BanyakTau.`
-      },
-      status: {
-        privacyStatus: "public"
-      }
-    })
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    const msg = data.error?.message || JSON.stringify(data);
-    throw new Error(`Gagal buat playlist "${title}": ${msg}`);
-  }
-  return { id: data.id, title: data.snippet.title, description: data.snippet.description, itemCount: 0 };
-}
-
-/**
- * 6. Klasifikasi judul video menggunakan OpenAI (jika key tersedia)
- */
-async function classifyVideosWithAi(videos, playlists) {
+async function classifyVideosWithAi(videos, allowedPlaylists) {
   if (!config.openai.apiKey) return null;
 
   try {
-    const playlistOptions = playlists.map((p) => `- ID: "${p.id}", Judul: "${p.title}"`).join("\n");
+    const playlistOptions = allowedPlaylists.map((p) => `- ID: "${p.id}", Nama Playlist: "${p.title}"`).join("\n");
     const videoEntries = videos.map((v) => `- ID: "${v.id}", Judul: "${v.title}"`).join("\n");
 
-    const prompt = `Berikut adalah daftar playlist yang tersedia di channel YouTube BanyakTau:
+    const prompt = `Berikut adalah playlist YouTube yang SUDAH ADA di channel BanyakTau:
 ${playlistOptions}
 
 Berikut adalah daftar video yang diunggah (ID dan Judul):
 ${videoEntries}
 
 Tugas:
-Analisis HANYA BERDASARKAN JUDUL setiap video, dan tentukan 1 playlist yang PALING RELEVAN DAN TEPAT untuk video tersebut.
-Jika sebuah video sangat ambigu, pilih playlist yang paling masuk akal.
+Analisis HANYA BERDASARKAN JUDUL setiap video, dan tentukan SATU playlist PALING COCOK dari daftar playlist yang SUDAH ADA di atas.
+DILARANG MEMBUAT PLAYLIST BARU. Wajib memilih ID dari daftar yang diberikan di atas.
 
-Kembalikan HANYA format JSON valid tanpa markdown, dengan struktur:
+Kembalikan HANYA format JSON valid tanpa markdown:
 {
   "classifications": [
     { "videoId": "ID_VIDEO", "playlistId": "ID_PLAYLIST", "reason": "alasan singkat 3-5 kata" }
@@ -357,15 +265,15 @@ Kembalikan HANYA format JSON valid tanpa markdown, dengan struktur:
         model: config.openai.storyModel || "gpt-4.1-mini",
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: "Kamu adalah asisten kurator channel YouTube edukasi BanyakTau. Tugasmu mengorganisir video ke dalam playlist yang paling cocok hanya dari membaca judulnya." },
+          { role: "system", content: "Kamu adalah kurator YouTube. Tugasmu memetakan video ke playlist yang SUDAH ADA hanya dari membaca judulnya. Jangan membuat playlist baru." },
           { role: "user", content: prompt }
         ],
-        temperature: 0.3
+        temperature: 0.2
       })
     });
 
     if (!res.ok) {
-      console.warn(`[AI] OpenAI classification request gagal (${res.status}), fallback ke aturan semantik.`);
+      console.warn(`[AI] OpenAI request gagal (${res.status}), fallback ke aturan semantik.`);
       return null;
     }
 
@@ -373,8 +281,9 @@ Kembalikan HANYA format JSON valid tanpa markdown, dengan struktur:
     const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
     if (Array.isArray(parsed.classifications) && parsed.classifications.length > 0) {
       const mapping = new Map();
+      const validPlaylistIds = new Set(allowedPlaylists.map((p) => p.id));
       for (const item of parsed.classifications) {
-        if (item.videoId && item.playlistId) {
+        if (item.videoId && item.playlistId && validPlaylistIds.has(item.playlistId)) {
           mapping.set(item.videoId, item.playlistId);
         }
       }
@@ -387,55 +296,53 @@ Kembalikan HANYA format JSON valid tanpa markdown, dengan struktur:
 }
 
 /**
- * 7. Klasifikasi judul video berbasis taksonomi kata kunci semantik (fallback)
+ * Klasifikasi judul video berbasis kata kunci semantik (ke playlist yang sudah ada)
  */
-function classifyVideoByKeywords(title, playlists) {
+function classifyVideoByKeywords(title, allowedPlaylists) {
   const cleanTitle = title.toLowerCase();
 
-  // Hitung kecocokan skor per kategori taksonomi
-  let bestCategory = null;
+  // 1. Cek kecocokan kategori dengan skor tertinggi
+  let bestTarget = "";
   let highestScore = 0;
 
-  for (const cat of CATEGORY_DEFINITIONS) {
+  for (const mapping of KEYWORD_MAPPING) {
     let score = 0;
-    for (const kw of cat.keywords) {
+    for (const kw of mapping.keywords) {
       if (cleanTitle.includes(kw)) {
         score += kw.length > 6 ? 3 : 2;
       }
     }
     if (score > highestScore) {
       highestScore = score;
-      bestCategory = cat;
+      bestTarget = mapping.target;
     }
   }
 
-  // Cari playlist yang cocok dengan kategori terbaik
-  if (bestCategory && highestScore > 0) {
-    const matched = playlists.find((p) => {
+  // 2. Cari playlist yang judulnya cocok dengan target kategori
+  if (bestTarget && highestScore > 0) {
+    const matched = allowedPlaylists.find((p) => {
       const pTitle = p.title.toLowerCase();
-      return pTitle.includes(bestCategory.key)
-        || pTitle.includes(bestCategory.title.toLowerCase().replace("banyaktau: ", ""))
-        || bestCategory.keywords.some((kw) => pTitle.includes(kw) && kw.length > 4);
+      const targetLower = bestTarget.toLowerCase();
+      return pTitle.includes(targetLower) || targetLower.includes(pTitle);
     });
-    if (matched) return { playlist: matched, score: highestScore, categoryName: bestCategory.title };
+    if (matched) return matched;
   }
 
-  // Fallback: cari playlist apa pun yang judulnya mengandung kata dari judul video
-  for (const p of playlists) {
-    const pTitle = p.title.toLowerCase().replace(/banyaktau:\s*/g, "");
-    const words = pTitle.split(/\s+/).filter((w) => w.length > 3);
+  // 3. Fallback: Cari playlist yang judulnya sama dengan kata di judul video
+  for (const p of allowedPlaylists) {
+    if (p.title.toLowerCase() === "umum") continue;
+    const words = p.title.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
     if (words.some((w) => cleanTitle.includes(w))) {
-      return { playlist: p, score: 1, categoryName: p.title };
+      return p;
     }
   }
 
-  // Fallback ke playlist umum/edukasi
-  const defaultPl = playlists.find((p) => /umum|edukasi|banyaktau/i.test(p.title)) || playlists[0];
-  return { playlist: defaultPl, score: 0, categoryName: defaultPl?.title || "Umum" };
+  // 4. Default ke "Umum" jika ada, atau playlist pertama
+  return allowedPlaylists.find((p) => p.title.toLowerCase() === "umum") || allowedPlaylists[0];
 }
 
 /**
- * 8. Tambahkan video ke playlist
+ * Tambahkan video ke playlist
  */
 async function insertVideoToPlaylist(accessToken, playlistId, videoId) {
   const url = new URL(PLAYLIST_ITEMS_URL);
@@ -472,72 +379,62 @@ async function insertVideoToPlaylist(accessToken, playlistId, videoId) {
  */
 async function main() {
   console.log("==========================================================");
-  console.log("🚀 MEMULAI PENATAAN PLAYLIST YOUTUBE BANYAKTAU");
+  console.log("🔄 MEMULAI ROLLBACK & PENATAAN KE PLAYLIST YANG SUDAH ADA");
   console.log("==========================================================");
 
   const accessToken = await getYoutubeAccessToken();
   console.log("🔑 Access token YouTube berhasil diverifikasi.");
 
-  // 1. Ambil channel info & uploads playlist
-  const uploadsPlaylistId = await getUploadsPlaylistId(accessToken);
-
-  // 2. Ambil playlist yang saat ini ada di YouTube
+  // 1. Ambil seluruh playlist saat ini
   let playlists = await getAllPlaylists(accessToken);
-  console.log(`\n📂 Ditemukan ${playlists.length} playlist yang sudah ada:`);
+  console.log(`\n📂 Ditemukan ${playlists.length} playlist saat ini:`);
   playlists.forEach((p, idx) => {
     console.log(`  ${idx + 1}. [${p.id}] "${p.title}" (${p.itemCount} video)`);
   });
 
-  // 3. Jika playlist sangat sedikit (< 3), buat playlist kategori utama BanyakTau agar rapi
-  const existingTitles = new Set(playlists.map((p) => p.title.toLowerCase().trim()));
-  const missingCoreCategories = CATEGORY_DEFINITIONS.filter(
-    (cat) => !existingTitles.has(cat.title.toLowerCase().trim())
-      && !Array.from(existingTitles).some((t) => t.includes(cat.key) || t.includes(cat.title.toLowerCase().replace("banyaktau: ", "")))
-  );
-
-  if (missingCoreCategories.length > 0) {
-    console.log(`\n🛠️  Menyiapkan ${missingCoreCategories.length} playlist kategori baru agar terorganisir rapi:`);
-    for (const cat of missingCoreCategories) {
+  // 2. ROLLBACK: Hapus 9 playlist "BanyakTau: ..." yang baru dibuat tadi
+  const newlyCreatedPlaylists = playlists.filter((p) => p.title.startsWith("BanyakTau:"));
+  if (newlyCreatedPlaylists.length > 0) {
+    console.log(`\n🗑️  Melakukan ROLLBACK: Menghapus ${newlyCreatedPlaylists.length} playlist baru yang sempat dibuat...`);
+    for (const pl of newlyCreatedPlaylists) {
       try {
-        const created = await createPlaylist(accessToken, cat.title, cat.description);
-        console.log(`  ✨ Berhasil membuat playlist: "${created.title}" [${created.id}]`);
-        playlists.push(created);
-        existingTitles.add(created.title.toLowerCase().trim());
-        await sleep(500); // safety gap
+        await deletePlaylist(accessToken, pl.id);
+        console.log(`  🗑️ [DIHAPUS] "${pl.title}" [${pl.id}]`);
+        await sleep(500);
       } catch (err) {
-        console.warn(`  ⚠️ Gagal membuat playlist "${cat.title}": ${err.message}`);
+        console.warn(`  ⚠️ Gagal menghapus "${pl.title}": ${err.message}`);
       }
     }
+    // Perbarui daftar playlist hanya ke playlist asli
+    playlists = playlists.filter((p) => !p.title.startsWith("BanyakTau:"));
   }
 
-  // 4. Ambil seluruh video yang diunggah
-  const videos = await getAllUploadedVideos(accessToken, uploadsPlaylistId);
-  console.log(`\n🎬 Ditemukan total ${videos.length} video yang diunggah di channel:`);
-  videos.forEach((v, idx) => {
-    console.log(`  ${idx + 1}. [${v.id}] "${v.title}"`);
+  console.log(`\n✅ Playlist ASLI yang dipertahankan (${playlists.length} playlist):`);
+  playlists.forEach((p, idx) => {
+    console.log(`  ${idx + 1}. [${p.id}] "${p.title}"`);
   });
 
-  if (videos.length === 0) {
-    console.log("\nTidak ada video di channel. Proses selesai.");
-    return;
-  }
+  // 3. Ambil seluruh video yang diunggah
+  const uploadsPlaylistId = await getUploadsPlaylistId(accessToken);
+  const videos = await getAllUploadedVideos(accessToken, uploadsPlaylistId);
+  console.log(`\n🎬 Ditemukan total ${videos.length} video yang diunggah di channel.`);
 
-  // 5. Cek isi masing-masing playlist saat ini
-  console.log(`\n🔍 Memeriksa item yang sudah ada di setiap playlist...`);
+  // 4. Petakan item yang sudah ada di masing-masing playlist asli
+  console.log(`\n🔍 Memetakan item video yang sudah ada di playlist asli...`);
   const playlistItemsMap = await getPlaylistItemsMap(accessToken, playlists);
-  console.log("✅ Data item playlist selesai dipetakan.");
+  console.log("✅ Pemetaan selesai.");
 
-  // 6. Klasifikasi video berdasarkan judul
-  console.log(`\n🧠 Mempelajari judul video untuk menentukan playlist terbaik...`);
-  let aiMappings = await classifyVideosWithAi(videos, playlists);
+  // 5. Klasifikasikan video HANYA ke playlist asli yang tersedia
+  console.log(`\n🧠 Mengklasifikasi judul video ke playlist yang sudah ada...`);
+  const aiMappings = await classifyVideosWithAi(videos, playlists);
   if (aiMappings) {
-    console.log(`🤖 Klasifikasi AI berhasil memetakan ${aiMappings.size} video.`);
+    console.log(`🤖 Klasifikasi AI berhasil memetakan ${aiMappings.size} video ke playlist asli.`);
   } else {
-    console.log(`💡 Menggunakan klasifikasi taksonomi semantik cerdas berdasarkan kata kunci judul.`);
+    console.log(`💡 Menggunakan klasifikasi taksonomi semantik kata kunci judul.`);
   }
 
-  // 7. Masukkan video ke playlist masing-masing
-  console.log(`\n📥 Memulai penempatan video ke dalam playlist:`);
+  // 6. Masukkan video ke playlist asli yang sesuai
+  console.log(`\n📥 Memulai penempatan video ke playlist yang sudah ada:`);
   let totalAdded = 0;
   let totalSkipped = 0;
   let totalFailed = 0;
@@ -548,18 +445,16 @@ async function main() {
     let targetPlaylist = playlists.find((p) => p.id === targetPlaylistId);
 
     if (!targetPlaylist) {
-      const result = classifyVideoByKeywords(video.title, playlists);
-      targetPlaylist = result.playlist;
-      targetPlaylistId = targetPlaylist?.id;
+      targetPlaylist = classifyVideoByKeywords(video.title, playlists);
     }
 
     if (!targetPlaylist) {
-      console.warn(`  [${i + 1}/${videos.length}] ❌ Video "${video.title}" tidak menemukan playlist yang cocok.`);
+      console.warn(`  [${i + 1}/${videos.length}] ❌ Tidak ada playlist cocok untuk "${video.title}"`);
       totalFailed++;
       continue;
     }
 
-    // Cek apakah video sudah ada di playlist target
+    // Cek apakah sudah ada di playlist target
     const currentItems = playlistItemsMap.get(targetPlaylist.id) || new Set();
     if (currentItems.has(video.id)) {
       console.log(`  [${i + 1}/${videos.length}] ⏭️  [SUDAH ADA] "${video.title}" → "${targetPlaylist.title}"`);
@@ -581,9 +476,9 @@ async function main() {
     }
   }
 
-  // 8. Cetak Rekapitulasi Akhir
+  // 7. Cetak Rekapitulasi Akhir
   console.log("\n==========================================================");
-  console.log("📊 REKAPITULASI PENATAAN PLAYLIST");
+  console.log("📊 REKAPITULASI PENATAAN PLAYLIST (HANYA PLAYLIST ASLI)");
   console.log("==========================================================");
   console.log(`Total video diperiksa    : ${videos.length}`);
   console.log(`Video baru dimasukkan    : ${totalAdded}`);
@@ -596,7 +491,7 @@ async function main() {
     console.log(`  - "${pl.title}": ${count} video`);
   }
   console.log("==========================================================");
-  console.log("🎉 Penataan playlist selesai dengan sukses!");
+  console.log("🎉 Rollback dan penataan playlist selesai!");
 }
 
 main().catch((err) => {

@@ -17,16 +17,7 @@ const KNOWN_PLAYLISTS = {
   sejarah: "PLUctMDPTart8",
   teknologi: "PLFTzpGW5ZHsI",
   misteri: "PLdHxAx1IybvA",
-  bisnis: "PLeqBq0xWwCOY",
-  alam_semesta: "PLZAnNBgsPnF8",
-  fenomena_alam: "PLRl5Rc434mZg",
-  arsitektur: "PLUZG1Vct6D5w",
-  transportasi: "PLR3qKB50dAss",
-  tubuh_manusia: "PLRFDG1SsH7cA",
-  hewan: "PLL7RHZkn7C0o",
-  ekonomi: "PLMxMGor7X_lk",
-  tokoh: "PLF7VAnDfUSa8",
-  makanan: "PLeIXLXN5Bn2A"
+  bisnis: "PLeqBq0xWwCOY"
 };
 
 /**
@@ -37,32 +28,16 @@ const KNOWN_PLAYLISTS = {
 export function resolvePlaylistId(category) {
   let key = String(category || "").trim().toLowerCase();
 
-  // Group subcategories to match main playlist groups
-  if (key.includes("luar angkasa") || key.includes("alam semesta") || key.includes("astronomi")) {
-    key = "alam_semesta";
-  } else if (key.includes("gunung") || key.includes("bencana") || key.includes("fenomena")) {
-    key = "fenomena_alam";
-  } else if (key.includes("tubuh") || key.includes("medis")) {
-    key = "tubuh_manusia";
-  } else if (key.includes("hewan") || key.includes("tumbuhan") || key.includes("ekologi")) {
-    key = "hewan";
-  } else if (key.includes("arsitektur") || key.includes("infrastruktur")) {
-    key = "arsitektur";
-  } else if (key.includes("transportasi") || key.includes("kendaraan")) {
-    key = "transportasi";
-  } else if (key.includes("makanan") || key.includes("dapur") || key.includes("kuliner")) {
-    key = "makanan";
-  } else if (key.includes("tokoh") || key.includes("biografi")) {
-    key = "tokoh";
-  } else if (key.includes("ekonomi") || key.includes("bisnis") || key.includes("uang")) {
-    key = "ekonomi";
-  } else if (key.includes("misteri") || key.includes("konspirasi")) {
+  // Group subcategories strictly to the 5 main existing playlists
+  if (key.includes("misteri") || key.includes("konspirasi") || key.includes("teori")) {
     key = "misteri";
-  } else if (key.includes("sejarah") || key.includes("budaya")) {
+  } else if (key.includes("bisnis") || key.includes("ekonomi") || key.includes("uang")) {
+    key = "bisnis";
+  } else if (key.includes("sejarah") || key.includes("tokoh") || key.includes("biografi") || key.includes("budaya")) {
     key = "sejarah";
-  } else if (key.includes("teknologi") || key.includes("penemuan") || key.includes("material") || key.includes("benda") || key.includes("peta")) {
+  } else if (key.includes("teknologi") || key.includes("penemuan") || key.includes("arsitektur") || key.includes("infrastruktur") || key.includes("transportasi") || key.includes("material") || key.includes("benda") || key.includes("peta")) {
     key = "teknologi";
-  } else if (key.includes("sain")) {
+  } else if (key.includes("sain") || key.includes("alam") || key.includes("luar angkasa") || key.includes("gunung") || key.includes("tubuh") || key.includes("hewan") || key.includes("makanan") || key.includes("ekologi")) {
     key = "sains";
   }
 
