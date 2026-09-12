@@ -151,6 +151,83 @@ async function resolveGoogleNewsUrl(googleNewsUrl) {
   }
 }
 
+function extractArticleImage(html, pageUrl = "") {
+  if (!html || typeof html !== "string") return null;
+
+  // 1. JSON-LD Schema.org
+  const jsonLdMatches = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
+  for (const jm of jsonLdMatches) {
+    try {
+      const data = JSON.parse(jm[1].trim());
+      const findImg = (obj) => {
+        if (!obj) return null;
+        if (typeof obj.image === "string" && obj.image.startsWith("http")) return obj.image;
+        if (Array.isArray(obj.image)) {
+          const first = obj.image.find((img) => typeof img === "string" && img.startsWith("http"));
+          if (first) return first;
+          const objWithUrl = obj.image.find((img) => img?.url && typeof img.url === "string");
+          if (objWithUrl?.url) return objWithUrl.url;
+        }
+        if (obj.image?.url && typeof obj.image.url === "string") return obj.image.url;
+        if (Array.isArray(obj["@graph"])) {
+          for (const g of obj["@graph"]) {
+            const r = findImg(g);
+            if (r) return r;
+          }
+        }
+        return null;
+      };
+      const img = findImg(data);
+      if (img && !isGoogleLogo(img)) {
+        const cleaned = cleanImageUrl(img, pageUrl);
+        if (cleaned) return cleaned;
+      }
+    } catch {}
+  }
+
+  // 2. Open Graph, Twitter Card, dan image_src
+  const metaRegexes = [
+    /<meta[^>]+(?:property|name)=["'](?:og:image|og:image:url|og:image:secure_url)["'][^>]*content=["']([^"']+)["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image|og:image:url|og:image:secure_url)["']/i,
+    /<meta[^>]+(?:property|name)=["'](?:twitter:image|twitter:image:src)["'][^>]*content=["']([^"']+)["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:twitter:image|twitter:image:src)["']/i,
+    /<link[^>]+rel=["']image_src["'][^>]*href=["']([^"']+)["']/i
+  ];
+  for (const regex of metaRegexes) {
+    const match = html.match(regex);
+    if (match?.[1]) {
+      const cleaned = cleanImageUrl(match[1], pageUrl);
+      if (cleaned && !isGoogleLogo(cleaned)) return cleaned;
+    }
+  }
+
+  // 3. Lead image dari tag <figure> atau <article>
+  const bodyRegexes = [
+    /<figure[^>]*>[\s\S]*?<img[^>]+(?:data-src|data-original|data-highres|src)=["']([^"']+)["']/i,
+    /<article[^>]*>[\s\S]*?<img[^>]+(?:data-src|data-original|data-highres|src)=["']([^"']+)["']/i,
+    /<div[^>]+class=["'][^"']*(?:lead-image|featured-image|post-thumbnail|detail__media)[^"']*["'][\s\S]*?<img[^>]+(?:data-src|data-original|src)=["']([^"']+)["']/i
+  ];
+  for (const regex of bodyRegexes) {
+    const match = html.match(regex);
+    if (match?.[1]) {
+      const cleaned = cleanImageUrl(match[1], pageUrl);
+      if (cleaned && !isGoogleLogo(cleaned)) return cleaned;
+    }
+  }
+
+  return null;
+}
+
+function cleanImageUrl(rawUrl, baseUrl = "") {
+  if (!rawUrl || typeof rawUrl !== "string") return null;
+  let imgUrl = rawUrl.replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim();
+  if (imgUrl.startsWith("//")) imgUrl = `https:${imgUrl}`;
+  if (!imgUrl.startsWith("http") && baseUrl) {
+    try { imgUrl = new URL(imgUrl, baseUrl).href; } catch { return null; }
+  }
+  return imgUrl.startsWith("http") ? imgUrl : null;
+}
+
 async function scrapeArticleFull(url) {
   try {
     let targetUrl = url;
@@ -160,9 +237,9 @@ async function scrapeArticleFull(url) {
 
     const res = await fetch(targetUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "id-ID,id;q=0.9,en;q=0.8"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7"
       },
       signal: AbortSignal.timeout(8_000),
       redirect: "follow"
@@ -171,6 +248,10 @@ async function scrapeArticleFull(url) {
     const ct = res.headers.get("content-type") || "";
     if (!ct.includes("html")) return null;
     const html = await res.text();
+
+    // Ekstrak foto berita dengan multi-strategy
+    const imageUrl = extractArticleImage(html, res.url || targetUrl);
+
     const clean = html
       .replace(/<script[\s\S]*?<\/script>/gi, " ")
       .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -181,20 +262,6 @@ async function scrapeArticleFull(url) {
       .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
       .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
       .replace(/\s{2,}/g, " ").trim();
-    // Ekstrak og:image / twitter:image
-    const imgMatch = html.match(/<meta[^>]+(?:property|name)=["'](?:og:image|og:image:url|og:image:secure_url|twitter:image|twitter:image:src)["'][^>]*content=["']([^"']+)["']/i)
-      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image|og:image:url|og:image:secure_url|twitter:image|twitter:image:src)["']/i);
-    let imageUrl = imgMatch?.[1]?.trim() || null;
-    if (imageUrl) {
-      imageUrl = imageUrl.replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"');
-      if (imageUrl.startsWith("//")) imageUrl = `https:${imageUrl}`;
-      if (!imageUrl.startsWith("http")) {
-        try { imageUrl = new URL(imageUrl, res.url || targetUrl).href; } catch { imageUrl = null; }
-      }
-      if (isGoogleLogo(imageUrl)) {
-        imageUrl = null;
-      }
-    }
 
     if (clean.length < 100) return null;
     return { excerpt: clean.slice(0, 700).trim(), imageUrl, resolvedUrl: targetUrl !== url ? targetUrl : null };

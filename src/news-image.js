@@ -16,7 +16,7 @@ import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { paths } from "./config.js";
-import { resolveGoogleNewsUrl, isGoogleLogo } from "./news-research.js";
+import { resolveGoogleNewsUrl, isGoogleLogo, extractArticleImage } from "./news-research.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, "..", "assets");
@@ -72,25 +72,15 @@ export async function scrapeOgImage(url) {
     const res = await fetch(targetUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "id-ID,id;q=0.9,en;q=0.8"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7"
       },
       signal: AbortSignal.timeout(10_000),
       redirect: "follow"
     });
     if (!res.ok) return null;
     const html = await res.text();
-    const match = html.match(/<meta[^>]+(?:property|name)=["'](?:og:image|og:image:url|og:image:secure_url|twitter:image|twitter:image:src)["'][^>]*content=["']([^"']+)["']/i)
-      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image|og:image:url|og:image:secure_url|twitter:image|twitter:image:src)["']/i);
-    let imgUrl = match?.[1]?.trim() || null;
-    if (!imgUrl) return null;
-    imgUrl = imgUrl.replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"');
-    if (imgUrl.startsWith("//")) imgUrl = `https:${imgUrl}`;
-    if (!imgUrl.startsWith("http")) {
-      try { imgUrl = new URL(imgUrl, res.url || targetUrl).href; } catch { /* ignore */ }
-    }
-    if (!imgUrl.startsWith("http") || isGoogleLogo(imgUrl)) return null;
-    return imgUrl;
+    return extractArticleImage(html, res.url || targetUrl);
   } catch {
     return null;
   }

@@ -7,7 +7,8 @@ import {
   fetchNewsArticlesForTopic,
   enrichTrendNewsItems,
   resolveGoogleNewsUrl,
-  isGoogleLogo
+  isGoogleLogo,
+  extractArticleImage
 } from "../src/news-research.js";
 
 test("buildQueryCandidates: membersihkan stopword dan kata hook YouTube", () => {
@@ -192,4 +193,39 @@ test("scrapeArticleContent: menolak og:image jika hanya berisi logo Google News"
   assert.ok(res);
   assert.equal(res.imageUrl, null, "Logo Google News harus ditolak dan menghasilkan null");
 });
+
+test("extractArticleImage: mengekstrak gambar dari Schema.org JSON-LD dan lazy-loading data-src", () => {
+  // 1. JSON-LD resolusi tinggi
+  const jsonLdHtml = `
+    <html>
+      <head>
+        <script type="application/ld+json">
+          {
+            "@context": "https://schema.org",
+            "@type": "NewsArticle",
+            "headline": "Mobil Listrik Terbaru",
+            "image": [
+              "https://asset.kompas.com/crops/highres_1200.jpg"
+            ]
+          }
+        </script>
+      </head>
+      <body><p>Isi berita</p></body>
+    </html>
+  `;
+  assert.equal(extractArticleImage(jsonLdHtml), "https://asset.kompas.com/crops/highres_1200.jpg");
+
+  // 2. Lead figure image dengan lazy loading data-src saat meta tags tidak ada
+  const lazyLoadHtml = `
+    <html>
+      <body>
+        <figure class="article-lead">
+          <img data-src="https://img.tempo.co/danau_toba_lead.jpg" alt="Danau Toba" />
+        </figure>
+      </body>
+    </html>
+  `;
+  assert.equal(extractArticleImage(lazyLoadHtml), "https://img.tempo.co/danau_toba_lead.jpg");
+});
+
 
