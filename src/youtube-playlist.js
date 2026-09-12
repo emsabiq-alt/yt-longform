@@ -12,6 +12,23 @@ import { config } from "./config.js";
 
 const PLAYLIST_ITEMS_URL = "https://www.googleapis.com/youtube/v3/playlistItems";
 
+const KNOWN_PLAYLISTS = {
+  sains: "PLaENRSm8Kp0c",
+  sejarah: "PLUctMDPTart8",
+  teknologi: "PLFTzpGW5ZHsI",
+  misteri: "PLdHxAx1IybvA",
+  bisnis: "PLeqBq0xWwCOY",
+  alam_semesta: "PLZAnNBgsPnF8",
+  fenomena_alam: "PLRl5Rc434mZg",
+  arsitektur: "PLUZG1Vct6D5w",
+  transportasi: "PLR3qKB50dAss",
+  tubuh_manusia: "PLRFDG1SsH7cA",
+  hewan: "PLL7RHZkn7C0o",
+  ekonomi: "PLMxMGor7X_lk",
+  tokoh: "PLF7VAnDfUSa8",
+  makanan: "PLeIXLXN5Bn2A"
+};
+
 /**
  * Cari playlist ID yang cocok untuk kategori video.
  * @param {string} category - Kategori video (misal: "sains", "sejarah")
@@ -21,27 +38,48 @@ export function resolvePlaylistId(category) {
   let key = String(category || "").trim().toLowerCase();
 
   // Group subcategories to match main playlist groups
-  if (key.includes("sain") || key.includes("alam") || key.includes("tubuh") || key.includes("ekologi")) {
-    key = "sains";
-  } else if (key.includes("sejarah") || key.includes("tokoh") || key.includes("budaya")) {
+  if (key.includes("luar angkasa") || key.includes("alam semesta") || key.includes("astronomi")) {
+    key = "alam_semesta";
+  } else if (key.includes("gunung") || key.includes("bencana") || key.includes("fenomena")) {
+    key = "fenomena_alam";
+  } else if (key.includes("tubuh") || key.includes("medis")) {
+    key = "tubuh_manusia";
+  } else if (key.includes("hewan") || key.includes("tumbuhan") || key.includes("ekologi")) {
+    key = "hewan";
+  } else if (key.includes("arsitektur") || key.includes("infrastruktur")) {
+    key = "arsitektur";
+  } else if (key.includes("transportasi") || key.includes("kendaraan")) {
+    key = "transportasi";
+  } else if (key.includes("makanan") || key.includes("dapur") || key.includes("kuliner")) {
+    key = "makanan";
+  } else if (key.includes("tokoh") || key.includes("biografi")) {
+    key = "tokoh";
+  } else if (key.includes("ekonomi") || key.includes("bisnis") || key.includes("uang")) {
+    key = "ekonomi";
+  } else if (key.includes("misteri") || key.includes("konspirasi")) {
+    key = "misteri";
+  } else if (key.includes("sejarah") || key.includes("budaya")) {
     key = "sejarah";
   } else if (key.includes("teknologi") || key.includes("penemuan") || key.includes("material") || key.includes("benda") || key.includes("peta")) {
     key = "teknologi";
-  } else if (key.includes("bisnis")) {
-    key = "bisnis";
-  } else if (key.includes("misteri")) {
-    key = "misteri";
+  } else if (key.includes("sain")) {
+    key = "sains";
   }
 
   const playlists = config.youtube.playlists;
 
-  // Exact match dulu
-  if (playlists.has(key)) return playlists.get(key);
+  // Exact match dulu di config
+  if (playlists && playlists.has(key)) return playlists.get(key);
 
   // Partial match: cari key yang mengandung kata dari kategori
-  for (const [mapKey, playlistId] of playlists) {
-    if (key.includes(mapKey) || mapKey.includes(key)) return playlistId;
+  if (playlists && playlists.size) {
+    for (const [mapKey, playlistId] of playlists) {
+      if (key.includes(mapKey) || mapKey.includes(key)) return playlistId;
+    }
   }
+
+  // Fallback ke mapped known playlists
+  if (KNOWN_PLAYLISTS[key]) return KNOWN_PLAYLISTS[key];
 
   // Fallback ke default playlist
   return config.youtube.defaultPlaylistId || null;
