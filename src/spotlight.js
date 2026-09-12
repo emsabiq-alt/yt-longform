@@ -17,10 +17,10 @@ import { buildWordTimeline, findPhraseTime, tokenizeMatchText } from "./word-tim
  * font statis lalu render kartu berfoto sebagai overlay PNG.
  */
 
-const MIN_SCORE = 0.55;
-const MIN_GAP_SEC = 8;
-const MAX_PER_VIDEO = 14;
-const CARD_DURATION_SEC = 3.6;
+const MIN_SCORE = 0.48; // Toleransi skor pencocokan lebih baik agar kartu lebih sering muncul
+const MIN_GAP_SEC = 5; // Jeda minimum antar kartu lebih rapat (sebelumnya 8s)
+const MAX_PER_VIDEO = 22; // Kuota per video dinaikkan (sebelumnya 14)
+const CARD_DURATION_SEC = 4.5; // Durasi tampil lebih lama (sebelumnya 3.6s) agar terbaca jelas di HP
 const LEAD_IN_SEC = 0.12;
 
 const stats = { candidates: 0, placed: 0, rejectedScore: 0, rejectedQuota: 0, rejectedGap: 0 };
@@ -115,15 +115,15 @@ export function logSpotlightStats() {
 
 const ACCENT = "&H004CC8F5";
 
-// Keypoint spotlight — pojok kiri bawah
+// Keypoint spotlight — pojok kiri bawah (diperbesar agar jelas di layar smartphone)
 const KP_X = 64;
-const KP_Y = 470;
-const KP_W = 470;
+const KP_Y = 450;
+const KP_W = 540;
 
-// Figure spotlight — tengah layar (PlayRes 1280×720)
-const FIG_W = 580;
-const FIG_X = Math.round((1280 - FIG_W) / 2); // 350
-const FIG_Y = 240; // sepertiga atas layar agar tidak tutup caption bawah
+// Figure spotlight — tengah layar (PlayRes 1280×720, diperbesar agar jelas di HP)
+const FIG_W = 660;
+const FIG_X = Math.round((1280 - FIG_W) / 2); // 310
+const FIG_Y = 230; // sepertiga atas layar agar tidak tutup caption bawah
 
 /**
  * Baris ASS untuk kartu spotlight.
@@ -139,7 +139,7 @@ export function spotlightDialogueLines(placements, dialogueFn, escapeFn) {
 
     if (isFigure) {
       // Kartu tokoh: tengah layar, lebih besar
-      const height = twoLine ? 130 : 90;
+      const height = twoLine ? 144 : 98;
       const top = FIG_Y;
       events.push(dialogueFn(
         card.startSec, card.endSec, "FigurePanel",
@@ -152,17 +152,17 @@ export function spotlightDialogueLines(placements, dialogueFn, escapeFn) {
       // Nama tokoh (centered dalam kartu)
       events.push(dialogueFn(
         card.startSec + 0.08, card.endSec, "FigureLabel",
-        `${fade}{\\an5\\pos(${Math.round(FIG_X + FIG_W / 2)},${top + (twoLine ? 42 : 50)})}${escapeFn(card.label)}`
+        `${fade}{\\an5\\pos(${Math.round(FIG_X + FIG_W / 2)},${top + (twoLine ? 46 : 52)})}${escapeFn(card.label)}`
       ));
       if (twoLine) {
         events.push(dialogueFn(
           card.startSec + 0.14, card.endSec, "FigureSub",
-          `${fade}{\\an5\\pos(${Math.round(FIG_X + FIG_W / 2)},${top + 92})}${escapeFn(card.sublabel)}`
+          `${fade}{\\an5\\pos(${Math.round(FIG_X + FIG_W / 2)},${top + 100})}${escapeFn(card.sublabel)}`
         ));
       }
     } else {
-      // Kartu keypoint: pojok kiri bawah
-      const height = twoLine ? 104 : 72;
+      // Kartu keypoint: pojok kiri bawah (font lebih besar, panel lebih lega)
+      const height = twoLine ? 116 : 80;
       const top = KP_Y + (twoLine ? 0 : 20);
       events.push(dialogueFn(
         card.startSec, card.endSec, "SpotlightPanel",
@@ -174,12 +174,12 @@ export function spotlightDialogueLines(placements, dialogueFn, escapeFn) {
       ));
       events.push(dialogueFn(
         card.startSec + 0.08, card.endSec, "SpotlightLabel",
-        `${fade}{\\an7\\pos(${KP_X + 24},${top + 14})}${escapeFn(card.label)}`
+        `${fade}{\\an7\\pos(${KP_X + 24},${top + 16})}${escapeFn(card.label)}`
       ));
       if (twoLine) {
         events.push(dialogueFn(
           card.startSec + 0.14, card.endSec, "SpotlightSub",
-          `${fade}{\\an7\\pos(${KP_X + 24},${top + 58})}${escapeFn(card.sublabel)}`
+          `${fade}{\\an7\\pos(${KP_X + 24},${top + 64})}${escapeFn(card.sublabel)}`
         ));
       }
     }
@@ -190,15 +190,15 @@ export function spotlightDialogueLines(placements, dialogueFn, escapeFn) {
 export function spotlightStyles() {
   const body = config.render.fontBody;
   return [
-    // Keypoint — pojok kiri bawah
+    // Keypoint — pojok kiri bawah (font diperbesar dari 30->36 dan 22->26)
     `Style: SpotlightPanel,${body},20,&HC011171B,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     `Style: SpotlightBar,${body},20,${ACCENT},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
-    `Style: SpotlightLabel,${body},30,&H00FFFFFF,&H000000FF,&H9011171B,&H0011171B,-1,0,0,0,100,100,0,0,1,1.5,0,7,0,0,0,1`,
-    `Style: SpotlightSub,${body},22,${ACCENT},&H000000FF,&H9011171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.5,0,7,0,0,0,1`,
-    // Figure — tengah layar
+    `Style: SpotlightLabel,${body},36,&H00FFFFFF,&H000000FF,&H9011171B,&H0011171B,-1,0,0,0,100,100,0,0,1,1.5,0,7,0,0,0,1`,
+    `Style: SpotlightSub,${body},26,${ACCENT},&H000000FF,&H9011171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.5,0,7,0,0,0,1`,
+    // Figure — tengah layar (font diperbesar dari 38->46 dan 26->30)
     `Style: FigurePanel,${body},20,&HE011171B,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     `Style: FigureBar,${body},20,${ACCENT},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
-    `Style: FigureLabel,${body},38,&H00FFFFFF,&H000000FF,&HAA11171B,&H0011171B,-1,0,0,0,100,100,0,0,1,1.8,0,5,0,0,0,1`,
-    `Style: FigureSub,${body},26,${ACCENT},&H000000FF,&HAA11171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.5,0,5,0,0,0,1`
+    `Style: FigureLabel,${body},46,&H00FFFFFF,&H000000FF,&HAA11171B,&H0011171B,-1,0,0,0,100,100,0,0,1,1.8,0,5,0,0,0,1`,
+    `Style: FigureSub,${body},30,${ACCENT},&H000000FF,&HAA11171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.5,0,5,0,0,0,1`
   ];
 }

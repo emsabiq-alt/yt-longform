@@ -169,7 +169,10 @@ export const config = {
     fontTitle: clean(process.env.RENDER_TITLE_FONT || "Bebas Neue"),
     fontBody: clean(process.env.RENDER_BODY_FONT || "Noto Sans"),
     fontMono: clean(process.env.RENDER_MONO_FONT || "JetBrains Mono"),
-    speechTempo: Math.min(1.3, Math.max(0.9, numberEnv("SPEECH_TEMPO", 1.0)))
+    speechTempo: Math.min(1.3, Math.max(0.9, numberEnv("SPEECH_TEMPO", 1.0))),
+    introEnabled: boolDefault(process.env.YT_INTRO_ENABLED, false),
+    outroEnabled: boolDefault(process.env.YT_OUTRO_ENABLED, false),
+    bumperOutroEnabled: boolDefault(process.env.YT_BUMPER_OUTRO_ENABLED, false)
   },
   automation: {
     timeZone: clean(process.env.YT_TIME_ZONE || "Asia/Bangkok"),

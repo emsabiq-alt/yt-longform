@@ -290,20 +290,37 @@ export async function renderLongformVideo(item) {
     throw new Error("Background music not found! Please place Marimba Curiosity Case MP3 under assets/music.");
   }
 
+  const bumperOutroEnabled = item.input?.bumperOutroEnabled ?? config.render?.bumperOutroEnabled ?? false;
+  const introEnabled = item.input?.introEnabled ?? config.render?.introEnabled ?? false;
+  const outroEnabled = item.input?.outroEnabled ?? config.render?.outroEnabled ?? false;
+
   const bumperOutroRaw = path.join(paths.rootDir, "assets", "bumper-yt", "bumper-youtube-outro.mp4");
   // Bumper intro dihapus: era modern lebih efektif cold open hook langsung.
   const bumperIntroDuration = 0;
-  const bumperOutroDuration = await probeDuration(bumperOutroRaw);
+  const bumperOutroDuration = bumperOutroEnabled && fs.existsSync(bumperOutroRaw)
+    ? await probeDuration(bumperOutroRaw)
+    : 0;
 
-  // 1. Select the intro and outro videos
-  const introVideoPath = await selectIntroVideo(item.input?.category);
-  const outroVideoPath = await selectOutroVideo();
+  // 1. Select the intro and outro videos (hanya jika diaktifkan)
+  let introVideoPath = null;
+  let introDuration = 0;
+  if (introEnabled) {
+    introVideoPath = await selectIntroVideo(item.input?.category);
+    introDuration = await probeDuration(introVideoPath);
+    console.log(`Selected Category Intro: ${introVideoPath} (${introDuration}s)`);
+  } else {
+    console.log(`[Render] Category Intro dinonaktifkan sesuai preferensi pengguna.`);
+  }
 
-  // 2. Probe durations of selected intro/outro
-  const introDuration = await probeDuration(introVideoPath);
-  const outroDuration = await probeDuration(outroVideoPath);
-  console.log(`Selected Category Intro: ${introVideoPath} (${introDuration}s)`);
-  console.log(`Selected Outro: ${outroVideoPath} (${outroDuration}s)`);
+  let outroVideoPath = null;
+  let outroDuration = 0;
+  if (outroEnabled) {
+    outroVideoPath = await selectOutroVideo();
+    outroDuration = await probeDuration(outroVideoPath);
+    console.log(`Selected Outro: ${outroVideoPath} (${outroDuration}s)`);
+  } else {
+    console.log(`[Render] Category Outro dinonaktifkan sesuai preferensi pengguna.`);
+  }
 
   // Mode baru: TTS per scene (termasuk reaction). Durasi visual mengikuti durasi audio
   // sehingga subtitle dan suara selalu sinkron dan tidak ada narasi yang terpotong.
@@ -447,42 +464,49 @@ export async function renderLongformVideo(item) {
   const finalContentPath = path.join(workDir, "part-2-content.mp4");
   await muxVideoAudio({ videoPath: contentBrandedPath, audioPath: contentAudioPath, outputPath: finalContentPath });
 
-  // Render Part 1 (Category Intro)
-  const firstSceneMedia = resolveSceneMedia(item, renderScenes[0]);
-  const introPartPath = path.join(workDir, "part-1-intro.mp4");
-  reportProgress("render", "Merender intro", 80, "");console.log("Rendering Part 1 (Category Intro)...");
-  await makeIntroSegment({
-    bgPath: firstSceneMedia.path,
-    bgType: firstSceneMedia.type,
-    introPath: introVideoPath,
-    outputPath: introPartPath,
-    duration: introDuration,
-    bgMusicPath: customMusic,
-    resolution
-  });
+  // Render Part 1 (Category Intro) — opsional
+  let introPartPath = null;
+  if (introEnabled && introVideoPath && introDuration > 0) {
+    const firstSceneMedia = resolveSceneMedia(item, renderScenes[0]);
+    introPartPath = path.join(workDir, "part-1-intro.mp4");
+    reportProgress("render", "Merender intro", 80, "");console.log("Rendering Part 1 (Category Intro)...");
+    await makeIntroSegment({
+      bgPath: firstSceneMedia.path,
+      bgType: firstSceneMedia.type,
+      introPath: introVideoPath,
+      outputPath: introPartPath,
+      duration: introDuration,
+      bgMusicPath: customMusic,
+      resolution
+    });
+  }
 
-  // Render Part 3 (Category Outro)
-  const lastSceneMedia = resolveSceneMedia(item, renderScenes.at(-1));
-  const outroRawPath = path.join(workDir, "part-3-outro-raw.mp4");
-  reportProgress("render", "Merender outro", 86, "");console.log("Rendering Part 3 Outro Visual & Audio...");
-  await makeOutroSegment({
-    bgPath: lastSceneMedia.path,
-    bgType: lastSceneMedia.type,
-    outroPath: outroVideoPath,
-    outputPath: outroRawPath,
-    duration: outroDuration,
-    bgMusicPath: customMusic,
-    musicOffset: introDuration + timing.contentDuration,
-    resolution
-  });
+  // Render Part 3 (Category Outro) — opsional
+  let finalOutroPath = null;
+  if (outroEnabled && outroVideoPath && outroDuration > 0) {
+    const lastSceneMedia = resolveSceneMedia(item, renderScenes.at(-1));
+    const outroRawPath = path.join(workDir, "part-3-outro-raw.mp4");
+    reportProgress("render", "Merender outro", 86, "");console.log("Rendering Part 3 Outro Visual & Audio...");
+    await makeOutroSegment({
+      bgPath: lastSceneMedia.path,
+      bgType: lastSceneMedia.type,
+      outroPath: outroVideoPath,
+      outputPath: outroRawPath,
+      duration: outroDuration,
+      bgMusicPath: customMusic,
+      musicOffset: introDuration + timing.contentDuration,
+      resolution
+    });
+    finalOutroPath = outroRawPath;
+  }
 
-  // Outro = full-frame presenter video (no ringkasan text overlay)
-  const finalOutroPath = outroRawPath;
-
-  // Transcode Bumper Outro (intro bumper dihapus — hanya outro yang dipertahankan)
-  const finalBumperOutroPath = path.join(workDir, "part-4-bumper-outro.mp4");
-  reportProgress("render", "Menyiapkan bumper outro", 90, "");console.log("Transcoding Bumper Outro...");
-  await prepareBumper(bumperOutroRaw, finalBumperOutroPath, resolution);
+  // Transcode Bumper Outro — opsional
+  let finalBumperOutroPath = null;
+  if (bumperOutroEnabled && bumperOutroDuration > 0) {
+    finalBumperOutroPath = path.join(workDir, "part-4-bumper-outro.mp4");
+    reportProgress("render", "Menyiapkan bumper outro", 90, "");console.log("Transcoding Bumper Outro...");
+    await prepareBumper(bumperOutroRaw, finalBumperOutroPath, resolution);
+  }
 
   // Cold open (hook teaser) opsional — diputar lebih dulu agar penonton langsung
   // ketemu inti yang bikin penasaran di detik-detik awal, bukan bumper/intro.
@@ -519,20 +543,25 @@ export async function renderLongformVideo(item) {
     }
   }
 
-  // Urutan pembuka: cold open hook langsung → category intro.
+  // Urutan pembuka: cold open hook langsung → category intro (bila ada).
   // Bumper intro dihapus agar penonton langsung kena hook tanpa jeda brand opener.
-  const opening = coldOpenPath
-    ? [coldOpenPath, introPartPath]
-    : [introPartPath];
+  const opening = [];
+  if (coldOpenPath) opening.push(coldOpenPath);
+  if (introPartPath) opening.push(introPartPath);
 
-  const coreParts = [...opening, finalContentPath, finalOutroPath, finalBumperOutroPath];
+  const coreParts = [
+    ...opening,
+    finalContentPath,
+    ...(finalOutroPath ? [finalOutroPath] : []),
+    ...(finalBumperOutroPath ? [finalBumperOutroPath] : [])
+  ];
 
   const durationByPath = new Map([
-    [coldOpenPath, coldOpenDuration],
-    [introPartPath, introDuration]
+    ...(coldOpenPath ? [[coldOpenPath, coldOpenDuration]] : []),
+    ...(introPartPath ? [[introPartPath, introDuration]] : [])
   ]);
   const frontDuration = opening.reduce((sum, part) => sum + (durationByPath.get(part) || 0), 0);
-  const totalDuration = Number((frontDuration + timing.contentDuration + outroDuration + bumperOutroDuration).toFixed(2));
+  const totalDuration = Number((frontDuration + timing.contentDuration + (finalOutroPath ? outroDuration : 0) + (finalBumperOutroPath ? bumperOutroDuration : 0)).toFixed(2));
 
   const provider = item.assets?.audio?.provider || "local";
   const filename = `${item.id}-${provider}-${safeFilename(item.title)}.mp4`;

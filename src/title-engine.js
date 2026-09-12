@@ -128,20 +128,83 @@ function subjectTerms(subject) {
 }
 
 /**
+ * Deteksi perbandingan (A vs B, versus, lawan, dibandingkan).
+ */
+function detectComparison(text) {
+  const match = String(text || "").match(/\b(?:vs\.?|versus|lawan|dibandingkan|dibanding)\b/i);
+  if (!match) return null;
+  const parts = text.split(new RegExp(`\\b${match[0]}\\b`, "i")).map((p) => p.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    return {
+      sideA: parts[0],
+      sideB: parts.slice(1).join(" "),
+      conjunction: match[0]
+    };
+  }
+  return null;
+}
+
+/**
+ * Cek apakah term cocok dalam teks, termasuk variasi ejaan atau typo umum (mis. kratau -> krakatau).
+ */
+function termMatches(term, text) {
+  const t = String(text || "").toLowerCase();
+  const w = String(term || "").toLowerCase();
+  if (t.includes(w)) return true;
+  // Resilient terhadap typo/singkatan umum
+  if (w === "kratau" && t.includes("krakatau")) return true;
+  if (w === "krakatau" && t.includes("kratau")) return true;
+  if (w.length >= 6 && t.includes(w.slice(0, 5))) return true;
+  return false;
+}
+
+/**
  * Nilai tambahan di atas qualityScore milik AI.
  *
  * Skor AI saja tidak cukup: model cenderung memberi nilai tinggi pada judul yang
- * enak dibaca padahal isinya kabur. Tiga hal yang benar-benar membuat penonton
- * mengklik bisa diperiksa tanpa AI — ada angka/ukuran yang bisa dipegang, ada
- * kata yang menandakan sesuatu tidak beres, dan subjeknya benar-benar disebut.
- * Pembuka yang sama dengan video terakhir dihukum berat karena di feed
- * subscriber judul yang berawal sama terlihat seperti video yang sama.
+ * enak dibaca padahal isinya kabur atau topic drift. Tiga hal yang benar-benar membuat
+ * penonton mengklik diperiksa: ada angka/ukuran yang bisa dipegang, ada kata ketegangan,
+ * dan keselarasan penuh dengan topik/subjek pengguna (terutama topik perbandingan A vs B).
  */
-function titleBonus(title, subjectWords, recentOpeners) {
+function titleBonus(title, subjectWords, recentOpeners, rawSubject = "") {
   let bonus = 0;
   if (CONCRETE_DETAIL.test(title)) bonus += 12;
   if (TENSION_WORDS.test(title)) bonus += 8;
-  if (subjectWords.some((word) => title.toLowerCase().includes(word))) bonus += 10;
+
+  const comparison = detectComparison(rawSubject);
+  if (comparison) {
+    const termsA = subjectTerms(comparison.sideA);
+    const termsB = subjectTerms(comparison.sideB);
+    const matchA = termsA.length === 0 || termsA.some((w) => termMatches(w, title));
+    const matchB = termsB.length === 0 || termsB.some((w) => termMatches(w, title));
+
+    if (matchA && matchB) {
+      // Menjaga perbandingan kedua entitas secara utuh!
+      bonus += 35;
+    } else if (matchA || matchB) {
+      // Topic drift: membuang salah satu pihak perbandingan! Dihukum berat.
+      bonus -= 35;
+    } else {
+      // Tidak menyebut salah satu pun
+      bonus -= 50;
+    }
+  } else {
+    // Topik non-perbandingan: periksa coverage kata kunci subjek
+    if (Array.isArray(subjectWords) && subjectWords.length > 0) {
+      const matchCount = subjectWords.filter((word) => termMatches(word, title)).length;
+      const coverage = matchCount / subjectWords.length;
+      if (coverage >= 0.8) {
+        bonus += 20;
+      } else if (coverage >= 0.4) {
+        bonus += 10;
+      } else if (matchCount > 0) {
+        bonus += 4;
+      } else {
+        bonus -= 25;
+      }
+    }
+  }
+
   // 65 karena buildTitle() di youtube-meta.js memotong keras di 65 karakter.
   // Judul 66-68 karakter kehilangan kata terakhirnya di YouTube.
   if (title.length >= 42 && title.length <= 65) bonus += 6;
@@ -163,7 +226,7 @@ function pickBestTitle(titles, options = {}) {
       const base = Number.isFinite(qualityScore) ? Math.max(0, Math.min(100, qualityScore)) : 0;
       return {
         title,
-        score: base + titleBonus(title, subjectWords, recentOpeners),
+        score: base + titleBonus(title, subjectWords, recentOpeners, options.subject || ""),
         index
       };
     })
@@ -191,8 +254,8 @@ function pickBestTitle(titles, options = {}) {
 
 function fallbackTitle(plan, input = {}) {
   const candidates = [
-    plan?.title,
     input?.topic,
+    plan?.title,
     String(plan?.summary || "").split(/[.!?]/)[0]
   ]
     .map((value) => simplifyForLayAudience(stripEmoji(cleanText(value, 100)), 80))
@@ -207,10 +270,25 @@ function fallbackTitle(plan, input = {}) {
 }
 
 function buildTitlePrompt(digest, currentTitle, category, subject, recentTitles = []) {
+  const comparison = detectComparison(subject);
   const shapeBlock = TITLE_SHAPES.flatMap((shape) => [
     `${shape.label}:`,
     ...shape.examples.map((example) => `  - ${example}`)
   ]);
+
+  const topicBlock = comparison
+    ? [
+        `*** PERHATIAN KHUSUS: TOPIK ADALAH PERBANDINGAN DUA ENTITAS ***`,
+        `Topik: "${subject}" (Entitas A: "${comparison.sideA}" vs Entitas B: "${comparison.sideB}")`,
+        `WAJIB: SEMUA 10 kandidat judul HARUS membandingkan kedua entitas tersebut (atau mengadu kedahsyatan/dampak keduanya).`,
+        `DILARANG KERAS membuang salah satu entitas! DILARANG membuat judul yang hanya membahas "${comparison.sideA}" saja atau hanya "${comparison.sideB}" saja!`,
+        `DILARANG TOPIC DRIFT ke sub-peristiwa parsial (misal: jangan hanya bahas tsunami atau letusan tahun tertentu dari salah satu pihak). Fokus utama adalah duel perbandingan keduanya!`
+      ].join("\n")
+    : [
+        `Subjek konkret video (WAJIB disebut eksplisit di judul): ${subject || currentTitle || "(tentukan dari ringkasan)"}`,
+        `Topik utama: "${subject || currentTitle || ""}"`
+      ].join("\n");
+
   return [
     "Kamu spesialis judul YouTube edukasi berbahasa Indonesia untuk topik yang relevan secara global.",
     "Tugas: riset secara internal dari bahan yang diberikan, lalu buat 10 kandidat judul video berkualitas tinggi yang membuat orang penasaran dan mau membuka video.",
@@ -218,7 +296,7 @@ function buildTitlePrompt(digest, currentTitle, category, subject, recentTitles 
     "---",
     digest,
     "---",
-    `Subjek konkret video (WAJIB disebut eksplisit di judul): ${subject || currentTitle || "(tentukan dari ringkasan)"}`,
+    topicBlock,
     `Judul saat ini: ${currentTitle || "(belum ada)"}`,
     `Kategori: ${category || "umum"}`,
     recentTitles.length
@@ -229,6 +307,8 @@ function buildTitlePrompt(digest, currentTitle, category, subject, recentTitles 
     "- Idealnya 42-65 karakter, maksimal 80 karakter. Di atas 65 karakter YouTube memotongnya.",
     "- Bahasa Indonesia natural, singkat, padat.",
     "- Tidak pakai emoji dan tidak pakai tanda seru berlebihan.",
+    "- WAJIB SINKRON DENGAN TOPIK UTAMA. DILARANG KERAS TOPIC DRIFT: Judul harus mewakili topik utama yang diminta penonton, bukan hanyut ke fakta/peristiwa sampingan kecil dari naskah.",
+    comparison ? "- KARENA TOPIK PERBANDINGAN ('vs'), KEDUA ENTITAS WAJIB HADIR DI JUDUL. Dilarang membuang salah satu pihak." : "",
     "- WAJIB menyebut SUBJEK KONKRET yang dibahas (benda/makhluk/tempat/peristiwa nyata),",
     "  sehingga penonton LANGSUNG paham videonya tentang apa hanya dari judul.",
     "- WAJIB memuat satu DETAIL SPESIFIK yang diambil dari bahan di atas: angka, ukuran,",
@@ -255,7 +335,7 @@ function buildTitlePrompt(digest, currentTitle, category, subject, recentTitles 
     "- Judul harus akurat sesuai konten; jangan clickbait yang menipu. Detail yang dipakai",
     "  harus benar-benar ada di bahan di atas, jangan mengarang angka.",
     "- Utamakan subjek/pertanyaan yang bisa dipahami penonton internasional; jangan bergantung pada konteks lokal Indonesia.",
-    "- Beri qualityScore 0-100 untuk tiap kandidat. Nilai dari kejelasan subjek, adanya detail terukur, rasa penasaran yang jujur, kekuatan untuk CTR, dan kesesuaian penuh dengan isi video.",
+    "- Beri qualityScore 0-100 untuk tiap kandidat. Nilai dari kesesuaian dengan topik utama, kejelasan subjek, adanya detail terukur, rasa penasaran yang jujur, dan kekuatan untuk CTR.",
     "",
     "LIMA BENTUK JUDUL (subjek selalu disebut jelas, variasikan diksinya):",
     ...shapeBlock,
@@ -301,4 +381,4 @@ export async function generateViralTitle(plan, input = {}) {
   return safeFallback || currentTitle || "Fakta Menarik yang Jarang Diketahui";
 }
 
-export { fallbackTitle, pickBestTitle, titleBonus, DEFAULT_TITLE_PATTERNS };
+export { fallbackTitle, pickBestTitle, titleBonus, detectComparison, DEFAULT_TITLE_PATTERNS };

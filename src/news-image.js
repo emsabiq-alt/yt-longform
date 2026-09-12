@@ -23,19 +23,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, "..", "assets");
 
 const DL_TIMEOUT_MS = 15_000;
-const OVERLAY_DURATION = 4.2; // detik ditampilkan per scene
+const OVERLAY_DURATION = 5.5; // detik ditampilkan per scene (cukup waktu untuk membaca di layar HP)
+const START_DELAY_SEC = 2.5; // jeda detik setelah scene dimulai sebelum mockup slide masuk
 const SLIDE_DUR = 0.45; // detik durasi animasi slide masuk (bawah->atas) dan slide keluar (atas->bawah)
 
 /**
  * Konfigurasi layar dalam template mockup (koordinat pixel di dimensi asli file,
  * 2816×1536 untuk kedua template saat ini). Koordinat dibatasi aman ke area hitam
  * layar murni tanpa menyentuh bezel, tangan, atau background hijau.
+ * scaleMultiplier diatur agar mockup besar dan jelas terlihat di layar smartphone.
  */
 const DEVICE_CONFIG = {
   phone: {
     templateFile: "phone-mockup.png",
     templateW: 2816,
     templateH: 1536,
+    scaleMultiplier: 1.15, // Zoom lebih besar (+44% lebar layar) agar jelas di HP
     // Area layar hitam aman di dalam template phone
     screen: { x: 1195, y: 240, w: 410, h: 900 }
   },
@@ -43,6 +46,7 @@ const DEVICE_CONFIG = {
     templateFile: "tablet-mockup.png",
     templateW: 2816,
     templateH: 1536,
+    scaleMultiplier: 1.02, // Zoom besar proporsional (+28% lebar layar)
     // Area layar hitam aman di dalam template tablet
     screen: { x: 1010, y: 210, w: 780, h: 1070 }
   }
@@ -120,23 +124,26 @@ export async function ensureNewsImages(item) {
     });
   }
 
-  // 2. Jika tidak ada scene dengan mediaSource (misal tab Buat, atau AI lupa menyertakan),
-  // pilih 1-2 scene bertipe image sebagai kandidat device mockup agar video tetap punya variasi visual
-  if (!newsImages.length && scenes.length >= 2) {
-    const candidateScenes = scenes.filter((s) => s.sceneType === "image" || !s.sceneType);
-    const targets = [
-      candidateScenes[1] || candidateScenes[0],
-      candidateScenes[Math.min(5, candidateScenes.length - 1)]
-    ].filter(Boolean);
+  // 2. Tambahkan scene bertipe image sebagai kandidat device mockup
+  // agar mockup tampil lebih sering dan merata di sepanjang video (target 4-6 mockup)
+  const candidateScenes = scenes.filter((s) => s.sceneType === "image" || !s.sceneType);
+  if (candidateScenes.length >= 2) {
+    const step = Math.max(2, Math.floor(candidateScenes.length / 5));
+    const targetScenes = [];
+    for (let i = 1; i < candidateScenes.length; i += step) {
+      targetScenes.push(candidateScenes[i]);
+      if (targetScenes.length >= 6) break;
+    }
 
-    const uniqueTargets = [...new Set(targets)];
-    for (let i = 0; i < uniqueTargets.length; i++) {
-      const scene = uniqueTargets[i];
+    for (let i = 0; i < targetScenes.length; i++) {
+      const scene = targetScenes[i];
+      const sIdx = Number(scene.index);
+      if (newsImages.some((n) => n.sceneIndex === sIdx)) continue;
       const ni = newsItems[i] || null;
       newsImages.push({
-        sceneIndex: Number(scene.index),
+        sceneIndex: sIdx,
         headline: String(ni?.headline || ni?.title || scene.screenText || item.input?.topic || "").slice(0, 120),
-        outlet: String(ni?.outlet || ni?.source || (ni ? "Berita Terkini" : "Dokumen Referensi")).slice(0, 60),
+        outlet: String(ni?.outlet || ni?.source || (ni ? "Dokumen Referensi" : "Arsip Terkait")).slice(0, 60),
         imageUrl: ni?.imageUrl || null,
         url: ni?.url || null,
         imagePath: null
@@ -257,8 +264,8 @@ export async function applyNewsImageOverlays(inputVideoPath, outputVideoPath, it
     const scene = renderScenes.find((s) => Number(s.index) === entry.sceneIndex);
     if (!scene) continue;
 
-    // Bergantian phone dan tablet
-    const deviceType = i % 2 === 0 ? "phone" : "tablet";
+    // Paling sering tablet (70% tablet, 30% phone sesuai preferensi penonton)
+    const deviceType = (i % 3 === 2) ? "phone" : "tablet";
     const templatePath = path.join(ASSETS_DIR, DEVICE_CONFIG[deviceType].templateFile);
 
     // Cek template ada
@@ -277,10 +284,10 @@ export async function applyNewsImageOverlays(inputVideoPath, outputVideoPath, it
         resolution,
         runFfmpeg
       });
-      // Tampilkan 1 detik setelah scene dimulai, tapi jangan lewat akhir scene
-      const startSec = Math.max(0, Number(scene.startSec || 0) + 1);
-      const endSec = Math.min(startSec + OVERLAY_DURATION, Number(scene.endSec || startSec + OVERLAY_DURATION));
-      if (endSec - startSec < 2) continue;
+      // Tampilkan 2.5 detik setelah scene dimulai (agar narator mulai bicara dulu), durasi 5.5 detik
+      const startSec = Math.max(0, Number(scene.startSec || 0) + START_DELAY_SEC);
+      const endSec = Math.min(startSec + OVERLAY_DURATION, Number(scene.endSec || startSec + OVERLAY_DURATION) - 0.2);
+      if (endSec - startSec < 2.5) continue;
       overlayClips.push({ clipPath, startSec, endSec, videoW, videoH });
     } catch (err) {
       console.warn(`[NewsImage] Gagal buat overlay scene ${entry.sceneIndex}: ${err.message}`);
@@ -337,9 +344,10 @@ async function makeDeviceMockupClip({ newsImagePath, templatePath, outputPath, d
   const cfg = DEVICE_CONFIG[deviceType];
   const is1080 = resolution === "1080p";
 
-  // Scale template ke 80% lebar video agar proporsional dan menempel rapat di bawah
+  // Scale template diperbesar (zoom-in) agar konten berita di layar HP/tablet jelas terbaca di smartphone
   const videoW = is1080 ? 1920 : 1280;
-  const targetTemplateW = even(Math.round(videoW * 0.80));
+  const multiplier = cfg.scaleMultiplier || 1.05;
+  const targetTemplateW = even(Math.round(videoW * multiplier));
   const targetTemplateH = even(Math.round(targetTemplateW * cfg.templateH / cfg.templateW));
   const scaleRatio = targetTemplateW / cfg.templateW;
 

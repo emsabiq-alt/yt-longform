@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { config } from "../src/config.js";
 import { parseDeepSeekJson } from "../src/deepseek.js";
-import { fallbackTitle, generateViralTitle, pickBestTitle, titleBonus, DEFAULT_TITLE_PATTERNS } from "../src/title-engine.js";
+import { fallbackTitle, generateViralTitle, pickBestTitle, titleBonus, detectComparison, DEFAULT_TITLE_PATTERNS } from "../src/title-engine.js";
 import { createTrendFallbackIdeas, isSpaceQuotaDue } from "../src/topic-engine.js";
 import { fetchSustainedNewsTopics, findSustainedNewsTopics, parseGoogleNewsRss } from "../src/google-news-trends.js";
 import { checkFreshness } from "../src/continuity-engine.js";
@@ -176,3 +176,44 @@ test("pickBestTitle: pembuka yang sama dengan video terakhir dihindari", () => {
   ], { subject: "madu", recentOpeners });
   assert.equal(title, "Madu Berumur Tiga Ribu Tahun yang Ternyata Masih Aman Dimakan");
 });
+
+test("detectComparison: mengenali pola perbandingan vs, versus, dan lawan", () => {
+  const comp1 = detectComparison("Anak Kratau vs Gunung Toba");
+  assert.ok(comp1);
+  assert.equal(comp1.sideA, "Anak Kratau");
+  assert.equal(comp1.sideB, "Gunung Toba");
+
+  const comp2 = detectComparison("Bumi versus Mars");
+  assert.ok(comp2);
+  assert.equal(comp2.sideA, "Bumi");
+  assert.equal(comp2.sideB, "Mars");
+
+  assert.equal(detectComparison("Madu Berumur Ribuan Tahun"), null);
+});
+
+test("titleBonus: menghukum keras judul yang membuang salah satu entitas perbandingan", () => {
+  const subject = "Anak Kratau vs Gunung Toba";
+  const bothSides = "Dahsyat Mana: Letusan Anak Krakatau vs Supervolcano Toba";
+  const oneSideOnly = "Runtuhan Anak Krakatau 2018 Memicu Tsunami Selat Sunda";
+
+  const bonusBoth = titleBonus(bothSides, [], new Set(), subject);
+  const bonusOne = titleBonus(oneSideOnly, [], new Set(), subject);
+
+  assert.ok(bonusBoth > bonusOne + 50, `bonus judul perbandingan utuh (${bonusBoth}) harus jauh mengungguli judul parsial (${bonusOne})`);
+});
+
+test("pickBestTitle: mempertahankan topik perbandingan utuh meski judul parsial punya skor AI lebih tinggi", () => {
+  const subject = "Anak Kratau vs Gunung Toba";
+  const title = pickBestTitle([
+    { title: "Runtuhan Anak Krakatau 2018 Memicu Tsunami Selat Sunda", qualityScore: 95 },
+    { title: "Dahsyat Mana: Letusan Anak Krakatau vs Supervolcano Toba", qualityScore: 78 }
+  ], { subject });
+  assert.equal(title, "Dahsyat Mana: Letusan Anak Krakatau vs Supervolcano Toba");
+});
+
+test("config: intro, outro, dan bumper outro dinonaktifkan secara default", () => {
+  assert.equal(config.render.introEnabled, false);
+  assert.equal(config.render.outroEnabled, false);
+  assert.equal(config.render.bumperOutroEnabled, false);
+});
+
