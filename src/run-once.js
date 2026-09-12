@@ -206,6 +206,12 @@ async function publishYoutubeIfEnabled(result) {
       srtPath: item.assets?.video?.srtPath || "",
       localizations: localization.localizations
     });
+    if (published.thumbnailError) {
+      result.warnings.push(`Upload thumbnail gagal: ${published.thumbnailError}`);
+      console.warn(`[Thumbnail] ${published.thumbnailError}`);
+    } else if (published.customThumbnail) {
+      console.log("[Thumbnail] Custom thumbnail YouTube berhasil dipasang.");
+    }
     if (published.localizationError) {
       result.warnings.push(`Lokalisasi YouTube gagal: ${published.localizationError}`);
       console.warn(`[Localization] ${published.localizationError}`);

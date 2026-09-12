@@ -56,6 +56,11 @@ try {
     srtPath: item.assets?.video?.srtPath || "",
     localizations: localization.localizations
   });
+  if (published.thumbnailError) {
+    console.warn(`[Thumbnail] ${published.thumbnailError}`);
+  } else if (published.customThumbnail) {
+    console.log("[Thumbnail] Custom thumbnail YouTube berhasil dipasang.");
+  }
   if (published.localizationError) {
     console.warn(`[Localization] ${published.localizationError}`);
   }
