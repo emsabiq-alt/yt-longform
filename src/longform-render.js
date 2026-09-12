@@ -863,41 +863,83 @@ function resolveSceneMedia(item, scene) {
  * Mengembalikan array [{type, path}, ...] — satu per segmen visual.
  * Jika scene tidak punya visualSegments, fallback ke single media.
  */
-function resolveSceneMediaList(item, scene) {
+export function resolveSceneMediaList(item, scene) {
   const sourceIndex = scene.imageSourceSceneIndex || scene.index;
-  const segCount = scene.visualSegments?.length || 1;
+  const rawSegCount = scene.visualSegments?.length || 1;
+  const sceneDur = Number(scene.durationSec || 0);
+  // Target minimal 2-3 variasi media per scene agar penonton tidak bosan
+  const targetCount = sceneDur >= 14 ? Math.max(3, rawSegCount) : (sceneDur >= 7 ? Math.max(2, rawSegCount) : rawSegCount);
   const clips = item.assets?.clips || [];
   const images = item.assets?.images || [];
   const mediaList = [];
+  const usedPaths = new Set();
 
-  for (let i = 0; i < segCount; i++) {
-    // Cari klip Pexels untuk segmen ini
+  for (let i = 0; i < targetCount; i++) {
+    // 1. Cari klip yang spesifik untuk segmen ini (dan belum pernah dipakai)
     const clip = clips.find((c) =>
-      Number(c.sceneIndex) === Number(sourceIndex) && Number(c.segmentIndex || 0) === i && c.path
+      Number(c.sceneIndex) === Number(sourceIndex) && Number(c.segmentIndex || 0) === i && c.path && !usedPaths.has(c.path)
     );
     if (clip?.path) {
       mediaList.push({ type: "video", path: clip.path });
+      usedPaths.add(clip.path);
       continue;
     }
-    // Fallback ke gambar DALL-E untuk segmen ini
+
+    // 2. Cari gambar untuk segmen ini (dan belum pernah dipakai)
     const image = images.find((img) =>
-      Number(img.sceneIndex) === Number(sourceIndex) && Number(img.segmentIndex || 0) === i && img.path
+      Number(img.sceneIndex) === Number(sourceIndex) && Number(img.segmentIndex || 0) === i && img.path && !usedPaths.has(img.path)
     );
     if (image?.path) {
       mediaList.push({ type: "image", path: image.path });
+      usedPaths.add(image.path);
       continue;
     }
-    // Fallback: siklus klip scene agar tidak reuse klip yang sama untuk segmen berbeda
+
+    // 3. Cari klip video lain dari scene ini yang BELUM PERNAH dipakai
     const sceneClips = clips.filter((c) => Number(c.sceneIndex) === Number(sourceIndex) && c.path);
+    const unusedSceneClip = sceneClips.find((c) => !usedPaths.has(c.path));
+    if (unusedSceneClip?.path) {
+      mediaList.push({ type: "video", path: unusedSceneClip.path });
+      usedPaths.add(unusedSceneClip.path);
+      continue;
+    }
+
+    // 4. Cari gambar dari scene ini yang BELUM PERNAH dipakai
     const sceneImages = images.filter((img) => Number(img.sceneIndex) === Number(sourceIndex) && img.path);
-    const usedPaths = new Set(mediaList.map((m) => m.path));
-    const unusedClip = sceneClips.find((c) => !usedPaths.has(c.path));
-    if (unusedClip?.path) { mediaList.push({ type: "video", path: unusedClip.path }); continue; }
-    const unusedImg = sceneImages.find((img) => !usedPaths.has(img.path));
-    if (unusedImg?.path) { mediaList.push({ type: "image", path: unusedImg.path }); continue; }
-    // Absolute fallback (semua media habis): cycle via modulo
-    const cycled = sceneClips[i % Math.max(1, sceneClips.length)] || sceneImages[i % Math.max(1, sceneImages.length)];
-    if (cycled?.path) { mediaList.push({ type: cycled.pexelsId ? "video" : "image", path: cycled.path }); continue; }
+    const unusedSceneImg = sceneImages.find((img) => !usedPaths.has(img.path));
+    if (unusedSceneImg?.path) {
+      mediaList.push({ type: "image", path: unusedSceneImg.path });
+      usedPaths.add(unusedSceneImg.path);
+      continue;
+    }
+
+    // 5. Cari klip video atau gambar dari global assets yang belum pernah dipakai agar visual tetap segar
+    const unusedGlobalClip = clips.find((c) => c.path && !usedPaths.has(c.path));
+    if (unusedGlobalClip?.path) {
+      mediaList.push({ type: "video", path: unusedGlobalClip.path });
+      usedPaths.add(unusedGlobalClip.path);
+      continue;
+    }
+    const unusedGlobalImg = images.find((img) => img.path && !usedPaths.has(img.path));
+    if (unusedGlobalImg?.path) {
+      mediaList.push({ type: "image", path: unusedGlobalImg.path });
+      usedPaths.add(unusedGlobalImg.path);
+      continue;
+    }
+
+    // 6. JANGAN REUSE KLIP VIDEO YANG SAMA! Gambar dengan zoompan Ken Burns jauh lebih dinamis daripada video berulang.
+    const fallbackImg = sceneImages[0] || images[0];
+    if (fallbackImg?.path) {
+      mediaList.push({ type: "image", path: fallbackImg.path });
+      continue;
+    }
+
+    // 7. Terakhir jika hanya ada 1 video dan 0 gambar di seluruh project
+    const fallbackClip = sceneClips[0] || clips[0];
+    if (fallbackClip?.path) {
+      mediaList.push({ type: "video", path: fallbackClip.path });
+      continue;
+    }
   }
 
   // Jika mediaList kosong, fallback ke resolveSceneMedia lama
@@ -964,10 +1006,35 @@ async function applyFigureImageOverlays(inputPath, outputPath, figurePlacements,
 export async function makeVideoSegment({ videoPath, outputPath, duration, resolution = "720p" }) {
   const width = resolution === "1080p" ? 1920 : 1280;
   const height = resolution === "1080p" ? 1080 : 720;
+  const targetDuration = Math.max(0.5, Number(duration || 4));
   const overlayPath = config.pexels.overlayEnabled ? config.pexels.overlayPath : "";
   const hasOverlay = overlayPath && await fileExists(overlayPath);
+
+  // Periksa durasi video sumber untuk menghindari looping berulang-ulang
+  let sourceDuration = 0;
+  try {
+    sourceDuration = await probeDuration(videoPath);
+  } catch {
+    sourceDuration = 0;
+  }
+
+  // Jika durasi sumber lebih pendek dari target:
+  // JANGAN gunakan -stream_loop!
+  // Gunakan setpts (cinematic slow motion) atau tpad clone frame akhir agar video tidak pernah restart/loop dari detik awal.
+  let speedPadFilter = "";
+  if (sourceDuration > 0 && sourceDuration < targetDuration) {
+    const stretch = targetDuration / sourceDuration;
+    if (stretch <= 1.75) {
+      speedPadFilter = `,setpts=${stretch.toFixed(4)}*PTS`;
+    } else {
+      const stretchedDur = sourceDuration * 1.35;
+      const padSec = Math.max(0.1, targetDuration - stretchedDur);
+      speedPadFilter = `,setpts=1.35*PTS,tpad=stop_mode=clone:stop_duration=${padSec.toFixed(3)}`;
+    }
+  }
+
   const baseFilters = [
-    `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},eq=contrast=1.04:saturation=1.06:brightness=0.01,vignette[bg]`,
+    `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}${speedPadFilter},eq=contrast=1.04:saturation=1.06:brightness=0.01,vignette[bg]`,
     `color=c=0xFF8833:s=${width}x${height}:d=1,format=rgba,colorchannelmixer=aa=0.35,fade=t=out:st=0:d=0.7:alpha=1[leak]`,
     "[bg][leak]overlay=format=auto[styled]"
   ];
@@ -985,10 +1052,9 @@ export async function makeVideoSegment({ videoPath, outputPath, duration, resolu
 
   await runFfmpeg([
     "-y",
-    "-stream_loop", "-1",
     "-i", videoPath,
     ...(hasOverlay ? ["-stream_loop", "-1", "-i", overlayPath] : []),
-    "-t", String(duration),
+    "-t", targetDuration.toFixed(3),
     "-filter_complex", filterComplex,
     "-map", "[outv]",
     "-r", String(fps),
@@ -1165,23 +1231,38 @@ async function makeReactionSegment({ reactionPath, outputPath, duration, resolut
   const width = resolution === "1080p" ? 1920 : 1280;
   const height = resolution === "1080p" ? 1080 : 720;
   const targetDuration = Math.max(0.5, Number(duration || 4));
-  const sourceDuration = await probeDuration(reactionPath);
-  // Loop sumber bila lebih pendek dari durasi target (audio reaction bisa lebih panjang dari klip).
-  const needsLoop = sourceDuration > 0 && sourceDuration < targetDuration + 0.1;
-  const maxOffset = Math.max(0, sourceDuration - targetDuration - 0.05);
-  const startOffset = !needsLoop && maxOffset > 0.5 ? Math.random() * Math.min(maxOffset, 1.5) : 0;
+  let sourceDuration = 0;
+  try {
+    sourceDuration = await probeDuration(reactionPath);
+  } catch {
+    sourceDuration = 0;
+  }
+
+  // Jika durasi audio narasi reaksi lebih panjang dari klip:
+  // JANGAN me-looping video reaksi dari detik 0!
+  // Tahan frame reaksi ekspresi terakhir (tpad clone) agar ekspresi tetap natural.
+  const reactionFilters = [
+    `scale=${width}:${height}:force_original_aspect_ratio=increase`,
+    `crop=${width}:${height}`
+  ];
+  if (sourceDuration > 0 && sourceDuration < targetDuration) {
+    const padSec = (targetDuration - sourceDuration).toFixed(3);
+    reactionFilters.push(`tpad=stop_mode=clone:stop_duration=${padSec}`);
+  }
+  reactionFilters.push(
+    "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.16:t=fill",
+    "format=yuv420p"
+  );
+
+  const maxOffset = sourceDuration > targetDuration ? Math.max(0, sourceDuration - targetDuration - 0.05) : 0;
+  const startOffset = maxOffset > 0.5 ? Math.random() * Math.min(maxOffset, 1.5) : 0;
 
   await runFfmpeg([
     "-y",
-    ...(needsLoop ? ["-stream_loop", "-1"] : ["-ss", startOffset.toFixed(2)]),
+    ...(startOffset > 0 ? ["-ss", startOffset.toFixed(2)] : []),
     "-i", reactionPath,
     "-t", targetDuration.toFixed(3),
-    "-vf", [
-      `scale=${width}:${height}:force_original_aspect_ratio=increase`,
-      `crop=${width}:${height}`,
-      "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.16:t=fill",
-      "format=yuv420p"
-    ].join(","),
+    "-vf", reactionFilters.join(","),
     "-r", String(fps),
     "-an",
     "-c:v", "libx264",

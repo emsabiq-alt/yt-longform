@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeSegmentDurations } from "../src/longform-render.js";
+import { computeSegmentDurations, resolveSceneMediaList } from "../src/longform-render.js";
 
 // Helper: scene 20 detik dengan 4 visualSegments dan caption Whisper per bagian.
 // Narasi: pembuka (0-5s), inti a (5-10s), inti b (10-15s), penutup (15-20s).
@@ -72,4 +72,60 @@ test("computeSegmentDurations menjaga urutan monoton saat frasa tumpang tindih",
 test("computeSegmentDurations aman untuk 1 segmen dan durasi nol", () => {
   assert.deepEqual(computeSegmentDurations({ durationSec: 12 }, 1), [12]);
   assert.deepEqual(computeSegmentDurations({ durationSec: 0, visualSegments: [] }, 4), [0]);
+});
+
+test("resolveSceneMediaList: tidak menduplikasi klip video yang sama pada segmen berbeda", () => {
+  const item = {
+    assets: {
+      clips: [
+        { sceneIndex: 1, segmentIndex: 0, path: "/tmp/clip-1.mp4" },
+        { sceneIndex: 1, segmentIndex: 1, path: "/tmp/clip-2.mp4" }
+      ],
+      images: [
+        { sceneIndex: 1, segmentIndex: 2, path: "/tmp/image-3.jpg" },
+        { sceneIndex: 1, segmentIndex: 3, path: "/tmp/image-4.jpg" }
+      ]
+    }
+  };
+  const scene = {
+    index: 1,
+    durationSec: 16,
+    visualSegments: [{}, {}, {}, {}]
+  };
+
+  const list = resolveSceneMediaList(item, scene);
+  assert.equal(list.length, 4);
+  const paths = list.map((m) => m.path);
+  const uniquePaths = new Set(paths);
+  assert.equal(uniquePaths.size, 4, "Setiap segmen harus memiliki media unik tanpa duplikasi");
+  assert.equal(list[0].type, "video");
+  assert.equal(list[1].type, "video");
+  assert.equal(list[2].type, "image");
+  assert.equal(list[3].type, "image");
+});
+
+test("resolveSceneMediaList: menargetkan minimal 2-3 media unik pada scene panjang tanpa looping video", () => {
+  const item = {
+    assets: {
+      clips: [
+        { sceneIndex: 2, segmentIndex: 0, path: "/tmp/volcano-1.mp4" },
+        { sceneIndex: 3, segmentIndex: 0, path: "/tmp/volcano-2.mp4" }
+      ],
+      images: [
+        { sceneIndex: 2, segmentIndex: 0, path: "/tmp/photo-1.jpg" }
+      ]
+    }
+  };
+  const scene = {
+    index: 2,
+    durationSec: 18,
+    visualSegments: [{}]
+  };
+
+  const list = resolveSceneMediaList(item, scene);
+  assert.ok(list.length >= 3, "Scene 18s harus menghasilkan minimal 3 variasi media");
+  const videoClips = list.filter((m) => m.type === "video");
+  const videoPaths = videoClips.map((v) => v.path);
+  const uniqueVideoPaths = new Set(videoPaths);
+  assert.equal(videoPaths.length, uniqueVideoPaths.size, "Klip video tidak boleh berulang dalam satu scene");
 });
