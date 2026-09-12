@@ -61,7 +61,7 @@ const TERM_REPLACEMENTS = [
   [/\bdinamika\b/gi, "naik turunnya"]
 ];
 
-const GENERIC_SCREEN_TEXT = /^(pertanyaan besar|awal cerita|titik buta|data penting|konflik inti|efek domino|pembalikan|pelajaran|hook dan konteks|akar masalah|analisis utama|dampak dan pembalikan|kesimpulan|ringkasan inti|babak\s+\d+)(\s+\d+)?$/i;
+const GENERIC_SCREEN_TEXT = /^(pertanyaan besar|awal cerita|titik buta|data penting|konflik inti|efek domino|pembalikan|pelajaran|hook dan konteks|akar masalah|analisis utama|dampak dan pembalikan|kesimpulan|ringkasan inti|hal yang berubah|fakta perubahan|fakta|babak|scene|bagian)(\s+\d+)?$/i;
 
 const SCREEN_FALLBACKS = [
   "Awal Masalahnya",
@@ -186,9 +186,35 @@ export function polishPlanForLayAudience(plan, input = {}) {
     };
     if (shared) droppedSentences += Math.max(0, before - sentenceCount(next.narration));
 
-    next.screenText = sceneType === "summary"
-      ? "Ringkasan Inti"
-      : uniqueScreenText(next, index, input, usedScreen);
+    if (sceneType === "reaction") {
+      let question = cleanText(scene?.reactionText || scene?.screenText || scene?.narration || "", 180);
+      const isGeneric = !question
+        || isGenericStoryboardText(question)
+        || /^(fakta|hal yang berubah|babak|scene|bagian)\b/i.test(question);
+      if (isGeneric) {
+        const fallbacks = [
+          "Tapi kenapa tanda penting ini sempat diabaikan?",
+          "Lalu, apa yang sebenarnya terjadi setelah itu?",
+          "Di sinilah ceritanya mulai berbalik. Apa penyebab utamanya?",
+          "Pertanyaannya, apa dampak paling mengejutkan yang terjadi?",
+          "Tapi benarkah dampaknya sebesar yang diperkirakan?",
+          "Lalu, bagaimana awal mula semua ini bisa terjadi?"
+        ];
+        question = fallbacks[index % fallbacks.length];
+      } else {
+        question = simplifyForLayAudience(question, 180).trim();
+        if (!/[?]$/.test(question)) {
+          question = `${question.replace(/[.!]+$/g, "")}?`;
+        }
+      }
+      next.screenText = question;
+      next.narration = question;
+      next.reactionText = question;
+    } else if (sceneType === "summary") {
+      next.screenText = "Ringkasan Inti";
+    } else {
+      next.screenText = uniqueScreenText(next, index, input, usedScreen);
+    }
     // Bucket posisi menjamin bab kontigu; labelnya diambil dari scene pembuka
     // bucket itu — pakai chapter dari AI bila spesifik, kalau tidak screenText.
     const section = audienceChapterName(index, sceneCount);

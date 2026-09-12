@@ -2,11 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { config, paths } from "./config.js";
-import { clamp, normalizeTtsText, safeFilename, splitLines } from "./util.js";
+import { clamp, cleanText, normalizeTtsText, safeFilename, splitLines } from "./util.js";
 import { reportProgress } from "./progress.js";
 import { buildWordTimeline, findPhraseTime, tokenizeMatchText } from "./word-timeline.js";
 import { planSceneSpotlights, spotlightDialogueLines, spotlightStyles, logSpotlightStats } from "./spotlight.js";
 import { applyNewsImageOverlays } from "./news-image.js";
+import { isGenericStoryboardText } from "./story-language.js";
 
 const fps = 30;
 const minLongformDurationSec = 300;
@@ -1307,7 +1308,25 @@ export async function writeContentCaptionAss({ outputPath, item, scenes, content
       }
     }
     if (scene.sceneType === "reaction") {
-      const prompt = splitLines(scene.screenText || scene.narration, 34, 3).join("\\N");
+      let promptText = cleanText(scene.reactionText || scene.screenText || scene.narration || "", 180);
+      const isGeneric = !promptText
+        || isGenericStoryboardText(promptText)
+        || /^(fakta|hal yang berubah|babak|scene|bagian)\b/i.test(promptText);
+      if (isGeneric) {
+        const fallbacks = [
+          "Tapi kenapa tanda penting ini sempat diabaikan?",
+          "Lalu, apa yang sebenarnya terjadi setelah itu?",
+          "Di sinilah ceritanya mulai berbalik. Apa penyebab utamanya?",
+          "Pertanyaannya, apa dampak paling mengejutkan yang terjadi?",
+          "Tapi benarkah dampaknya sebesar yang diperkirakan?",
+          "Lalu, bagaimana awal mula semua ini bisa terjadi?"
+        ];
+        const idx = typeof scene.index === "number" ? scene.index - 1 : 0;
+        promptText = fallbacks[Math.max(0, idx) % fallbacks.length];
+      } else if (!/[?]$/.test(promptText.trim())) {
+        promptText = `${promptText.replace(/[.!]+$/g, "")}?`;
+      }
+      const prompt = splitLines(promptText, 34, 3).join("\\N");
       events.push(dialogue(
         scene.startSec + 0.08,
         Math.max(scene.startSec + 0.3, scene.endSec - 0.08),

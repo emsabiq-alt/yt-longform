@@ -196,3 +196,66 @@ test("alignNarrativeContext membuat pergantian gambar benar-benar tersinkron", (
   assert.ok(durations.every((d) => d > 0.5), `durasi wajar: ${durations}`);
 });
 
+test("isGenericStoryboardText mengenali variasi fakta, babak, dan scene placeholder", () => {
+  assert.equal(isGenericStoryboardText("Fakta Perubahan 24"), true);
+  assert.equal(isGenericStoryboardText("fakta perubahan"), true);
+  assert.equal(isGenericStoryboardText("Hal yang Berubah"), true);
+  assert.equal(isGenericStoryboardText("Fakta 1"), true);
+  assert.equal(isGenericStoryboardText("Scene 2"), true);
+  assert.equal(isGenericStoryboardText("Babak 14"), true);
+  assert.equal(isGenericStoryboardText("Tapi benarkah letusan purba memicu zaman es?"), false);
+});
+
+test("polishPlanForLayAudience mempertahankan pertanyaan penasaran pada scene reaction dan menolak fakta perubahan 24", () => {
+  const plan = {
+    title: "Anak Krakatau vs Gunung Toba",
+    hook: "Kenapa letusan Toba begitu dahsyat?",
+    summary: "Ringkasan perbedaan skala letusan Krakatau dan Toba purba.",
+    importantPoints: ["Toba supervolcano.", "Krakatau caldera."],
+    scenes: [
+      {
+        index: 1,
+        sceneType: "image",
+        screenText: "Perbandingan Awal",
+        narration: "Anak Krakatau dan Gunung Toba sering dibandingkan dalam sejarah bencana alam."
+      },
+      {
+        index: 2,
+        sceneType: "reaction",
+        screenText: "fakta perubahan 24",
+        narration: "fakta perubahan 24",
+        reactionText: ""
+      },
+      {
+        index: 3,
+        sceneType: "reaction",
+        screenText: "Tapi benarkah letusan Toba yang memicu zaman es terakhir?",
+        narration: "Tapi benarkah letusan Toba yang memicu zaman es terakhir?",
+        reactionText: "Tapi benarkah letusan Toba yang memicu zaman es terakhir?"
+      },
+      {
+        index: 4,
+        sceneType: "summary",
+        screenText: "Ringkasan Inti",
+        narration: "Kedua gunung ini menjadi bukti kedahsyatan kekuatan bumi di Indonesia."
+      }
+    ]
+  };
+
+  const polished = polishPlanForLayAudience(plan, { topic: "Anak Krakatau vs Gunung Toba" });
+  const reaction1 = polished.scenes[1];
+  const reaction2 = polished.scenes[2];
+
+  // Reaction 1: dari placeholder 'fakta perubahan 24' wajib diganti fallback pertanyaan penasaran yang diakhiri tanda tanya
+  assert.ok(reaction1.screenText.endsWith("?"), "reaction 1 screenText harus berakhiran ?");
+  assert.ok(reaction1.narration.endsWith("?"), "reaction 1 narration harus berakhiran ?");
+  assert.ok(!/fakta perubahan/i.test(reaction1.screenText), "tidak boleh ada kata fakta perubahan di screenText");
+  assert.ok(!isGenericStoryboardText(reaction1.screenText), "screenText reaction 1 tidak boleh generik");
+
+  // Reaction 2: pertanyaan valid dari AI tetap dipertahankan
+  assert.equal(reaction2.screenText, "Tapi benarkah letusan Toba yang memicu zaman es terakhir?");
+  assert.equal(reaction2.narration, "Tapi benarkah letusan Toba yang memicu zaman es terakhir?");
+  assert.equal(reaction2.reactionText, "Tapi benarkah letusan Toba yang memicu zaman es terakhir?");
+});
+
+

@@ -10,7 +10,7 @@ import { loadHistory } from "./continuity-engine.js";
 import { generateViralTitle } from "./title-engine.js";
 import { buildScenePattern, formatTypeDescription, formatTypeNarrativeCue, pickFormatType, resolveSceneType, sceneWordRange } from "./format-engine.js";
 import { getViralAngleById, pickViralAngle, viralAngleSummary } from "./viral-angle-library.js";
-import { polishPlanForLayAudience, simplifyForLayAudience } from "./story-language.js";
+import { isGenericStoryboardText, polishPlanForLayAudience, simplifyForLayAudience } from "./story-language.js";
 import { normalizeSpotlight } from "./spotlight.js";
 import { enrichTrendNewsItems, fetchNewsArticlesForTopic } from "./news-research.js";
 
@@ -446,7 +446,7 @@ function buildPrompt(input, wiki = null) {
     "Struktur cerita harus punya pembuka yang kuat, isi yang maju langkah demi langkah, bagian paling penting yang terasa jelas, dan penutup yang mudah diingat.",
     "Setiap scene harus berisi narasi yang dibacakan oleh TTS dan teks layar (screenText) yang sinkron. Tulis narasi agar mudah dibaca TTS: angka dan satuan ditulis dengan kata-kata (misal 'tiga puluh derajat Celcius', 'seribu kilometer per jam'), hindari singkatan dan simbol seperti %, Rp, AI, 3D, &, kecuali sangat umum.",
     "PENTING UNTUK TTS: Tulis narasi sebagai kalimat-kalimat yang MENGALIR KONTINU. HINDARI titik koma (;), titik tiga (...), tanda kurung, dan tanda kutip karena memicu jeda panjang saat dibacakan. Gunakan koma atau kata sambung ('dan', 'lalu', 'sementara', 'karena') untuk menghubungkan klausa. Satu kalimat = satu napas bicara yang mulus.",
-    "Scene reaction adalah jembatan singkat berupa pertanyaan atau pernyataan penasaran 8-16 kata. Jangan menjelaskan jawaban pada scene reaction; jawabannya dilanjutkan pada scene image berikutnya.",
+    "Scene reaction WAJIB berupa satu kalimat PERTANYAAN penasaran / cliffhanger singkat (8-16 kata) yang DIAKHIRI DENGAN TANDA TANYA (?). Contoh: 'Tapi benarkah letusan purba ini yang memicu zaman es?' atau 'Lalu apa yang sebenarnya disembunyikan di balik peristiwa ini?'. DILARANG KERAS mengisi screenText atau narration scene reaction dengan judul babak, nomor scene, atau label konsep generik seperti 'Fakta 1', 'Fakta Perubahan', 'Babak 24', dsb. Teks pertanyaan ini yang akan muncul langsung di layar.",
     "Narasi scene reaction tidak akan dibacakan TTS. Teksnya hanya muncul di layar sebagai jeda hening singkat.",
     `Setiap scene image wajib memiliki ${words.imageMin}-${words.imageMax} kata narasi. Scene summary wajib memiliki ${words.summaryMin}-${words.summaryMax} kata narasi.`,
     "Scene reaction tidak memerlukan visualKeywords atau imagePrompt. Isi reactionCue dengan ekspresi yang cocok: heran, kaget, skeptis, menemukan petunjuk, atau setuju.",
@@ -867,6 +867,7 @@ function normalizePlan(plan, input) {
       chapter: cleanText(scene?.chapter || chapterName(index, input.sceneCount), 80),
       beatPurpose: cleanText(scene?.beatPurpose || beatPurpose(index, input.sceneCount), 180),
       reactionCue: cleanText(scene?.reactionCue || reactionCue(index), 120),
+      reactionText: sceneType === "reaction" ? reactionLine : "",
       // Opsional; render akan membuang kartu yang frasanya tidak ketemu di audio.
       spotlight: sceneType === "image" ? normalizeSpotlight(scene?.spotlight) : null,
       mediaSource: sceneType === "image" ? normalizeMediaSource(scene?.mediaSource, narration, input.trend) : null
@@ -879,14 +880,20 @@ function normalizePlan(plan, input) {
     const sceneType = resolveSceneType("", index, input.sceneCount, input.formatType);
     const fbKeywords = sceneType === "reaction" ? "" : fallbackKeywords(index);
     const fbImagePrompt = sceneType === "reaction" ? "" : fallbackImagePrompt(input.topic, index);
+    const extraReaction = sceneType === "reaction" ? fallbackReactionNarration(index) : "";
     scenes.push({
       index: index + 1,
       sceneType,
       durationSec: durations[index] || 20,
       narration: sceneType === "reaction"
-        ? fallbackReactionNarration(index)
+        ? extraReaction
         : `Ini adalah bagian penjelasan tambahan untuk babak ke-${index + 1}.`,
-      screenText: sceneType === "summary" ? "Ringkasan Inti" : fallbackScreenText(index, input.sceneCount),
+      screenText: sceneType === "summary"
+        ? "Ringkasan Inti"
+        : sceneType === "reaction"
+          ? extraReaction
+          : fallbackScreenText(index, input.sceneCount),
+      reactionText: extraReaction,
       visualKeywords: fbKeywords,
       imagePrompt: fbImagePrompt,
       visualSegments: sceneType === "reaction" ? [] : normalizeVisualSegments(
@@ -943,13 +950,19 @@ function fallbackPlan(input, errorMsg = "") {
     const sceneType = resolveSceneType("", i, count, input.formatType);
     const fbKw = sceneType === "reaction" ? "" : fallbackKeywords(i);
     const fbIp = sceneType === "reaction" ? "" : fallbackImagePrompt(input.topic, i);
+    const reactionLine = sceneType === "reaction" ? fallbackReactionNarration(i) : "";
     scenes.push({
       index: i + 1,
       sceneType,
       narration: sceneType === "reaction"
-        ? fallbackReactionNarration(i)
+        ? reactionLine
         : fallbackNarration(input.topic, i, count, errorMsg),
-      screenText: sceneType === "summary" ? "Ringkasan Inti" : fallbackScreenText(i, count),
+      screenText: sceneType === "summary"
+        ? "Ringkasan Inti"
+        : sceneType === "reaction"
+          ? reactionLine
+          : fallbackScreenText(i, count),
+      reactionText: reactionLine,
       visualKeywords: fbKw,
       imagePrompt: fbIp,
       visualSegments: sceneType === "reaction" ? [] : normalizeVisualSegments(
@@ -1011,14 +1024,19 @@ function normalizeReactionNarration(scene, index) {
   const candidates = [
     scene?.reactionText,
     firstSentence(scene?.narration),
-    scene?.screenText,
-    fallbackReactionNarration(index)
+    scene?.screenText
   ];
-  let text = candidates.map((value) => cleanText(value, 180)).find(Boolean) || fallbackReactionNarration(index);
+  let text = candidates
+    .map((value) => cleanText(value, 180))
+    .find((val) => val && !isGenericStoryboardText(val) && !/^(fakta|hal yang berubah|babak|scene|bagian)\b/i.test(val))
+    || fallbackReactionNarration(index);
+
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length > 16) text = words.slice(0, 16).join(" ");
-  if (words.length < 6) text = `${text.replace(/[?.!]+$/g, "")}, lalu apa yang terjadi berikutnya`;
-  if (!/[?.!]$/.test(text)) text = `${text}?`;
+  if (words.length < 5) text = fallbackReactionNarration(index);
+  if (!/[?]$/.test(text.trim())) {
+    text = `${text.replace(/[.!]+$/g, "")}?`;
+  }
   return text;
 }
 
@@ -1028,10 +1046,12 @@ function firstSentence(value) {
 
 function fallbackReactionNarration(index) {
   const lines = [
-    "Lalu, apa yang sebenarnya terjadi setelah perubahan besar itu?",
-    "Tapi kenapa tanda penting ini justru sempat diabaikan?",
-    "Di sinilah ceritanya mulai berubah. Apa penyebab utamanya?",
-    "Pertanyaannya, siapa yang paling terdampak oleh keputusan tersebut?"
+    "Tapi kenapa tanda penting ini sempat diabaikan?",
+    "Lalu, apa yang sebenarnya terjadi setelah itu?",
+    "Di sinilah ceritanya mulai berbalik. Apa penyebab utamanya?",
+    "Pertanyaannya, apa dampak paling mengejutkan yang terjadi?",
+    "Tapi benarkah dampaknya sebesar yang diperkirakan?",
+    "Lalu, bagaimana awal mula semua ini bisa terjadi?"
   ];
   return lines[index % lines.length];
 }

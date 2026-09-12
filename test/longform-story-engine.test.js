@@ -11,6 +11,7 @@ import {
 } from "../src/longform-story-engine.js";
 import { headlineCardForScene, writeContentCaptionAss } from "../src/longform-render.js";
 import { scorePexelsCandidate } from "../src/pexels.js";
+import { isGenericStoryboardText } from "../src/story-language.js";
 
 test("headline card hanya muncul bila narasi menyebut outlet sumber", () => {
   const mediaSource = { outlet: "kompas.com", headline: "Pembayaran QR lintas negara makin luas" };
@@ -579,3 +580,35 @@ test("longformStoryboard mempertahankan intent Pexels per segmen", () => {
 
   assert.deepEqual(storyboard[0].visualSegments, visualSegments);
 });
+
+test("scene reaction selalu berupa pertanyaan penasaran berakhiran tanda tanya dan bebas dari placeholder generik", async (t) => {
+  const originalApiKey = config.openai.apiKey;
+  const originalGeneratedDir = paths.generatedDir;
+  const temporaryGeneratedDir = await fs.mkdtemp(path.join(os.tmpdir(), "yt-longform-reaction-"));
+  t.after(async () => {
+    config.openai.apiKey = originalApiKey;
+    paths.generatedDir = originalGeneratedDir;
+    await fs.rm(temporaryGeneratedDir, { recursive: true, force: true });
+  });
+  config.openai.apiKey = "";
+  paths.generatedDir = temporaryGeneratedDir;
+
+  const draft = await createLongformDraft({
+    topic: "Anak Krakatau vs Gunung Toba",
+    category: "sains",
+    durationSec: 300,
+    sceneCount: 26,
+    formatType: "dokumenter_klasik",
+    allowOfflineDraft: true
+  });
+
+  const reactionScenes = draft.plan.scenes.filter((s) => s.sceneType === "reaction");
+  assert.ok(reactionScenes.length > 0, "harus ada scene reaction");
+  for (const scene of reactionScenes) {
+    assert.ok(scene.screenText.endsWith("?"), `screenText reaction "${scene.screenText}" harus berakhiran ?`);
+    assert.ok(scene.narration.endsWith("?"), `narration reaction "${scene.narration}" harus berakhiran ?`);
+    assert.ok(!isGenericStoryboardText(scene.screenText), `screenText reaction "${scene.screenText}" tidak boleh generik`);
+    assert.ok(!/^(fakta|hal yang berubah|babak|scene|bagian)\b/i.test(scene.screenText), `screenText reaction "${scene.screenText}" tidak boleh dimulai kata placeholder`);
+  }
+});
+
