@@ -17,7 +17,8 @@ import {
 import { fetchPixabayMediaForScene } from "./pixabay.js";
 import { findPersonImage } from "./wikidata.js";
 import { ensureFigureImages } from "./person-image.js";
-import { ensureNewsImages } from "./news-image.js";
+import { ensureNewsImages, extractSceneRealEntityQuery } from "./news-image.js";
+import { isGoogleImageApiAvailable, searchGoogleImages, downloadImageWithCandidates, isGenericPlaceholderQuery } from "./google-image.js";
 import { renderLongformVideo } from "./longform-render.js";
 import { generateThumbnail } from "./thumbnail.js";
 import { saveItem, listContextItems } from "./storage.js";
@@ -45,10 +46,12 @@ export async function ensureVisualAssets(item, options = {}) {
   const pexelsRunner = options.pexelsRunner || ensurePexelsClips;
   const pixabayRunner = options.pixabayRunner || ensurePixabayMedia;
   const wikimediaRunner = options.wikimediaRunner || ensureWikimediaMedia;
+  const realPhotoRunner = options.realPhotoRunner || ensureRealPhotosForScenes;
   const imageRunner = options.imageRunner || ensureImages;
   const pexelsOptions = options.pexelsOptions || {};
   const pixabayOptions = options.pixabayOptions || {};
   const wikimediaOptions = options.wikimediaOptions || {};
+  const realPhotoOptions = options.realPhotoOptions || {};
   const imageOptions = options.imageOptions || {};
 
   await pexelsRunner(item, { ...pexelsOptions, warnings });
@@ -56,8 +59,15 @@ export async function ensureVisualAssets(item, options = {}) {
     await pixabayRunner(item, { ...pixabayOptions, warnings });
   }
   await wikimediaRunner(item, { ...wikimediaOptions, warnings });
+
+  // Cari foto nyata via Google Images / Serper / Bing untuk entitas/tempat/tokoh spesifik
+  // sebelum slot sisanya digenerate AI (DALL-E / Pollinations)
+  await realPhotoRunner(item, { ...realPhotoOptions, warnings }).catch((err) => {
+    console.warn(`[RealPhoto] realPhotoRunner gagal: ${err.message}`);
+  });
+
   // Openverse dihapus — API tidak stabil (sering 502). Slot gambar ditangani
-  // sepenuhnya oleh Wikimedia Commons + OpenAI image generation.
+  // sepenuhnya oleh Wikimedia Commons + Google Images + OpenAI image generation.
   await imageRunner(item, {
     ...imageOptions,
     warnings,
@@ -1032,6 +1042,76 @@ export async function ensureOpenverseImages(item, options = {}) {
   console.log(`[Openverse] Total gambar terisi: ${done}/${jobs.length}.`);
 }
 
+/**
+ * Unduh foto nyata melalui Google Images / Serper / Bing untuk scene yang membahas
+ * tempat, landmark geografis, tokoh, atau objek riil spesifik sebelum sisa slot
+ * digenerate oleh AI (DALL-E / Pollinations).
+ */
+export async function ensureRealPhotosForScenes(item, options = {}) {
+  if (!isGoogleImageApiAvailable()) return;
+  const scenes = item.plan?.scenes || [];
+  item.assets = item.assets || {};
+  const images = [...(item.assets.images || [])];
+  const clips = item.assets.clips || [];
+
+  // Scene yang belum punya klip video maupun gambar, dan bukan reaction/summary
+  const missingScenes = scenes.filter((scene) => {
+    if (scene.sceneType === "reaction" || scene.sceneType === "summary") return false;
+    const hasClip = clips.some((c) => Number(c.sceneIndex) === Number(scene.index) && c.path);
+    const hasImg = images.some((img) => Number(img.sceneIndex) === Number(scene.index) && img.path);
+    return !hasClip && !hasImg;
+  });
+
+  if (!missingScenes.length) return;
+
+  const realPhotosDir = path.join(paths.generatedDir, "real-photos");
+  await fs.mkdir(realPhotosDir, { recursive: true });
+
+  let filledCount = 0;
+  // Batasi agar tidak berlebihan (maksimal 6-8 foto nyata per video)
+  const maxRealPhotos = Math.min(8, Math.max(2, Math.floor(scenes.length * 0.35)));
+
+  for (const scene of missingScenes) {
+    if (filledCount >= maxRealPhotos) break;
+
+    const query = extractSceneRealEntityQuery(scene, item.input?.topic);
+    if (!query || isGenericPlaceholderQuery(query)) continue;
+
+    try {
+      console.log(`[RealPhoto] Mencari foto nyata untuk Scene ${scene.index}: "${query}"...`);
+      const candidates = await searchGoogleImages(query, {
+        fallbackQueries: [item.input?.topic].filter(Boolean)
+      });
+      if (candidates.length) {
+        const dest = path.join(realPhotosDir, `${item.id}-scene-${String(scene.index).padStart(2, "0")}-real.jpg`);
+        const dl = await downloadImageWithCandidates(candidates, dest);
+        if (dl.success) {
+          images.push({
+            sceneIndex: Number(scene.index),
+            segmentIndex: 0,
+            provider: "google-images",
+            query,
+            source: dl.source || "Google Images",
+            path: dest,
+            url: `/generated/real-photos/${path.basename(dest)}`
+          });
+          filledCount++;
+          console.log(`[RealPhoto] Scene ${scene.index} berhasil memasang foto nyata ("${query}"): ${path.basename(dest)}`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[RealPhoto] Gagal ambil foto nyata scene ${scene.index}: ${err.message}`);
+    }
+  }
+
+  if (filledCount > 0) {
+    item.assets.images = sortByScene(images);
+    item.updatedAt = nowIso();
+    const persistItem = options.persistItem || saveItem;
+    await persistItem(item);
+    console.log(`[RealPhoto] Total ${filledCount} foto nyata berhasil dipasang langsung ke dalam video.`);
+  }
+}
 
 export async function ensureImages(item, options = {}) {
   if (!config.openai.apiKey) throw new Error("OPENAI_API_KEY wajib diisi untuk generate gambar.");

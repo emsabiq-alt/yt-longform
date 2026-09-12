@@ -241,7 +241,7 @@ export const config = {
     )),
     maxImageBytes: Math.max(1, numberEnv("WIKIMEDIA_MAX_IMAGE_MB", 20)) * 1024 * 1024,
     maxVideoBytes: Math.max(1, numberEnv("WIKIMEDIA_MAX_VIDEO_MB", 120)) * 1024 * 1024,
-    allowShareAlike: boolDefault(process.env.WIKIMEDIA_ALLOW_SHARE_ALIKE, false),
+    allowShareAlike: boolDefault(process.env.WIKIMEDIA_ALLOW_SHARE_ALIKE, true),
     timeoutMs: Math.max(3000, numberEnv("WIKIMEDIA_TIMEOUT_MS", 15000)),
     downloadTimeoutMs: Math.max(5000, numberEnv("WIKIMEDIA_DOWNLOAD_TIMEOUT_MS", 120000)),
     requestDelayMs: Math.max(0, numberEnv("WIKIMEDIA_REQUEST_DELAY_MS", 150))

@@ -92,6 +92,64 @@ export async function scrapeOgImage(url) {
 }
 
 /**
+ * Ekstrak query entitas riil (tempat, fenomena, objek bersejarah, tokoh) dari scene
+ * berdasarkan narasi, visualKeywords, spotlight, dan topik.
+ * Menghindari kata placeholder (seperti "Fakta 1", "Scene 2", dll).
+ */
+export function extractSceneRealEntityQuery(scene, topic = "") {
+  if (!scene) return "";
+
+  // 1. Cek spotlight label jika ada nama entitas konkret (bukan sekadar angka atau unit)
+  if (scene.spotlight?.label && !isGenericPlaceholderQuery(scene.spotlight.label)) {
+    const label = scene.spotlight.label.trim();
+    if (label.length >= 4 && !/^\d+[\s\w/%.-]*$/.test(label)) {
+      return label;
+    }
+  }
+
+  // 2. Cek visualKeywords konkret (nama tempat, objek alam, fenomena)
+  const keywords = Array.isArray(scene.visualKeywords)
+    ? scene.visualKeywords
+    : (scene.visualSegments?.[0]?.visualKeywords || []);
+  if (keywords.length) {
+    const concreteKw = keywords.find((kw) => kw && !isGenericPlaceholderQuery(kw) && kw.length >= 4);
+    if (concreteKw) return concreteKw;
+  }
+
+  // 3. Cek entity dari topik yang disebut secara spesifik dalam narasi scene ini
+  // Misal topik: "Anak Kratau vs Gunung Toba", narasi menyebut "Danau Toba" atau "Gunung Toba"
+  const narration = String(scene.narration || "");
+  const topicParts = String(topic || "")
+    .split(/\s+(?:vs\.?|versus|lawan|dibandingkan|dan)\s+/i)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const part of topicParts) {
+    if (part.length >= 4 && narration.toLowerCase().includes(part.toLowerCase())) {
+      return part;
+    }
+  }
+
+  // 4. Deteksi nama tempat geografis / objek nyata di narasi: Danau [X], Gunung [X], Pulau [X], dsb.
+  const geoMatch = narration.match(/\b(Danau\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Gunung\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Anak\s+Krakatau|Krakatau|Krakatoa|Selat\s+Sunda|Pulau\s+[A-Z][a-z]+|Kawah\s+[A-Z][a-z]+|Candi\s+[A-Z][a-z]+|Sungai\s+[A-Z][a-z]+|Lembah\s+[A-Z][a-z]+|Taman\s+Nasional\s+[A-Z][a-z]+)\b/);
+  if (geoMatch) {
+    return geoMatch[1];
+  }
+
+  // 5. Cek mediaSource headline jika ada dan bukan generic
+  if (scene.mediaSource?.headline && !isGenericPlaceholderQuery(scene.mediaSource.headline)) {
+    return scene.mediaSource.headline;
+  }
+
+  // 6. Cek screenText jika bukan generic
+  if (scene.screenText && !isGenericPlaceholderQuery(scene.screenText)) {
+    return scene.screenText;
+  }
+
+  // 7. Fallback ke topik
+  return !isGenericPlaceholderQuery(topic) ? topic : "";
+}
+
+/**
  * Download og:image dari newsItems yang cocok dengan mediaSource tiap scene.
  * Mendukung mode berita (Tab Tren/Ide) dan fallback gambar scene (Tab Buat).
  * Hasil: item.assets.newsImages = [{ sceneIndex, headline, outlet, imageUrl, imagePath }]
@@ -114,9 +172,11 @@ export async function ensureNewsImages(item) {
 
     if (newsImages.some((n) => n.sceneIndex === Number(scene.index))) continue;
 
+    const entityQuery = extractSceneRealEntityQuery(scene, item.input?.topic);
     newsImages.push({
       sceneIndex: Number(scene.index),
-      headline: String(src.headline || match?.headline || match?.title || "").slice(0, 120),
+      searchQuery: entityQuery || src.headline || "",
+      headline: String(src.headline || match?.headline || match?.title || entityQuery || "Dokumen Referensi").slice(0, 120),
       outlet: String(src.outlet || match?.outlet || match?.source || "Media Terkait").slice(0, 60),
       imageUrl: match?.imageUrl || src.imageUrl || null,
       url: match?.url || src.url || null,
@@ -140,10 +200,20 @@ export async function ensureNewsImages(item) {
       const sIdx = Number(scene.index);
       if (newsImages.some((n) => n.sceneIndex === sIdx)) continue;
       const ni = newsItems[i] || null;
+      const entityQuery = extractSceneRealEntityQuery(scene, item.input?.topic);
+      const headline = String(
+        ni?.headline || ni?.title
+        || (entityQuery && !isGenericPlaceholderQuery(entityQuery) ? entityQuery : scene.screenText)
+        || item.input?.topic
+        || "Dokumen Referensi"
+      ).slice(0, 120);
+      const outlet = String(ni?.outlet || ni?.source || (ni ? "Dokumen Referensi" : "Arsip Dokumentasi")).slice(0, 60);
+
       newsImages.push({
         sceneIndex: sIdx,
-        headline: String(ni?.headline || ni?.title || scene.screenText || item.input?.topic || "").slice(0, 120),
-        outlet: String(ni?.outlet || ni?.source || (ni ? "Dokumen Referensi" : "Arsip Terkait")).slice(0, 60),
+        searchQuery: entityQuery || headline,
+        headline,
+        outlet,
         imageUrl: ni?.imageUrl || null,
         url: ni?.url || null,
         imagePath: null
@@ -165,9 +235,13 @@ export async function ensureNewsImages(item) {
 
     // 1. Prioritas Utama: Ambil gambar langsung dari Google Images API jika tersedia
     if (isGoogleImageApiAvailable()) {
-      let q = entry.headline;
+      let q = entry.searchQuery || entry.headline;
       if (isGenericPlaceholderQuery(q)) {
-        q = isGenericPlaceholderQuery(item.input?.topic) ? null : item.input?.topic;
+        const fallback = extractSceneRealEntityQuery(
+          scenes.find((s) => Number(s.index) === entry.sceneIndex),
+          item.input?.topic
+        );
+        q = isGenericPlaceholderQuery(fallback) ? item.input?.topic : fallback;
       }
       if (q && !isGenericPlaceholderQuery(q)) {
         try {
@@ -183,7 +257,7 @@ export async function ensureNewsImages(item) {
               entry.imagePath = dest;
               entry.imageUrl = dl.url;
               if (dl.source) entry.outlet = dl.source;
-              console.log(`[NewsImage] Scene ${entry.sceneIndex}: Berhasil ambil dari Google Images API (${entry.outlet}) → ${path.basename(dest)}`);
+              console.log(`[NewsImage] Scene ${entry.sceneIndex}: Berhasil ambil dari Google Images API ("${q}" → ${entry.outlet}) → ${path.basename(dest)}`);
             }
           }
         } catch (err) {

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ensureNewsImages, scrapeOgImage, applyNewsImageOverlays } from "../src/news-image.js";
+import { ensureNewsImages, scrapeOgImage, applyNewsImageOverlays, extractSceneRealEntityQuery } from "../src/news-image.js";
 
 test("ensureNewsImages: memakai fallback gambar scene saat imageUrl tidak ada (Tab Buat)", async () => {
   const origSerper = process.env.SERPER_API_KEY;
@@ -154,4 +154,29 @@ test("applyNewsImageOverlays: animasi slide masuk dari bawah, rapat ke batas baw
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test("extractSceneRealEntityQuery: mengekstrak nama tempat dan entitas konkret dari narasi", () => {
+  const scene1 = {
+    screenText: "Fakta 1",
+    narration: "Letusan purba Gunung Toba melahirkan Danau Toba yang sekarang menjadi danau vulkanik terbesar."
+  };
+  const q1 = extractSceneRealEntityQuery(scene1, "Anak Kratau vs Gunung Toba");
+  assert.equal(q1, "Gunung Toba");
+
+  const scene2 = {
+    screenText: "Fakta 2",
+    narration: "Sementara itu, letusan dahsyat melahirkan Danau Toba di Sumatera Utara."
+  };
+  const q2 = extractSceneRealEntityQuery(scene2, "Erupsi Vulkanik");
+  assert.equal(q2, "Danau Toba");
+
+  const scene3 = {
+    screenText: "Fakta 3",
+    spotlight: { label: "BJ Habibie", type: "figure" },
+    narration: "Presiden memimpin pengembangan teknologi nasional."
+  };
+  const q3 = extractSceneRealEntityQuery(scene3, "Teknologi");
+  assert.equal(q3, "BJ Habibie");
+});
+
 
