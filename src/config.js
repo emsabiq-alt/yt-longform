@@ -281,6 +281,14 @@ export const config = {
     // (1800) tidak memuat bagian padat angka yang diminta prompt.
     maxChars: Math.max(400, Math.min(12000, numberEnv("WIKIPEDIA_MAX_CHARS", 4000))),
     timeoutMs: Math.max(2000, numberEnv("WIKIPEDIA_TIMEOUT_MS", 8000))
+  },
+  googleSearch: {
+    apiKey: clean(process.env.GOOGLE_CSE_KEY || process.env.GOOGLE_SEARCH_API_KEY || ""),
+    cx: clean(process.env.GOOGLE_CSE_CX || process.env.GOOGLE_SEARCH_ENGINE_ID || ""),
+    enabled: boolDefault(process.env.GOOGLE_SEARCH_IMAGE_ENABLED, true)
+  },
+  serper: {
+    apiKey: clean(process.env.SERPER_API_KEY || "")
   }
 };
 
@@ -322,7 +330,8 @@ export function publicConfig() {
       youtubeRefreshTokenSet: bool(config.youtube.refreshToken),
       pexels: Boolean(config.pexels.apiKey),
       pexelsPreferVideo: config.pexels.preferVideo,
-      wikimedia: config.wikimedia.enabled
+      wikimedia: config.wikimedia.enabled,
+      googleSearch: Boolean((config.googleSearch.apiKey && config.googleSearch.cx) || config.serper.apiKey)
     },
     render: config.render,
     automation: config.automation,
@@ -349,7 +358,10 @@ export async function updateRuntimeSettings(input = {}) {
     elevenlabsApiKey: "ELEVENLABS_API_KEY",
     elevenlabsModel: "ELEVENLABS_MODEL",
     elevenlabsVoiceId: "ELEVENLABS_VOICE_ID",
-    pexelsApiKey: "PEXELS_API_KEY"
+    pexelsApiKey: "PEXELS_API_KEY",
+    googleCseKey: "GOOGLE_CSE_KEY",
+    googleCseCx: "GOOGLE_CSE_CX",
+    serperApiKey: "SERPER_API_KEY"
   };
   for (const [key, envName] of Object.entries(map)) {
     const value = key.endsWith("ApiKey") || key.endsWith("Url") ? trimSlash(input[key]) : clean(input[key]);

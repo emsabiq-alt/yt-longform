@@ -77,6 +77,7 @@ export default async function handler(req, res) {
 function isGoogleLogo(imageUrl) {
   if (!imageUrl || typeof imageUrl !== "string") return false;
   const lower = imageUrl.toLowerCase();
+  if (lower.includes("encrypted-tbn0.gstatic.com/images?q=tbn:")) return false;
   return (
     lower.includes("googleusercontent.com") ||
     lower.includes("gstatic.com") ||

@@ -17,6 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { paths } from "./config.js";
 import { resolveGoogleNewsUrl, isGoogleLogo, extractArticleImage } from "./news-research.js";
+import { isGoogleImageApiAvailable, searchGoogleImages, downloadImageWithCandidates } from "./google-image.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, "..", "assets");
@@ -155,8 +156,34 @@ export async function ensureNewsImages(item) {
       entry.imageUrl = null;
     }
 
-    // A. Jika belum ada imageUrl tetapi ada URL artikel, coba scraping og:image on-the-fly
-    if (!entry.imageUrl && entry.url) {
+    // 1. Prioritas Utama: Ambil gambar langsung dari Google Images API jika tersedia
+    if (isGoogleImageApiAvailable()) {
+      const q = entry.headline || item.input?.topic;
+      if (q) {
+        try {
+          const fallbackQueries = [
+            entry.outlet ? `${entry.outlet} ${entry.headline || ""}`.trim() : null,
+            item.input?.topic
+          ].filter(Boolean);
+          const candidates = await searchGoogleImages(q, { fallbackQueries });
+          if (candidates.length) {
+            const dest = path.join(newsDir, `news-scene-${entry.sceneIndex}.jpg`);
+            const dl = await downloadImageWithCandidates(candidates, dest);
+            if (dl.success) {
+              entry.imagePath = dest;
+              entry.imageUrl = dl.url;
+              if (dl.source) entry.outlet = dl.source;
+              console.log(`[NewsImage] Scene ${entry.sceneIndex}: Berhasil ambil dari Google Images API (${entry.outlet}) → ${path.basename(dest)}`);
+            }
+          }
+        } catch (err) {
+          console.warn(`[NewsImage] Scene ${entry.sceneIndex} Google Images API error: ${err.message}`);
+        }
+      }
+    }
+
+    // 2. Fallback Scraper: Jika Google Images API tidak aktif atau belum dapat, coba scraping og:image on-the-fly
+    if (!entry.imagePath && !entry.imageUrl && entry.url) {
       const scraped = await scrapeOgImage(entry.url);
       if (scraped) {
         entry.imageUrl = scraped;
@@ -164,8 +191,8 @@ export async function ensureNewsImages(item) {
       }
     }
 
-    // B. Coba download gambar berita jika ada imageUrl
-    if (entry.imageUrl) {
+    // 3. Coba download gambar berita jika ada imageUrl (jika belum didownload)
+    if (!entry.imagePath && entry.imageUrl) {
       try {
         const ext = entry.imageUrl.match(/\.(jpe?g|png|webp)/i)?.[1]?.replace("jpeg", "jpg") || "jpg";
         const dest = path.join(newsDir, `news-scene-${entry.sceneIndex}.${ext}`);
@@ -177,7 +204,7 @@ export async function ensureNewsImages(item) {
       }
     }
 
-    // C. Fallback: jika gambar berita tidak ada atau gagal unduh, gunakan aset gambar scene yang sudah ada (Tab Buat)
+    // 4. Fallback: jika gambar berita tidak ada atau gagal unduh, gunakan aset gambar scene yang sudah ada (Tab Buat)
     if (!entry.imagePath) {
       const sceneImg = (item.assets?.images || []).find((img) => Number(img.sceneIndex) === entry.sceneIndex);
       if (sceneImg?.path) {
@@ -357,11 +384,16 @@ async function makeDeviceMockupClip({ newsImagePath, templatePath, outputPath, d
 }
 
 async function downloadImage(imageUrl, destPath) {
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+  };
+  try {
+    const origin = new URL(imageUrl).origin;
+    headers["Referer"] = `${origin}/`;
+  } catch {}
   const res = await fetch(imageUrl, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
-    },
+    headers,
     signal: AbortSignal.timeout(DL_TIMEOUT_MS),
     redirect: "follow"
   });

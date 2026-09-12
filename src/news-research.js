@@ -68,6 +68,8 @@ export function parseGoogleNewsXml(xml) {
 export function isGoogleLogo(imageUrl) {
   if (!imageUrl || typeof imageUrl !== "string") return false;
   const lower = imageUrl.toLowerCase();
+  // Thumbnail hasil pencarian Google Images sah dan bukan logo
+  if (lower.includes("encrypted-tbn0.gstatic.com/images?q=tbn:")) return false;
   return (
     lower.includes("googleusercontent.com") ||
     lower.includes("gstatic.com") ||
@@ -323,6 +325,22 @@ export async function fetchNewsArticlesForTopic(topic, options = {}) {
   }));
 
   const uniqueOutlets = new Set(topItems.map(it => it.outlet || it.source).filter(Boolean));
+
+  // Jika ada artikel yang belum memiliki foto, coba cari via Google Images API jika tersedia
+  try {
+    const { isGoogleImageApiAvailable, fetchGoogleImageUrl } = await import("./google-image.js");
+    if (isGoogleImageApiAvailable()) {
+      await Promise.allSettled(topItems.filter(it => !it.imageUrl).map(async (item) => {
+        const query = `${item.outlet ? item.outlet + " " : ""}${item.headline || item.title}`;
+        const found = await fetchGoogleImageUrl(query, { fetchImpl });
+        if (found?.imageUrl) {
+          item.imageUrl = found.imageUrl;
+          console.log(`[NewsResearch] Google Images API: "${query.slice(0, 40)}" → ${item.imageUrl.slice(0, 60)}`);
+        }
+      }));
+    }
+  } catch {}
+
   return {
     title: topic,
     articles: topItems.length,
@@ -342,12 +360,25 @@ export async function enrichTrendNewsItems(trend, options = {}) {
   const fetchImpl = options.fetchImpl || fetch;
 
   const targets = trend.newsItems.slice(0, maxItems).filter(it => !it.excerpt && it.url);
-  if (!targets.length) return;
+  if (targets.length) {
+    await Promise.allSettled(targets.map(async (item) => {
+      const scraped = await scrapeArticleContent(item.url, { fetchImpl });
+      if (scraped?.excerpt) item.excerpt = scraped.excerpt;
+      if (scraped?.imageUrl && !item.imageUrl) item.imageUrl = scraped.imageUrl;
+      if (scraped?.resolvedUrl) item.url = scraped.resolvedUrl;
+    }));
+  }
 
-  await Promise.allSettled(targets.map(async (item) => {
-    const scraped = await scrapeArticleContent(item.url, { fetchImpl });
-    if (scraped?.excerpt) item.excerpt = scraped.excerpt;
-    if (scraped?.imageUrl && !item.imageUrl) item.imageUrl = scraped.imageUrl;
-    if (scraped?.resolvedUrl) item.url = scraped.resolvedUrl;
-  }));
+  // Jika masih ada target yang belum punya imageUrl, coba Google Images API
+  try {
+    const { isGoogleImageApiAvailable, fetchGoogleImageUrl } = await import("./google-image.js");
+    if (isGoogleImageApiAvailable()) {
+      const needImages = trend.newsItems.slice(0, maxItems).filter(it => !it.imageUrl);
+      await Promise.allSettled(needImages.map(async (item) => {
+        const query = `${item.outlet ? item.outlet + " " : ""}${item.headline || item.title}`;
+        const found = await fetchGoogleImageUrl(query, { fetchImpl });
+        if (found?.imageUrl) item.imageUrl = found.imageUrl;
+      }));
+    }
+  } catch {}
 }

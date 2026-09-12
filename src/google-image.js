@@ -1,0 +1,344 @@
+/**
+ * google-image.js
+ * Modul resmi untuk pencarian gambar langsung dari Google Images via API.
+ *
+ * Provider yang didukung:
+ *  1. Google Custom Search JSON API (Official Google Images API)
+ *     - Memerlukan GOOGLE_CSE_KEY (API Key) dan GOOGLE_CSE_CX (Search Engine ID).
+ *     - 100 pencarian gratis per hari.
+ *  2. Serper.dev Images API (Google Images scraper API)
+ *     - Memerlukan SERPER_API_KEY (2.500 pencarian gratis).
+ *  3. SerpApi (Google Images Engine)
+ *     - Memerlukan SERPAPI_API_KEY (100 pencarian gratis/bulan).
+ *
+ * Fitur:
+ *  - Pencarian multi-kandidat beresolusi tinggi dengan fallback thumbnail CDN Google.
+ *  - Filter otomatis untuk logo/ikon Google News dan file tidak cocok (svg, ico).
+ *  - Multi-attempt download dengan header anti-hotlink (Referer & User-Agent).
+ */
+
+import fs from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
+import path from "node:path";
+import { isGoogleLogo } from "./news-research.js";
+
+const DEFAULT_TIMEOUT_MS = 10_000;
+const DL_TIMEOUT_MS = 15_000;
+
+/**
+ * Cek apakah salah satu API Google Image telah dikonfigurasi.
+ */
+export function isGoogleImageApiAvailable() {
+  const hasGoogleCse = Boolean(
+    (process.env.GOOGLE_CSE_KEY || process.env.GOOGLE_SEARCH_API_KEY) &&
+    (process.env.GOOGLE_CSE_CX || process.env.GOOGLE_SEARCH_ENGINE_ID)
+  );
+  const hasSerper = Boolean(process.env.SERPER_API_KEY);
+  const hasSerpApi = Boolean(process.env.SERPAPI_API_KEY);
+  return hasGoogleCse || hasSerper || hasSerpApi;
+}
+
+/**
+ * Bersihkan string pencarian untuk query Google Images.
+ */
+export function cleanSearchQuery(rawQuery) {
+  if (!rawQuery || typeof rawQuery !== "string") return "";
+  return rawQuery
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[“”"']/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 150);
+}
+
+/**
+ * Cari gambar di Google Images via Google Custom Search JSON API.
+ * @param {string} query
+ * @param {object} options
+ * @returns {Promise<Array<{imageUrl: string, thumbnail: string|null, title: string, source: string, contextUrl: string, width: number, height: number}>>}
+ */
+async function searchViaGoogleCse(query, options = {}) {
+  const apiKey = process.env.GOOGLE_CSE_KEY || process.env.GOOGLE_SEARCH_API_KEY;
+  const cx = process.env.GOOGLE_CSE_CX || process.env.GOOGLE_SEARCH_ENGINE_ID;
+  if (!apiKey || !cx) return [];
+
+  const fetchImpl = options.fetchImpl || fetch;
+  const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const num = Math.min(10, Math.max(1, options.num || 5));
+
+  try {
+    const url = new URL("https://www.googleapis.com/customsearch/v1");
+    url.searchParams.set("key", apiKey);
+    url.searchParams.set("cx", cx);
+    url.searchParams.set("q", query);
+    url.searchParams.set("searchType", "image");
+    url.searchParams.set("num", String(num));
+    url.searchParams.set("safe", options.safe || "active");
+    url.searchParams.set("hl", options.hl || "id");
+    url.searchParams.set("gl", options.gl || "id");
+    if (options.imgType) url.searchParams.set("imgType", options.imgType);
+    if (options.imgSize) url.searchParams.set("imgSize", options.imgSize);
+
+    const res = await fetchImpl(url.toString(), {
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { "Accept": "application/json" }
+    });
+
+    if (!res.ok) {
+      console.warn(`[GoogleImage] Google CSE HTTP ${res.status} untuk query "${query}": ${res.statusText}`);
+      return [];
+    }
+
+    const data = await res.json();
+    const items = Array.isArray(data.items) ? data.items : [];
+    const results = [];
+
+    for (const item of items) {
+      const link = item.link;
+      if (!link || typeof link !== "string" || !link.startsWith("http")) continue;
+      const lower = link.toLowerCase();
+      if (lower.endsWith(".svg") || lower.endsWith(".ico") || lower.includes("favicon")) continue;
+      if (isGoogleLogo(link)) continue;
+
+      results.push({
+        imageUrl: link,
+        thumbnail: item.image?.thumbnailLink || null,
+        title: String(item.title || "").trim(),
+        source: String(item.displayLink || "").trim(),
+        contextUrl: item.image?.contextLink || "",
+        width: Number(item.image?.width) || 0,
+        height: Number(item.image?.height) || 0
+      });
+    }
+
+    return results;
+  } catch (err) {
+    console.warn(`[GoogleImage] Google CSE error untuk query "${query}": ${err.message}`);
+    return [];
+  }
+}
+
+/**
+ * Cari gambar via Serper.dev (Google Images search API alternatif).
+ */
+async function searchViaSerper(query, options = {}) {
+  const apiKey = process.env.SERPER_API_KEY;
+  if (!apiKey) return [];
+
+  const fetchImpl = options.fetchImpl || fetch;
+  const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const num = Math.min(10, Math.max(1, options.num || 5));
+
+  try {
+    const res = await fetchImpl("https://google.serper.dev/images", {
+      method: "POST",
+      headers: {
+        "X-API-KEY": apiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        q: query,
+        gl: options.gl?.toLowerCase() || "id",
+        hl: options.hl || "id",
+        num
+      }),
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+
+    if (!res.ok) return [];
+    const data = await res.json();
+    const images = Array.isArray(data.images) ? data.images : [];
+    const results = [];
+
+    for (const item of images) {
+      const link = item.imageUrl;
+      if (!link || typeof link !== "string" || !link.startsWith("http")) continue;
+      const lower = link.toLowerCase();
+      if (lower.endsWith(".svg") || lower.endsWith(".ico") || lower.includes("favicon")) continue;
+      if (isGoogleLogo(link)) continue;
+
+      results.push({
+        imageUrl: link,
+        thumbnail: item.thumbnailUrl || null,
+        title: String(item.title || "").trim(),
+        source: String(item.source || "").trim(),
+        contextUrl: item.link || "",
+        width: Number(item.imageWidth) || 0,
+        height: Number(item.imageHeight) || 0
+      });
+    }
+
+    return results;
+  } catch (err) {
+    console.warn(`[GoogleImage] Serper error untuk query "${query}": ${err.message}`);
+    return [];
+  }
+}
+
+/**
+ * Cari gambar via SerpApi (Google Images).
+ */
+async function searchViaSerpApi(query, options = {}) {
+  const apiKey = process.env.SERPAPI_API_KEY;
+  if (!apiKey) return [];
+
+  const fetchImpl = options.fetchImpl || fetch;
+  const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+
+  try {
+    const url = new URL("https://serpapi.com/search.json");
+    url.searchParams.set("engine", "google_images");
+    url.searchParams.set("q", query);
+    url.searchParams.set("api_key", apiKey);
+    url.searchParams.set("gl", options.gl?.toLowerCase() || "id");
+    url.searchParams.set("hl", options.hl || "id");
+
+    const res = await fetchImpl(url.toString(), {
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+
+    if (!res.ok) return [];
+    const data = await res.json();
+    const images = Array.isArray(data.images_results) ? data.images_results : [];
+    const results = [];
+
+    for (const item of images) {
+      const link = item.original || item.link;
+      if (!link || typeof link !== "string" || !link.startsWith("http")) continue;
+      const lower = link.toLowerCase();
+      if (lower.endsWith(".svg") || lower.endsWith(".ico") || lower.includes("favicon")) continue;
+      if (isGoogleLogo(link)) continue;
+
+      results.push({
+        imageUrl: link,
+        thumbnail: item.thumbnail || null,
+        title: String(item.title || "").trim(),
+        source: String(item.source || "").trim(),
+        contextUrl: item.link || "",
+        width: 0,
+        height: 0
+      });
+    }
+
+    return results;
+  } catch (err) {
+    console.warn(`[GoogleImage] SerpApi error untuk query "${query}": ${err.message}`);
+    return [];
+  }
+}
+
+/**
+ * Cari kumpulan kandidat gambar dari Google Images API.
+ * Mendukung fallback queries secara berurutan jika query utama tidak menghasilkan hasil.
+ *
+ * @param {string} query - Query utama (misal judul headline atau topik)
+ * @param {object} options
+ * @param {string[]} [options.fallbackQueries] - Query alternatif jika query utama kosong
+ * @returns {Promise<Array<{imageUrl: string, thumbnail: string|null, title: string, source: string, contextUrl: string, width: number, height: number}>>}
+ */
+export async function searchGoogleImages(query, options = {}) {
+  const mainQuery = cleanSearchQuery(query);
+  const queries = [mainQuery, ...(options.fallbackQueries || []).map(cleanSearchQuery)].filter(Boolean);
+  const uniqueQueries = [...new Set(queries)];
+
+  for (const q of uniqueQueries) {
+    // 1. Coba Google Custom Search API
+    let results = await searchViaGoogleCse(q, options);
+    if (results.length) {
+      console.log(`[GoogleImage] Google CSE: "${q}" → ${results.length} gambar ditemukan`);
+      return results;
+    }
+
+    // 2. Coba Serper.dev jika CSE tidak aktif/habis
+    results = await searchViaSerper(q, options);
+    if (results.length) {
+      console.log(`[GoogleImage] Serper: "${q}" → ${results.length} gambar ditemukan`);
+      return results;
+    }
+
+    // 3. Coba SerpApi jika ada
+    results = await searchViaSerpApi(q, options);
+    if (results.length) {
+      console.log(`[GoogleImage] SerpApi: "${q}" → ${results.length} gambar ditemukan`);
+      return results;
+    }
+  }
+
+  return [];
+}
+
+/**
+ * Ambil satu URL gambar terbaik dari Google Images.
+ * @param {string} query
+ * @param {object} options
+ * @returns {Promise<{imageUrl: string, thumbnail: string|null, title: string, source: string, contextUrl: string}|null>}
+ */
+export async function fetchGoogleImageUrl(query, options = {}) {
+  const results = await searchGoogleImages(query, options);
+  return results[0] || null;
+}
+
+/**
+ * Unduh gambar dari daftar kandidat hasil Google Images.
+ * Mencoba resolusi penuh terlebih dahulu dengan header anti-hotlink (Referer + User-Agent).
+ * Jika situs media memblokir hotlinking (HTTP 403), secara otomatis mencoba kandidat berikutnya
+ * atau thumbnail CDN Google (encrypted-tbn0.gstatic.com) yang dijamin tidak pernah diblokir.
+ *
+ * @param {Array|object} candidates - Kandidat dari searchGoogleImages atau objek tunggal
+ * @param {string} destPath - Path tujuan penyimpanan file lokal
+ * @param {object} options
+ * @returns {Promise<{success: boolean, url?: string, title?: string, source?: string, error?: string}>}
+ */
+export async function downloadImageWithCandidates(candidates, destPath, options = {}) {
+  const list = Array.isArray(candidates) ? candidates : [candidates].filter(Boolean);
+  if (!list.length) return { success: false, error: "Tidak ada kandidat gambar" };
+
+  const fetchImpl = options.fetchImpl || fetch;
+  const timeoutMs = options.timeoutMs || DL_TIMEOUT_MS;
+
+  for (const item of list) {
+    // Coba URL asli resolusi tinggi dulu, lalu thumbnail Google CDN
+    const attemptUrls = [item.imageUrl, item.thumbnail].filter(Boolean);
+
+    for (const url of attemptUrls) {
+      try {
+        const headers = {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
+        };
+        try {
+          const parsed = new URL(url);
+          headers["Referer"] = `${parsed.origin}/`;
+        } catch {
+          // Abaikan jika parse URL gagal
+        }
+
+        const res = await fetchImpl(url, {
+          headers,
+          signal: AbortSignal.timeout(timeoutMs),
+          redirect: "follow"
+        });
+
+        if (!res.ok) continue;
+
+        // Pastikan direktori tujuan ada
+        await fs.mkdir(path.dirname(destPath), { recursive: true });
+
+        const out = createWriteStream(destPath);
+        await pipeline(res.body, out);
+
+        return {
+          success: true,
+          url,
+          title: item.title,
+          source: item.source
+        };
+      } catch (err) {
+        // Lanjutkan ke kandidat berikutnya
+      }
+    }
+  }
+
+  return { success: false, error: "Semua kandidat gambar gagal diunduh" };
+}

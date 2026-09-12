@@ -14,6 +14,7 @@ import { pipeline } from "node:stream/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { paths } from "./config.js";
+import { fetchGoogleImageUrl } from "./google-image.js";
 
 const TIMEOUT_MS = 10_000;
 const DL_TIMEOUT_MS = 30_000;
@@ -28,29 +29,15 @@ export async function fetchPersonImageUrl(name) {
   const trimmed = name.trim();
   if (!trimmed) return null;
 
-  // 1. Google Custom Search Images
-  if (process.env.GOOGLE_CSE_KEY && process.env.GOOGLE_CSE_CX) {
-    try {
-      const url = new URL("https://www.googleapis.com/customsearch/v1");
-      url.searchParams.set("key", process.env.GOOGLE_CSE_KEY);
-      url.searchParams.set("cx", process.env.GOOGLE_CSE_CX);
-      url.searchParams.set("q", `${trimmed} portrait photo`);
-      url.searchParams.set("searchType", "image");
-      url.searchParams.set("num", "5");
-      url.searchParams.set("imgSize", "medium");
-      url.searchParams.set("imgType", "photo");
-      const res = await fetch(url.toString(), { signal: AbortSignal.timeout(TIMEOUT_MS) });
-      if (res.ok) {
-        const data = await res.json();
-        const imageUrl = data.items?.[0]?.link;
-        if (imageUrl) {
-          console.log(`[PersonImage] Google CSE: "${trimmed}" → ${imageUrl.slice(0, 80)}`);
-          return imageUrl;
-        }
-      }
-    } catch (err) {
-      console.warn(`[PersonImage] Google CSE gagal untuk "${trimmed}": ${err.message}`);
+  // 1. Google Images Search API (CSE / Serper / SerpApi)
+  try {
+    const googleResult = await fetchGoogleImageUrl(`${trimmed} portrait photo`);
+    if (googleResult?.imageUrl) {
+      console.log(`[PersonImage] Google Images: "${trimmed}" → ${googleResult.imageUrl.slice(0, 80)}`);
+      return googleResult.imageUrl;
     }
+  } catch (err) {
+    console.warn(`[PersonImage] Google Images gagal untuk "${trimmed}": ${err.message}`);
   }
 
   // 2. Wikipedia REST API thumbnail (id → en)

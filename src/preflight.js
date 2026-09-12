@@ -12,6 +12,7 @@ export async function runPreflight() {
   checks.push(checkValue("OPENAI_API_KEY", Boolean(config.openai.apiKey), "Story, gambar, TTS, dan transkripsi butuh key ini."));
   checks.push(checkOptional("PEXELS_API_KEY", Boolean(config.pexels?.apiKey), "Video B-roll Pexels butuh key ini. Tanpa key, media dilanjutkan ke Wikimedia/OpenAI."));
   checks.push(checkOptional("WIKIMEDIA_MEDIA", Boolean(config.wikimedia?.enabled), "Wikimedia Commons aktif tanpa API key sebagai fallback media berlisensi aman."));
+  checks.push(checkOptional("GOOGLE_CSE_KEY", Boolean((config.googleSearch?.apiKey && config.googleSearch?.cx) || config.serper?.apiKey), "Google Images API aktif untuk mengambil gambar berita mockup secara resmi via Google Image Search."));
   checks.push(checkOptional("YOUTUBE_DATA_API_KEY", Boolean(config.youtube?.dataApiKey), "Trending topic engine butuh key ini. Tanpa key, topik dipilih tanpa sinyal trending."));
   checks.push(checkValue("PUBLIC_BASE_URL", Boolean(config.publicBaseUrl || process.env.PUBLIC_BASE_URL), "Butuh base URL publik untuk preview asset dan upload YouTube fetchable."));
 
