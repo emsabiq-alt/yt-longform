@@ -7,9 +7,15 @@ import { ensureNewsImages, scrapeOgImage, applyNewsImageOverlays } from "../src/
 
 test("ensureNewsImages: memakai fallback gambar scene saat imageUrl tidak ada (Tab Buat)", async () => {
   const origSerper = process.env.SERPER_API_KEY;
+  const origSerpers = process.env.SERPER_API_KEYS;
   const origCseKey = process.env.GOOGLE_CSE_KEY;
+  const origCseCx = process.env.GOOGLE_CSE_CX;
+  const origSerpApi = process.env.SERPAPI_API_KEY;
   delete process.env.SERPER_API_KEY;
+  delete process.env.SERPER_API_KEYS;
   delete process.env.GOOGLE_CSE_KEY;
+  delete process.env.GOOGLE_CSE_CX;
+  delete process.env.SERPAPI_API_KEY;
 
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "news-test-"));
   const fakeImgPath = path.join(tmpDir, "scene-2.jpg");
@@ -39,12 +45,26 @@ test("ensureNewsImages: memakai fallback gambar scene saat imageUrl tidak ada (T
     assert.equal(item.assets.newsImages[0].outlet, "Jurnal Sains");
   } finally {
     if (origSerper) process.env.SERPER_API_KEY = origSerper;
+    if (origSerpers) process.env.SERPER_API_KEYS = origSerpers;
     if (origCseKey) process.env.GOOGLE_CSE_KEY = origCseKey;
+    if (origCseCx) process.env.GOOGLE_CSE_CX = origCseCx;
+    if (origSerpApi) process.env.SERPAPI_API_KEY = origSerpApi;
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 });
 
 test("ensureNewsImages: memilih kandidat scene otomatis jika mediaSource tidak disertakan", async () => {
+  const origSerper = process.env.SERPER_API_KEY;
+  const origSerpers = process.env.SERPER_API_KEYS;
+  const origCseKey = process.env.GOOGLE_CSE_KEY;
+  const origCseCx = process.env.GOOGLE_CSE_CX;
+  const origSerpApi = process.env.SERPAPI_API_KEY;
+  delete process.env.SERPER_API_KEY;
+  delete process.env.SERPER_API_KEYS;
+  delete process.env.GOOGLE_CSE_KEY;
+  delete process.env.GOOGLE_CSE_CX;
+  delete process.env.SERPAPI_API_KEY;
+
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "news-auto-"));
   const fakeImg1 = path.join(tmpDir, "scene-1.jpg");
   const fakeImg2 = path.join(tmpDir, "scene-2.jpg");
@@ -73,6 +93,11 @@ test("ensureNewsImages: memilih kandidat scene otomatis jika mediaSource tidak d
     assert.ok(item.assets.newsImages.length >= 1, "Harus memilih minimal 1 scene kandidat");
     assert.ok(item.assets.newsImages[0].imagePath, "imagePath harus terisi dengan fallback");
   } finally {
+    if (origSerper) process.env.SERPER_API_KEY = origSerper;
+    if (origSerpers) process.env.SERPER_API_KEYS = origSerpers;
+    if (origCseKey) process.env.GOOGLE_CSE_KEY = origCseKey;
+    if (origCseCx) process.env.GOOGLE_CSE_CX = origCseCx;
+    if (origSerpApi) process.env.SERPAPI_API_KEY = origSerpApi;
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 });

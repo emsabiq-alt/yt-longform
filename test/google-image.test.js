@@ -8,7 +8,8 @@ import {
   isGoogleImageApiAvailable,
   searchGoogleImages,
   fetchGoogleImageUrl,
-  downloadImageWithCandidates
+  downloadImageWithCandidates,
+  isGenericPlaceholderQuery
 } from "../src/google-image.js";
 import { isGoogleLogo } from "../src/news-research.js";
 
@@ -202,3 +203,49 @@ test("searchViaBingImages: mengekstrak gambar dari HTML Bing tanpa API key", asy
   assert.equal(results[0].thumbnail, "https://bing.com/thumb.jpg");
   assert.equal(results[0].source, "news.detik.com");
 });
+
+test("isGenericPlaceholderQuery: memblokir teks placeholder generik dan meloloskan topik valid", () => {
+  // Harus diblokir
+  assert.equal(isGenericPlaceholderQuery("Fakta 1"), true);
+  assert.equal(isGenericPlaceholderQuery("Fakta 2"), true);
+  assert.equal(isGenericPlaceholderQuery("fakta 10"), true);
+  assert.equal(isGenericPlaceholderQuery("fakta"), true);
+  assert.equal(isGenericPlaceholderQuery("Intro"), true);
+  assert.equal(isGenericPlaceholderQuery("Outro"), true);
+  assert.equal(isGenericPlaceholderQuery("Hook"), true);
+  assert.equal(isGenericPlaceholderQuery("Penutup"), true);
+  assert.equal(isGenericPlaceholderQuery("Pembuka"), true);
+  assert.equal(isGenericPlaceholderQuery("Scene 1"), true);
+  assert.equal(isGenericPlaceholderQuery("scene 2"), true);
+  assert.equal(isGenericPlaceholderQuery("segmen 1"), true);
+  assert.equal(isGenericPlaceholderQuery("Temuan Baru"), true);
+  assert.equal(isGenericPlaceholderQuery("Berita Terkini"), true);
+  assert.equal(isGenericPlaceholderQuery("Dokumen Referensi"), true);
+  assert.equal(isGenericPlaceholderQuery("Pembahasan utama"), true);
+  assert.equal(isGenericPlaceholderQuery("123"), true);
+  assert.equal(isGenericPlaceholderQuery(""), true);
+  assert.equal(isGenericPlaceholderQuery(null), true);
+
+  // Harus lolos
+  assert.equal(isGenericPlaceholderQuery("Danau Toba"), false);
+  assert.equal(isGenericPlaceholderQuery("BJ Habibie"), false);
+  assert.equal(isGenericPlaceholderQuery("Fakta 1: Gempa Bumi"), false);
+  assert.equal(isGenericPlaceholderQuery("Pegadaian 11 Objek Wisata di Solo untuk Liburan Seru, Yuk Kunjungi!"), false);
+});
+
+test("searchGoogleImages: menolak query placeholder tanpa melakukan request API sama sekali (Zero Quota Protection)", async () => {
+  let fetchCalled = false;
+  const mockFetch = async () => {
+    fetchCalled = true;
+    throw new Error("Fetch tidak boleh dipanggil!");
+  };
+
+  const results = await searchGoogleImages("Fakta 1", {
+    fallbackQueries: ["Fakta 2", "Intro", "Dokumen Referensi"],
+    fetchImpl: mockFetch
+  });
+
+  assert.deepEqual(results, []);
+  assert.equal(fetchCalled, false, "Tidak boleh ada panggilan API/jaringan sama sekali untuk placeholder");
+});
+

@@ -17,7 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { paths } from "./config.js";
 import { resolveGoogleNewsUrl, isGoogleLogo, extractArticleImage } from "./news-research.js";
-import { isGoogleImageApiAvailable, searchGoogleImages, downloadImageWithCandidates } from "./google-image.js";
+import { isGoogleImageApiAvailable, searchGoogleImages, downloadImageWithCandidates, isGenericPlaceholderQuery } from "./google-image.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, "..", "assets");
@@ -158,12 +158,15 @@ export async function ensureNewsImages(item) {
 
     // 1. Prioritas Utama: Ambil gambar langsung dari Google Images API jika tersedia
     if (isGoogleImageApiAvailable()) {
-      const q = entry.headline || item.input?.topic;
-      if (q) {
+      let q = entry.headline;
+      if (isGenericPlaceholderQuery(q)) {
+        q = isGenericPlaceholderQuery(item.input?.topic) ? null : item.input?.topic;
+      }
+      if (q && !isGenericPlaceholderQuery(q)) {
         try {
           const fallbackQueries = [
-            entry.outlet ? `${entry.outlet} ${entry.headline || ""}`.trim() : null,
-            item.input?.topic
+            (entry.outlet && !isGenericPlaceholderQuery(entry.headline)) ? `${entry.outlet} ${entry.headline || ""}`.trim() : null,
+            !isGenericPlaceholderQuery(item.input?.topic) ? item.input?.topic : null
           ].filter(Boolean);
           const candidates = await searchGoogleImages(q, { fallbackQueries });
           if (candidates.length) {

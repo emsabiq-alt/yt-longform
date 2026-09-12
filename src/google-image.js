@@ -40,6 +40,19 @@ export function isGoogleImageApiAvailable() {
 }
 
 /**
+ * Deteksi apakah query pencarian hanyalah kata placeholder/dummy generik
+ * (misal "Fakta 1", "Fakta 2", "Intro", "Scene 1", "Temuan Baru") yang tidak memiliki
+ * nilai visual nyata, untuk mencegah pemborosan kuota API pencarian gambar.
+ */
+export function isGenericPlaceholderQuery(text) {
+  if (!text || typeof text !== "string") return true;
+  const clean = text.trim().toLowerCase();
+  if (clean.length < 3 || /^\d+$/.test(clean)) return true;
+  const placeholderRegex = /^(fakta\s*\d*|intro\w*|outro\w*|hook\w*|penutup\w*|pembuka\w*|scene\s*\d*|segmen\s*\d*|temuan\s*baru|berita\s*terkini|dokumen\s*referensi|pembahasan\s*utama|informasi\s*\d*|poin\s*\d*|subtopik\s*\d*)$/i;
+  return placeholderRegex.test(clean);
+}
+
+/**
  * Bersihkan string pencarian untuk query Google Images.
  */
 export function cleanSearchQuery(rawQuery) {
@@ -280,8 +293,13 @@ async function searchViaSerpApi(query, options = {}) {
  */
 export async function searchGoogleImages(query, options = {}) {
   const mainQuery = cleanSearchQuery(query);
-  const queries = [mainQuery, ...(options.fallbackQueries || []).map(cleanSearchQuery)].filter(Boolean);
-  const uniqueQueries = [...new Set(queries)];
+  const rawQueries = [mainQuery, ...(options.fallbackQueries || []).map(cleanSearchQuery)].filter(Boolean);
+  const validQueries = rawQueries.filter((q) => !isGenericPlaceholderQuery(q));
+  const uniqueQueries = [...new Set(validQueries)];
+
+  if (!uniqueQueries.length) {
+    return [];
+  }
 
   for (const q of uniqueQueries) {
     // 1. Coba Google Custom Search API
