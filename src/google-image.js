@@ -304,9 +304,73 @@ export async function searchGoogleImages(query, options = {}) {
       console.log(`[GoogleImage] SerpApi: "${q}" → ${results.length} gambar ditemukan`);
       return results;
     }
+
+    // 4. Cadangan Abadi: Bing Images (Microsoft) — Gratis, Unlimited, Legal & Bebas Blokir di Indonesia
+    results = await searchViaBingImages(q, options);
+    if (results.length) {
+      console.log(`[GoogleImage] Bing Images: "${q}" → ${results.length} gambar ditemukan`);
+      return results;
+    }
   }
 
   return [];
+}
+
+/**
+ * Cari gambar via Bing Images (Microsoft) — 100% GRATIS, tanpa API key, unlimited.
+ * Sepenuhnya legal dan bebas blokir di seluruh jaringan Indonesia.
+ */
+export async function searchViaBingImages(query, options = {}) {
+  const fetchImpl = options.fetchImpl || fetch;
+  const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const num = Math.min(10, Math.max(1, options.num || 5));
+
+  try {
+    const url = `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&form=HDRSC2`;
+    const res = await fetchImpl(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7"
+      },
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+
+    if (!res.ok) return [];
+    const html = await res.text();
+
+    const results = [];
+    const matches = [...html.matchAll(/murl&quot;:&quot;(https?:[^&]+?)&quot;.*?turl&quot;:&quot;(https?:[^&]+?)&quot;.*?t&quot;:&quot;([^&]+?)&quot;.*?desc&quot;:&quot;([^&]+?)&quot;/g)];
+    const rawMatches = matches.length ? matches : [...html.matchAll(/murl&quot;:&quot;(https?:[^&]+?)&quot;/g)];
+
+    for (const match of rawMatches) {
+      const link = match[1];
+      if (!link || typeof link !== "string" || !link.startsWith("http")) continue;
+      const lower = link.toLowerCase();
+      if (lower.endsWith(".svg") || lower.endsWith(".ico") || lower.includes("favicon")) continue;
+      if (isGoogleLogo(link)) continue;
+
+      let host = "";
+      try { host = new URL(link).hostname.replace(/^www\./, ""); } catch {}
+
+      results.push({
+        imageUrl: link,
+        thumbnail: match[2] || null,
+        title: match[3] || match[4] || `${query} (${host})`,
+        source: host || "Bing Images",
+        contextUrl: link,
+        width: 0,
+        height: 0
+      });
+
+      if (results.length >= num) break;
+    }
+
+    return results;
+  } catch (err) {
+    console.warn(`[GoogleImage] Bing Images error untuk query "${query}": ${err.message}`);
+    return [];
+  }
 }
 
 /**

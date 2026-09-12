@@ -183,3 +183,22 @@ test("searchGoogleImages: Round-Robin rotasi kunci Serper dan auto-failover saat
   if (origSerper) process.env.SERPER_API_KEY = origSerper; else delete process.env.SERPER_API_KEY;
   if (origCseKey) process.env.GOOGLE_CSE_KEY = origCseKey; else delete process.env.GOOGLE_CSE_KEY;
 });
+
+test("searchViaBingImages: mengekstrak gambar dari HTML Bing tanpa API key", async () => {
+  const fakeHtml = `
+    <div>
+      <div class="iusc" m="{&quot;murl&quot;:&quot;https://news.detik.com/foto.jpg&quot;,&quot;turl&quot;:&quot;https://bing.com/thumb.jpg&quot;,&quot;t&quot;:&quot;Foto Berita Detik&quot;,&quot;desc&quot;:&quot;Deskripsi&quot;}"></div>
+    </div>
+  `;
+  const mockFetch = async () => ({
+    ok: true,
+    text: async () => fakeHtml
+  });
+
+  const { searchViaBingImages } = await import("../src/google-image.js");
+  const results = await searchViaBingImages("Danau Toba", { fetchImpl: mockFetch });
+  assert.equal(results.length, 1);
+  assert.equal(results[0].imageUrl, "https://news.detik.com/foto.jpg");
+  assert.equal(results[0].thumbnail, "https://bing.com/thumb.jpg");
+  assert.equal(results[0].source, "news.detik.com");
+});
