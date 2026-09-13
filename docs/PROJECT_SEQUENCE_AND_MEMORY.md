@@ -27,6 +27,16 @@ diagrams with notes that should help the next coding session resume quickly.
   Spread ~6–8 relevant placements and up to 22 matched spotlights across the story.
   Prompt and normalizer both use four visual segments, including the end of each
   scene's narration; grid 2x2 generation remains compatible.
+- Spotlight has a third type (2026-09-13): `compare`, an animated 2-bar chart
+  overlay (pure ASS `\org`/`\fscy`/`\t` scale-from-baseline, no new render
+  dependency) for scenes that explicitly compare two named magnitudes (e.g.
+  "22x lebih dahsyat dari X", or two numbers with units). Only AI-authored —
+  never auto-extracted by `extractAutoSpotlight()`, since guessing a compare
+  pair from free text risks fabricating numbers. `normalizeSpotlight()` rejects
+  it unless both `value`/`compareValue` are finite positive numbers and both
+  labels are present. Shares the same phrase-sync/quota pipeline as
+  keypoint/figure (`planSceneSpotlights`), just with a longer card duration
+  (6s vs 4.5s) since it has more to read.
 - Purpose: generate Indonesian YouTube longform educational videos with AI story
   planning, image/B-roll generation, per-scene TTS, subtitle alignment, FFmpeg
   rendering, remote hosting upload, and YouTube publishing.

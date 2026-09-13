@@ -21,17 +21,41 @@ const MIN_SCORE = 0.48; // Toleransi skor pencocokan lebih baik agar kartu lebih
 const MIN_GAP_SEC = 5; // Jeda minimum antar kartu lebih rapat (sebelumnya 8s)
 const MAX_PER_VIDEO = 22; // Kuota per video dinaikkan (sebelumnya 14)
 const CARD_DURATION_SEC = 4.5; // Durasi tampil lebih lama (sebelumnya 3.6s) agar terbaca jelas di HP
+const COMPARE_CARD_DURATION_SEC = 6; // Kartu perbandingan (2 angka + 2 nama) butuh waktu baca lebih lama
 const LEAD_IN_SEC = 0.12;
 
 const stats = { candidates: 0, placed: 0, rejectedScore: 0, rejectedQuota: 0, rejectedGap: 0 };
 
 export function normalizeSpotlight(raw) {
   if (!raw || typeof raw !== "object") return null;
-  const label = cleanShort(raw.label, 42);
   const phrase = cleanShort(raw.phrase, 90);
-  if (!label || !phrase) return null;
+  if (!phrase) return null;
+  // "compare": bar chart animasi 2 nilai. Hanya valid kalau AI benar-benar mengisi
+  // kedua nama dan kedua angka pembanding — tidak pernah diekstrak otomatis dari
+  // regex (extractAutoSpotlight), karena menebak pasangan angka pembanding dari
+  // teks bebas terlalu berisiko salah/mengarang.
+  if (raw.type === "compare") {
+    const label = cleanShort(raw.label, 24);
+    const compareLabel = cleanShort(raw.compareLabel, 24);
+    const value = Number(raw.value);
+    const compareValue = Number(raw.compareValue);
+    if (!label || !compareLabel || !Number.isFinite(value) || !Number.isFinite(compareValue) ||
+        value <= 0 || compareValue <= 0) {
+      return null;
+    }
+    return { type: "compare", label, compareLabel, value, compareValue, unit: cleanShort(raw.unit, 10), phrase };
+  }
+  const label = cleanShort(raw.label, 42);
+  if (!label) return null;
   const type = raw.type === "figure" ? "figure" : "keypoint";
   return { type, label, sublabel: cleanShort(raw.sublabel, 52), phrase };
+}
+
+function formatCompareNumber(value, unit) {
+  const rounded = Math.abs(value) >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
+  const text = rounded.toLocaleString("id-ID");
+  if (!unit) return text;
+  return unit === "x" ? `${text}x` : `${text} ${unit}`;
 }
 
 /**
@@ -135,14 +159,18 @@ export function planSceneSpotlights(scenes, options = {}) {
       continue;
     }
 
+    const cardDuration = spotlight.type === "compare" ? COMPARE_CARD_DURATION_SEC : CARD_DURATION_SEC;
     placed.push({
       sceneIndex: Number(scene.index || 0),
       startSec: Number(startSec.toFixed(3)),
-      endSec: Number((startSec + Math.min(CARD_DURATION_SEC, available)).toFixed(3)),
+      endSec: Number((startSec + Math.min(cardDuration, available)).toFixed(3)),
       label: spotlight.label,
       sublabel: spotlight.sublabel,
       type: spotlight.type,
-      score: Number(match.score.toFixed(2))
+      score: Number(match.score.toFixed(2)),
+      ...(spotlight.type === "compare"
+        ? { compareLabel: spotlight.compareLabel, value: spotlight.value, compareValue: spotlight.compareValue, unit: spotlight.unit }
+        : {})
     });
   }
 
@@ -182,6 +210,17 @@ const FIG_W = 660;
 const FIG_X = Math.round((1280 - FIG_W) / 2); // 310
 const FIG_Y = 230; // sepertiga atas layar agar tidak tutup caption bawah
 
+// Compare spotlight — bar chart 2 nilai, tengah layar seperti kartu figure
+const CMP_W = 520;
+const CMP_X = Math.round((1280 - CMP_W) / 2); // 380
+const CMP_Y = 210;
+const CMP_BAR_W = 100;
+const CMP_BAR_GAP = 70;
+const CMP_BAR_MAX_H = 130;
+const CMP_PAD_TOP = 40; // ruang label angka di atas bar
+const CMP_NAME_ROW_H = 42; // ruang label nama di bawah bar
+const CMP_H = CMP_PAD_TOP + CMP_BAR_MAX_H + CMP_NAME_ROW_H;
+
 /**
  * Baris ASS untuk kartu spotlight.
  * - type "figure"   → kartu besar di tengah layar (nama tokoh + jabatan)
@@ -218,6 +257,55 @@ export function spotlightDialogueLines(placements, dialogueFn, escapeFn) {
           `${fade}{\\an5\\pos(${textCenterX},${top + 98})}${escapeFn(card.sublabel)}`
         ));
       }
+    } else if (card.type === "compare") {
+      // Kartu perbandingan: dua bar animasi tumbuh dari baseline yang sama,
+      // tingginya proporsional terhadap value/compareValue. Label angka di atas
+      // tiap bar (posisi tetap, tidak ikut animasi) dan nama di bawah baseline.
+      const totalBarsW = CMP_BAR_W * 2 + CMP_BAR_GAP;
+      const barsX = CMP_X + Math.round((CMP_W - totalBarsW) / 2);
+      const barAX = barsX;
+      const barBX = barsX + CMP_BAR_W + CMP_BAR_GAP;
+      const bottomY = CMP_Y + CMP_PAD_TOP + CMP_BAR_MAX_H;
+      const maxVal = Math.max(card.value, card.compareValue, 1e-9);
+      const hA = Math.max(18, Math.round(CMP_BAR_MAX_H * (card.value / maxVal)));
+      const hB = Math.max(18, Math.round(CMP_BAR_MAX_H * (card.compareValue / maxVal)));
+      const topA = bottomY - hA;
+      const topB = bottomY - hB;
+
+      events.push(dialogueFn(
+        card.startSec, card.endSec, "ComparePanel",
+        `${fade}{\\an7\\pos(${CMP_X},${CMP_Y})\\p1}m 0 0 l ${CMP_W} 0 l ${CMP_W} ${CMP_H} l 0 ${CMP_H}`
+      ));
+      events.push(dialogueFn(
+        card.startSec, card.endSec, "CompareBar",
+        `${fade}{\\an7\\pos(${CMP_X},${CMP_Y})\\p1}m 0 0 l 8 0 l 8 ${CMP_H} l 0 ${CMP_H}`
+      ));
+      // Bar tumbuh dari baseline: \org di titik bawah bar jadi titik jangkar skala,
+      // \fscy dimulai kecil lalu di-tween ke 100% agar tampak "tumbuh ke atas".
+      events.push(dialogueFn(
+        card.startSec, card.endSec, "CompareBar",
+        `${fade}{\\an7\\org(${barAX + Math.round(CMP_BAR_W / 2)},${bottomY})\\pos(${barAX},${topA})\\fscy12\\t(80,480,\\fscy100)\\p1}m 0 0 l ${CMP_BAR_W} 0 l ${CMP_BAR_W} ${hA} l 0 ${hA}`
+      ));
+      events.push(dialogueFn(
+        card.startSec, card.endSec, "CompareBarMuted",
+        `${fade}{\\an7\\org(${barBX + Math.round(CMP_BAR_W / 2)},${bottomY})\\pos(${barBX},${topB})\\fscy12\\t(80,480,\\fscy100)\\p1}m 0 0 l ${CMP_BAR_W} 0 l ${CMP_BAR_W} ${hB} l 0 ${hB}`
+      ));
+      events.push(dialogueFn(
+        card.startSec + 0.1, card.endSec, "CompareValue",
+        `${fade}{\\an2\\pos(${barAX + Math.round(CMP_BAR_W / 2)},${topA - 10})}${escapeFn(formatCompareNumber(card.value, card.unit))}`
+      ));
+      events.push(dialogueFn(
+        card.startSec + 0.1, card.endSec, "CompareValue",
+        `${fade}{\\an2\\pos(${barBX + Math.round(CMP_BAR_W / 2)},${topB - 10})}${escapeFn(formatCompareNumber(card.compareValue, card.unit))}`
+      ));
+      events.push(dialogueFn(
+        card.startSec + 0.16, card.endSec, "CompareName",
+        `${fade}{\\an8\\pos(${barAX + Math.round(CMP_BAR_W / 2)},${bottomY + 8})}${escapeFn(card.label)}`
+      ));
+      events.push(dialogueFn(
+        card.startSec + 0.16, card.endSec, "CompareName",
+        `${fade}{\\an8\\pos(${barBX + Math.round(CMP_BAR_W / 2)},${bottomY + 8})}${escapeFn(card.compareLabel)}`
+      ));
     } else {
       // Kartu keypoint: pojok kiri bawah (font lebih besar, panel lebih lega)
       const height = twoLine ? 116 : 80;
@@ -257,6 +345,12 @@ export function spotlightStyles() {
     `Style: FigurePanel,${body},20,&HE011171B,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     `Style: FigureBar,${body},20,${ACCENT},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     `Style: FigureLabel,${body},46,&H00FFFFFF,&H000000FF,&HAA11171B,&H0011171B,-1,0,0,0,100,100,0,0,1,1.8,0,5,0,0,0,1`,
-    `Style: FigureSub,${body},30,${ACCENT},&H000000FF,&HAA11171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.5,0,5,0,0,0,1`
+    `Style: FigureSub,${body},30,${ACCENT},&H000000FF,&HAA11171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.5,0,5,0,0,0,1`,
+    // Compare — kartu bar chart 2 nilai, tengah layar
+    `Style: ComparePanel,${body},20,&HE011171B,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
+    `Style: CompareBar,${body},20,${ACCENT},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
+    `Style: CompareBarMuted,${body},20,&H00888888,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
+    `Style: CompareValue,${body},34,&H00FFFFFF,&H000000FF,&HAA11171B,&H0011171B,-1,0,0,0,100,100,0,0,1,1.5,0,2,0,0,0,1`,
+    `Style: CompareName,${body},24,${ACCENT},&H000000FF,&HAA11171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.2,0,8,0,0,0,1`
   ];
 }

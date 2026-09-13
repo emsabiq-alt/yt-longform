@@ -104,6 +104,26 @@ test("normalizeSpotlight menolak data tanpa label atau frasa", () => {
   assert.equal(normalizeSpotlight({ label: "A", phrase: "satu dua", type: "aneh" }).type, "keypoint");
 });
 
+test("normalizeSpotlight menerima compare yang lengkap dan valid", () => {
+  const result = normalizeSpotlight({
+    type: "compare", label: "Tambora", value: 150, compareLabel: "Krakatau", compareValue: 25,
+    unit: "km³", phrase: "150 kilometer kubik material"
+  });
+  assert.deepEqual(result, {
+    type: "compare", label: "Tambora", compareLabel: "Krakatau", value: 150, compareValue: 25,
+    unit: "km³", phrase: "150 kilometer kubik material"
+  });
+});
+
+test("normalizeSpotlight menolak compare yang datanya tidak lengkap/tidak valid", () => {
+  const base = { type: "compare", label: "A", value: 10, compareLabel: "B", compareValue: 5, phrase: "sepuluh vs lima" };
+  assert.equal(normalizeSpotlight({ ...base, compareLabel: "" }), null);
+  assert.equal(normalizeSpotlight({ ...base, value: 0 }), null);
+  assert.equal(normalizeSpotlight({ ...base, compareValue: -1 }), null);
+  assert.equal(normalizeSpotlight({ ...base, value: "sepuluh" }), null);
+  assert.ok(normalizeSpotlight(base));
+});
+
 test("baris ASS memakai style Spotlight dan waktu kartu", () => {
   const lines = spotlightDialogueLines(
     [{ startSec: 1, endSec: 4, label: "Label", sublabel: "Sub", type: "keypoint" }],
@@ -113,6 +133,25 @@ test("baris ASS memakai style Spotlight dan waktu kartu", () => {
   assert.equal(lines.length, 4);
   assert.ok(lines.every((line) => line.startsWith("Spotlight")));
   assert.ok(lines.some((line) => line.includes("Label")));
+});
+
+test("baris ASS kartu compare menghasilkan 2 bar animasi dan 2 label per sisi", () => {
+  const lines = spotlightDialogueLines(
+    [{ startSec: 1, endSec: 6, type: "compare", label: "Tambora", value: 150, compareLabel: "Krakatau", compareValue: 25, unit: "km³" }],
+    (start, end, style, text) => `${style}|${start}|${end}|${text}`,
+    (value) => value
+  );
+  const styles = lines.map((line) => line.split("|")[0]);
+  assert.deepEqual(styles, ["ComparePanel", "CompareBar", "CompareBar", "CompareBarMuted", "CompareValue", "CompareValue", "CompareName", "CompareName"]);
+  assert.ok(lines.some((line) => line.includes("Tambora")));
+  assert.ok(lines.some((line) => line.includes("Krakatau")));
+  assert.ok(lines.some((line) => line.includes("150 km³")));
+  assert.ok(lines.some((line) => line.includes("25 km³")));
+  // Bar yang lebih besar (Tambora=150) harus lebih tinggi (angka setelah "l W 0 l W " lebih besar) dari Krakatau=25.
+  const barLine = lines.find((line) => line.includes("CompareBar|") && line.includes("\\fscy12"));
+  const mutedLine = lines.find((line) => line.startsWith("CompareBarMuted"));
+  const heightOf = (line) => Number(line.match(/l 100 (\d+) l 0 \1/)[1]);
+  assert.ok(heightOf(barLine) > heightOf(mutedLine));
 });
 
 test("spotlight dibuang bila narasi final tidak lagi memuat frasanya", () => {
