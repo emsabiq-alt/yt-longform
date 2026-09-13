@@ -10,7 +10,8 @@ diagrams with notes that should help the next coding session resume quickly.
   the earlier 12-minute default. Use `YT_DURATION_SEC=1200`, `YT_SCENE_COUNT=36`
   in local, GitHub Actions, and Vercel environments. OpenAI speed remains 1.08
   with `config.openai.ttsInstructions` for a lively, clear documentary voice.
-- Start with ~2,280 words / six chapters. `generateFullItem()` now measures TTS
+- Start with ~2,280 words / 8-9 chapters (raised from six on 2026-09-13 so each
+  chapter stays narrow and YouTube chapter thumbnails vary more). `generateFullItem()` now measures TTS
   before generating visuals, includes fixed hook/intro/outro durations, and asks
   `enrichLongformDraft()` for new sourced examples, evidence, and perspectives
   when short. Up to three passes / 48 scenes; original narration, chapters,

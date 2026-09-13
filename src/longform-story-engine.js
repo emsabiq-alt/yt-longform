@@ -527,7 +527,7 @@ function buildPrompt(input, wiki = null) {
     `Setiap scene image wajib memiliki ${words.imageMin}-${words.imageMax} kata narasi. Scene summary wajib memiliki ${words.summaryMin}-${words.summaryMax} kata narasi.`,
     "Scene reaction tidak memerlukan visualKeywords atau imagePrompt. Isi reactionCue dengan ekspresi yang cocok: heran, kaget, skeptis, menemukan petunjuk, atau setuju.",
     "Scene terakhir wajib bertipe summary dengan screenText 'Ringkasan Inti' dan narasi kesimpulan yang tidak kosong.",
-    "Buat storyboard longform mendalam: sekitar enam bab yang berurutan, berisi pertanyaan utama, konteks, cara kerja/sebab, bukti dan studi kasus, dampak serta sudut pandang pembanding, lalu jawaban dan kesimpulan. Sesuaikan susunan dengan format dan topik.",
+    "Buat storyboard longform mendalam: delapan hingga sembilan bab yang berurutan, contoh urutan: pertanyaan utama, konteks awal, akar masalah/sebab, bukti pertama, fakta/data lanjutan, sudut pandang pembanding, dampak/akibat, lalu jawaban dan kesimpulan. Sesuaikan susunan dengan format dan topik, tapi tetap pecah jadi 8-9 bab agar tiap bab punya fokus sempit dan thumbnail chapter YouTube lebih bervariasi.",
     "Perkaya setiap bab dengan bukti, contoh konkret, detail sebab-akibat, atau batas penjelasan yang didukung sumber. Pertahankan kedalaman pembahasan; jangan meringkas bab menjadi satu kalimat untuk mengejar jumlah scene.",
     "Storyboard tidak boleh memakai judul layar generik berulang. Tulis screenText yang spesifik sesuai fakta scene, bukan label konsep umum.",
     "",
@@ -1222,9 +1222,12 @@ export async function writeLongformStoryboard(item) {
 
 function chapterName(index, total) {
   const position = (index + 1) / Math.max(1, total);
-  if (position <= 0.16) return "Pembuka";
-  if (position <= 0.42) return "Awal Masalah";
-  if (position <= 0.68) return "Bukti Baru";
+  if (position <= 0.12) return "Pembuka";
+  if (position <= 0.25) return "Konteks Awal";
+  if (position <= 0.38) return "Akar Masalah";
+  if (position <= 0.50) return "Bukti Pertama";
+  if (position <= 0.62) return "Fakta Lanjutan";
+  if (position <= 0.75) return "Sudut Pandang Lain";
   if (position <= 0.88) return "Akibatnya";
   return "Penutup";
 }
