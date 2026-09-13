@@ -5,6 +5,14 @@ diagrams with notes that should help the next coding session resume quickly.
 
 ## Project Memory Snapshot
 
+- Narration pacing (2026-09-13): default target is 720 seconds / 26 scenes,
+  OpenAI speech speed is 1.08, and narration uses a clear, lively documentary
+  style from `config.openai.ttsInstructions`. `OPENAI_TTS_SPEED` and optional
+  `OPENAI_TTS_INSTRUCTIONS` apply to new scene, cold-open, and fallback audio.
+  Match `YT_DURATION_SEC=720` in local, GitHub Actions, and Vercel environments;
+  an existing environment setting overrides code defaults. Final video duration
+  follows measured scene audio, not a mandatory 20-minute timeline. Preserve
+  per-scene transcription timing when changing provider speed.
 - Purpose: generate Indonesian YouTube longform educational videos with AI story
   planning, image/B-roll generation, per-scene TTS, subtitle alignment, FFmpeg
   rendering, remote hosting upload, and YouTube publishing.

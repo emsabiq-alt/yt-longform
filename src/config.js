@@ -89,6 +89,14 @@ export function ensureProjectDirs() {
   }
 }
 
+export const DOCUMENTARY_TTS_INSTRUCTIONS = [
+  "Bacakan sepenuhnya dalam Bahasa Indonesia sebagai narator dokumenter yang sedang menjelaskan penemuan menarik.",
+  "Gunakan tempo lincah dan mengalir, artikulasi jelas, serta intonasi bervariasi sesuai makna kalimat.",
+  "Bangun rasa penasaran secara alami. Tekankan fakta penting tanpa berteriak atau terdengar seperti iklan dan pidato motivasi.",
+  "Berikan jeda singkat di batas gagasan. Ucapkan angka, nama, dan istilah dengan cermat agar mudah dipahami.",
+  "Sesuaikan emosi dengan isi: hangat saat menjelaskan, tenang saat membahas peristiwa serius. Bacakan hanya naskah yang diberikan."
+].join(" ");
+
 export const config = {
   port: Math.max(1, Math.floor(numberEnv("PORT", 3050))),
   publicBaseUrl: clean(process.env.PUBLIC_BASE_URL),
@@ -104,6 +112,8 @@ export const config = {
     imageGridQuality: clean(process.env.IMAGE_GRID_QUALITY || "medium"),
     ttsModel: clean(process.env.OPENAI_TTS_MODEL || process.env.TTS_MODEL || "gpt-4o-mini-tts"),
     ttsVoice: clean(process.env.OPENAI_TTS_VOICE || process.env.TTS_VOICE || "cedar"),
+    ttsSpeed: Math.min(4, Math.max(0.25, numberEnv("OPENAI_TTS_SPEED", 1.08))),
+    ttsInstructions: clean(process.env.OPENAI_TTS_INSTRUCTIONS) || DOCUMENTARY_TTS_INSTRUCTIONS,
     transcribeModel: clean(process.env.OPENAI_TRANSCRIBE_MODEL || "whisper-1")
   },
   deepseek: {
@@ -177,7 +187,7 @@ export const config = {
   automation: {
     timeZone: clean(process.env.YT_TIME_ZONE || "Asia/Bangkok"),
     dailyGenerateLimit: Math.max(0, numberEnv("YT_DAILY_GENERATE_LIMIT", 1)),
-    durationSec: Math.min(1200, Math.max(300, numberEnv("YT_DURATION_SEC", 1200))),
+    durationSec: Math.min(1200, Math.max(300, numberEnv("YT_DURATION_SEC", 720))),
     sceneCount: Math.min(28, Math.max(26, numberEnv("YT_SCENE_COUNT", 26))),
     workflowFile: clean(process.env.YT_WORKFLOW_FILE || "yt-longform-generate.yml"),
     strictRemote: bool(process.env.YT_STRICT_REMOTE),
@@ -303,6 +313,7 @@ export function publicConfig() {
     sceneCount: config.automation.sceneCount,
     ttsProvider: clean(process.env.YT_TTS_PROVIDER || "openai"),
     ttsVoice: config.openai.ttsVoice,
+    openaiTtsSpeed: config.openai.ttsSpeed,
     elevenlabsVoiceId: config.elevenlabs.voiceId,
     elevenlabsSpeed: config.elevenlabs.speed,
     providers: {
@@ -317,6 +328,8 @@ export function publicConfig() {
       imageGridQuality: config.openai.imageGridQuality,
       openaiTtsModel: config.openai.ttsModel,
       openaiTtsVoice: config.openai.ttsVoice,
+      openaiTtsSpeed: config.openai.ttsSpeed,
+      openaiTtsInstructions: config.openai.ttsInstructions,
       openaiTranscribeModel: config.openai.transcribeModel,
       deepseek: Boolean(config.deepseek.apiKey),
       deepseekBaseUrl: config.deepseek.baseUrl,
@@ -354,6 +367,7 @@ export async function updateRuntimeSettings(input = {}) {
     imageModel: "IMAGE_MODEL",
     openaiTtsVoice: "OPENAI_TTS_VOICE",
     openaiTtsModel: "OPENAI_TTS_MODEL",
+    openaiTtsInstructions: "OPENAI_TTS_INSTRUCTIONS",
     openaiTranscribeModel: "OPENAI_TRANSCRIBE_MODEL",
     deepseekApiKey: "DEEPSEEK_API_KEY",
     deepseekBaseUrl: "DEEPSEEK_BASE_URL",
@@ -369,6 +383,10 @@ export async function updateRuntimeSettings(input = {}) {
   for (const [key, envName] of Object.entries(map)) {
     const value = key.endsWith("ApiKey") || key.endsWith("Url") ? trimSlash(input[key]) : clean(input[key]);
     if (value) updates[envName] = value;
+  }
+  const openaiTtsSpeed = Number(input.openaiTtsSpeed);
+  if (String(input.openaiTtsSpeed ?? "").trim() && Number.isFinite(openaiTtsSpeed)) {
+    updates.OPENAI_TTS_SPEED = String(Math.min(4, Math.max(0.25, openaiTtsSpeed)));
   }
   const speechTempo = Number(input.speechTempo);
   if (Number.isFinite(speechTempo)) updates.SPEECH_TEMPO = String(Math.min(1.3, Math.max(0.9, speechTempo)));
@@ -417,6 +435,8 @@ function applyConfigUpdates(updates) {
   if (updates.IMAGE_GRID_QUALITY !== undefined) config.openai.imageGridQuality = clean(updates.IMAGE_GRID_QUALITY);
   if (updates.OPENAI_TTS_MODEL !== undefined) config.openai.ttsModel = updates.OPENAI_TTS_MODEL;
   if (updates.OPENAI_TTS_VOICE !== undefined) config.openai.ttsVoice = updates.OPENAI_TTS_VOICE;
+  if (updates.OPENAI_TTS_SPEED !== undefined) config.openai.ttsSpeed = Number(updates.OPENAI_TTS_SPEED);
+  if (updates.OPENAI_TTS_INSTRUCTIONS !== undefined) config.openai.ttsInstructions = updates.OPENAI_TTS_INSTRUCTIONS;
   if (updates.OPENAI_TRANSCRIBE_MODEL !== undefined) config.openai.transcribeModel = updates.OPENAI_TRANSCRIBE_MODEL;
   if (updates.DEEPSEEK_API_KEY !== undefined) config.deepseek.apiKey = updates.DEEPSEEK_API_KEY;
   if (updates.DEEPSEEK_BASE_URL !== undefined) config.deepseek.baseUrl = trimSlash(updates.DEEPSEEK_BASE_URL);

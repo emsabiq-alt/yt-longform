@@ -15,7 +15,7 @@ import { normalizeSpotlight } from "./spotlight.js";
 import { enrichTrendNewsItems, fetchNewsArticlesForTopic } from "./news-research.js";
 
 // Kontrak durasi longform, dipakai bersama config, API, workflow, dan render.
-export const DEFAULT_DURATION_SEC = 1200;
+export const DEFAULT_DURATION_SEC = 720;
 export const MAX_DURATION_SEC = 1200;
 
 // Naskah lebih pendek dari porsi ini tidak akan pernah menghasilkan video
@@ -447,7 +447,7 @@ function buildPrompt(input, wiki = null) {
     "Setiap scene harus berisi narasi yang dibacakan oleh TTS dan teks layar (screenText) yang sinkron. Tulis narasi agar mudah dibaca TTS: angka dan satuan ditulis dengan kata-kata (misal 'tiga puluh derajat Celcius', 'seribu kilometer per jam'), hindari singkatan dan simbol seperti %, Rp, AI, 3D, &, kecuali sangat umum.",
     "PENTING UNTUK TTS: Tulis narasi sebagai kalimat-kalimat yang MENGALIR KONTINU. HINDARI titik koma (;), titik tiga (...), tanda kurung, dan tanda kutip karena memicu jeda panjang saat dibacakan. Gunakan koma atau kata sambung ('dan', 'lalu', 'sementara', 'karena') untuk menghubungkan klausa. Satu kalimat = satu napas bicara yang mulus.",
     "Scene reaction WAJIB berupa satu kalimat PERTANYAAN penasaran / cliffhanger singkat (8-16 kata) yang DIAKHIRI DENGAN TANDA TANYA (?). Contoh: 'Tapi benarkah letusan purba ini yang memicu zaman es?' atau 'Lalu apa yang sebenarnya disembunyikan di balik peristiwa ini?'. DILARANG KERAS mengisi screenText atau narration scene reaction dengan judul babak, nomor scene, atau label konsep generik seperti 'Fakta 1', 'Fakta Perubahan', 'Babak 24', dsb. Teks pertanyaan ini yang akan muncul langsung di layar.",
-    "Narasi scene reaction tidak akan dibacakan TTS. Teksnya hanya muncul di layar sebagai jeda hening singkat.",
+    "Narasi scene reaction juga dibacakan TTS. Buat pertanyaan singkat yang langsung mengantar ke informasi berikutnya tanpa meminta jeda hening.",
     `Setiap scene image wajib memiliki ${words.imageMin}-${words.imageMax} kata narasi. Scene summary wajib memiliki ${words.summaryMin}-${words.summaryMax} kata narasi.`,
     "Scene reaction tidak memerlukan visualKeywords atau imagePrompt. Isi reactionCue dengan ekspresi yang cocok: heran, kaget, skeptis, menemukan petunjuk, atau setuju.",
     "Scene terakhir wajib bertipe summary dengan screenText 'Ringkasan Inti' dan narasi kesimpulan yang tidak kosong.",
@@ -455,17 +455,19 @@ function buildPrompt(input, wiki = null) {
     "Storyboard tidak boleh memakai judul layar generik berulang. Tulis screenText yang spesifik sesuai fakta scene, bukan label konsep umum.",
     "",
     "ANTI-PENGULANGAN NARASI (WAJIB DIPATUHI):",
+    "- Jaga pembahasan padat sesuai durasi target. Dahulukan penjelasan inti dan bukti yang relevan; hilangkan pengantar panjang, basa-basi, dan rangkuman berulang di tengah cerita.",
+    "- Penuhi anggaran kata dengan informasi terverifikasi yang membantu menjawab topik. Jangan menambah pengulangan, klaim rekaan, atau pertanyaan pengulur waktu untuk mengejar durasi.",
     "- Setiap scene WAJIB menambahkan informasi, fakta, data, contoh, atau cara melihat BARU yang BELUM PERNAH disebut di scene manapun sebelumnya.",
     "- DILARANG mengulang poin yang sama dengan kata-kata berbeda. Jika scene 3 sudah menjelaskan 'kebijakan yang menghambat', scene 4 TIDAK BOLEH mengatakan 'regulasi yang tidak efektif' karena itu poin yang sama.",
     "- Setiap scene harus membuat penonton berkata 'wah saya baru tahu ini'. Hindari informasi yang sudah umum diketahui.",
     "- Gunakan DATA SPESIFIK: angka, tahun, nama orang/tempat/organisasi, perbandingan konkret. Jangan narasi generik yang bisa ditempelkan ke topik apapun.",
     "- Progresi narasi: scene awal = latar belakang unik, scene tengah = cara kerja/bukti/data baru di setiap scene, scene akhir = arti atau akibat yang belum dibahas.",
-    "- Jangan memakai screenText, chapter, atau beatPurpose yang sama persis di dua scene berbeda. Setiap baris storyboard harus punya tugas yang berbeda.",
+    "- Jangan memakai screenText atau beatPurpose yang sama persis di dua scene berbeda. Gunakan chapter yang sama untuk beberapa scene berurutan yang membahas satu bagian cerita; ubah chapter hanya ketika pembahasan berpindah.",
     "",
     "KNOWLEDGE BEAT (WAJIB untuk setiap scene image/summary):",
     "- Setiap scene harus menjawab TEPAT SATU pertanyaan implisit. Tulis pertanyaan itu di field beatPurpose (misal beatPurpose: 'menjawab: kenapa kapal besi bisa mengapung?').",
     "- Struktur narasi tiap scene: SATU klaim inti + SATU bukti/contoh/angka konkret yang mendukungnya. Jangan menumpuk tiga klaim dangkal dalam satu scene; lebih baik satu klaim yang dibuktikan tuntas.",
-    "- Akhiri narasi scene dengan satu kalimat yang membuat penonton butuh scene berikutnya (akibat yang belum dijelaskan, angka yang belum diungkap, atau pertanyaan lanjutan).",
+    "- Hubungkan scene dengan akibat, bukti, atau gagasan berikutnya secara alami. Gunakan pertanyaan lanjutan hanya bila membantu alur; jangan menutup setiap scene dengan cliffhanger yang berulang.",
     "",
     "PEMBUKA BAB (RETENSI):",
     "- Scene PERTAMA dari setiap chapter baru (field chapter berubah) WAJIB membuka dengan pertanyaan atau ajakan menebak di 1-2 kalimat pertama narasinya (misal 'Coba tebak berapa lama waktu yang dibutuhkan...' atau 'Pertanyaannya, kenapa hal itu bisa terjadi?').",

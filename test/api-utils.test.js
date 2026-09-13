@@ -10,6 +10,7 @@ import {
   safeEqual,
   issueSessionToken,
   buildQueueItem,
+  configSummary,
   upsertById,
   removeById,
   makeId,
@@ -70,6 +71,28 @@ test("buildQueueItem: durasi di-clamp ke rentang [300, 1200]", () => {
   assert.equal(buildQueueItem({ durationSec: 100 }).durationSec, 300);  // dinaikkan ke min
   assert.equal(buildQueueItem({ durationSec: 5000 }).durationSec, 1200); // dipotong ke max
   assert.equal(buildQueueItem({ durationSec: 420 }).durationSec, 420);  // di dalam rentang
+});
+
+test("durasi default dashboard dan antrean selaras, dengan override env dan pilihan pengguna", () => {
+  const original = process.env.YT_DURATION_SEC;
+  try {
+    delete process.env.YT_DURATION_SEC;
+    assert.equal(configSummary().durationSec, 720);
+    assert.equal(buildQueueItem({}).durationSec, 720);
+    process.env.YT_DURATION_SEC = "";
+    assert.equal(configSummary().durationSec, 720);
+    assert.equal(buildQueueItem({}).durationSec, 720);
+    process.env.YT_DURATION_SEC = "600";
+    assert.equal(configSummary().durationSec, 600);
+    assert.equal(buildQueueItem({}).durationSec, 600);
+    assert.equal(buildQueueItem({ durationSec: 900 }).durationSec, 900);
+    process.env.YT_DURATION_SEC = "invalid";
+    assert.equal(configSummary().durationSec, 720);
+    assert.equal(buildQueueItem({}).durationSec, 720);
+  } finally {
+    if (original === undefined) delete process.env.YT_DURATION_SEC;
+    else process.env.YT_DURATION_SEC = original;
+  }
 });
 
 test("buildQueueItem: sceneCount dibatasi ke 26-28", () => {

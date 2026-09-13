@@ -28,15 +28,6 @@ import { reportProgress } from "./progress.js";
 
 const LANDSCAPE_SIZE = "1536x1024";
 
-const SCENE_TTS_INSTRUCTIONS = [
-  "Bacakan sepenuhnya dalam Bahasa Indonesia.",
-  "Gaya suara: Sangat energik (high-energy), bersemangat (upbeat), dan penuh dorongan (encouraging), memproyeksikan antusiasme dan motivasi tinggi.",
-  "Tanda baca & Jeda: Kalimat pendek dan bertenaga (punchy) dengan jeda strategis untuk menjaga keseruan dan kejelasan.",
-  "Penyampaian: Cepat dan dinamis (fast-paced & dynamic), dengan intonasi naik untuk membangun momentum dan menjaga keterlibatan tetap tinggi.",
-  "Gaya bahasa: Berorientasi tindakan dan langsung (action-oriented & direct), gunakan isyarat motivasi untuk mendorong pendengar.",
-  "Nada suara: Positif, penuh tenaga (energetic), dan memberdayakan (empowering), menciptakan suasana penuh semangat dan pencapaian."
-].join(" ");
-
 /**
  * Pastikan aset visual dalam urutan yang benar: video relevan dicoba lebih
  * dahulu, lalu gambar hanya mengisi slot yang masih kosong.
@@ -118,7 +109,7 @@ export async function generateFullItem(input = {}, options = {}) {
   await ensureLongformSceneAudio(item, {
     provider: item.input.ttsProvider,
     voice: options.voice || input.ttsVoice,
-    instructions: SCENE_TTS_INSTRUCTIONS,
+    instructions: config.openai.ttsInstructions,
     warnings,
     strict: true
   });
@@ -1323,7 +1314,7 @@ export async function ensureLongformSceneAudio(item, options = {}) {
             itemId: item.id,
             text,
             voice: config.openai.ttsVoice,
-            instructions: options.instructions || SCENE_TTS_INSTRUCTIONS,
+            instructions: options.instructions || config.openai.ttsInstructions,
             filenameSuffix: fallbackSuffix
           });
         }
@@ -1332,7 +1323,7 @@ export async function ensureLongformSceneAudio(item, options = {}) {
           itemId: item.id,
           text,
           voice: options.voice,
-          instructions: options.instructions || SCENE_TTS_INSTRUCTIONS,
+          instructions: options.instructions || config.openai.ttsInstructions,
           filenameSuffix: suffix
         });
       }
@@ -1359,6 +1350,7 @@ export async function ensureLongformSceneAudio(item, options = {}) {
       sceneIndex: scene.index,
       sceneType: scene.sceneType || "image",
       provider: currentProvider,
+      speed: audio.speed,
       path: audio.path,
       url: audio.url,
       characters: text.length,
@@ -1411,7 +1403,7 @@ export async function ensureHookAudio(item, options = {}) {
           itemId: item.id,
           text: hookText,
           voice: config.openai.ttsVoice,
-          instructions: SCENE_TTS_INSTRUCTIONS,
+          instructions: config.openai.ttsInstructions,
           filenameSuffix: "cold-open-openai-fallback"
         });
       }
@@ -1420,7 +1412,7 @@ export async function ensureHookAudio(item, options = {}) {
         itemId: item.id,
         text: hookText,
         voice: options.voice,
-        instructions: SCENE_TTS_INSTRUCTIONS,
+        instructions: config.openai.ttsInstructions,
         filenameSuffix: "cold-open-openai"
       });
     }

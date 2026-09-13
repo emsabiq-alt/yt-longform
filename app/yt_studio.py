@@ -79,6 +79,8 @@ ENV_SECTIONS = [
         ("IMAGE_QUALITY", "Image Quality", False),
         ("OPENAI_TTS_MODEL", "TTS Model", False),
         ("OPENAI_TTS_VOICE", "TTS Voice", False),
+        ("OPENAI_TTS_SPEED", "Kecepatan TTS (default 1.08)", False),
+        ("OPENAI_TTS_INSTRUCTIONS", "Gaya narator (opsional)", False),
         ("OPENAI_TRANSCRIBE_MODEL", "Transcribe Model", False),
     ]),
     ("Pexels Video (B-Roll)", [
@@ -643,12 +645,13 @@ class YTStudioApp(ctk.CTk):
                                                "luar angkasa", "arsitektur", "transportasi",
                                                "energi", "matematika sehari-hari",
                                                "misteri sejarah"])
-        self.f_duration = self._labeled_combo(body, "Durasi (detik)", 1, 1,
-                                              ["300", "360", "480", "600", "720"], default="360")
-        self.f_scenes = self._labeled_combo(body, "Jumlah scene", 1, 2,
-                                            ["10", "12", "14", "16", "18"], default="14")
-        # Get defaults based on .env
         env_vars = parse_env()
+        self.f_duration = self._labeled_combo(body, "Durasi (detik)", 1, 1,
+                                              ["300", "360", "480", "600", "720", "900", "1200"],
+                                              default=env_vars.get("YT_DURATION_SEC", "720"))
+        self.f_scenes = self._labeled_combo(body, "Jumlah scene", 1, 2,
+                                            ["26", "27", "28"], default="26")
+        # Get defaults based on .env
         default_tts = env_vars.get("YT_TTS_PROVIDER", "openai")
         default_voice = env_vars.get("ELEVENLABS_VOICE_ID", "wUrGnU2Kx934kbDdOWDo") if default_tts == "elevenlabs" else env_vars.get("OPENAI_TTS_VOICE", "cedar")
 

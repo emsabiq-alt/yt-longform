@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { requestKnowledgeJson } from "../src/openai.js";
-import { config } from "../src/config.js";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { generateOpenAiSpeech, requestKnowledgeJson } from "../src/openai.js";
+import { config, DOCUMENTARY_TTS_INSTRUCTIONS, paths } from "../src/config.js";
 
 const chatBody = (payload) => JSON.stringify({
   choices: [{ message: { content: JSON.stringify(payload) } }]
@@ -103,4 +106,70 @@ test("openAiFetch: error jaringan dicoba ulang", async () => {
       assert.equal(calls.length, 2);
     }
   );
+});
+
+async function withSpeechStub(options, fn) {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "yt-speech-test-"));
+  const originalOpenAi = { ...config.openai };
+  const originalAudioDir = paths.audioDir;
+  paths.audioDir = dir;
+  Object.assign(config.openai, {
+    ttsModel: "gpt-4o-mini-tts",
+    ttsSpeed: 1.08,
+    ttsInstructions: DOCUMENTARY_TTS_INSTRUCTIONS,
+    ...options.config
+  });
+  try {
+    await withStub(options.responses || [() => new Response("audio-bytes")], fn);
+  } finally {
+    Object.assign(config.openai, originalOpenAi);
+    paths.audioDir = originalAudioDir;
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("OpenAI speech mengirim speed dan gaya dokumenter serta menyimpan audio", async () => {
+  await withSpeechStub({}, async (calls) => {
+    const audio = await generateOpenAiSpeech({ itemId: "pacing", text: "Mengapa kapal baja bisa mengapung?", voice: "cedar" });
+    const body = JSON.parse(calls[0].init.body);
+    assert.match(calls[0].url, /\/audio\/speech$/);
+    assert.equal(body.speed, 1.08);
+    assert.equal(body.instructions, DOCUMENTARY_TTS_INSTRUCTIONS);
+    assert.equal(body.input, "Mengapa kapal baja bisa mengapung?");
+    assert.equal(audio.speed, 1.08);
+    assert.equal(await fs.readFile(audio.path, "utf8"), "audio-bytes");
+  });
+});
+
+test("OpenAI speech memakai speed 1.10 dan instruksi khusus pada fallback voice", async () => {
+  await withSpeechStub({
+    config: { ttsSpeed: 1.10 },
+    responses: [
+      () => new Response(JSON.stringify({ error: { message: "Invalid voice", param: "voice" } }), { status: 400 }),
+      () => new Response("fallback-audio")
+    ]
+  }, async (calls) => {
+    const audio = await generateOpenAiSpeech({ itemId: "fallback", text: "Satu bukti mengubah penjelasan ini.", voice: "invalid-voice", instructions: "Jelaskan dengan tenang." });
+    assert.equal(calls.length, 2);
+    for (const call of calls) {
+      const body = JSON.parse(call.init.body);
+      assert.equal(body.speed, 1.10);
+      assert.equal(body.instructions, "Jelaskan dengan tenang.");
+    }
+    assert.equal(JSON.parse(calls[1].init.body).voice, "cedar");
+    assert.equal(audio.voice, "cedar");
+    assert.equal(audio.speed, 1.10);
+  });
+});
+
+test("OpenAI speech mempertahankan speed pada model lama tanpa instructions", async () => {
+  for (const ttsModel of ["tts-1", "tts-1-hd"]) {
+    await withSpeechStub({ config: { ttsModel } }, async (calls) => {
+      await generateOpenAiSpeech({ itemId: "legacy", text: "Narasi dokumenter." });
+      const body = JSON.parse(calls[0].init.body);
+      assert.equal(body.model, ttsModel);
+      assert.equal(body.speed, 1.08);
+      assert.equal(Object.hasOwn(body, "instructions"), false);
+    });
+  }
 });

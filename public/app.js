@@ -758,7 +758,7 @@ function toggleAllFacts() {
 
 function updateEstimate() {
   const form = document.getElementById("createForm");
-  const dur = +(form.querySelector("[name='durationSec']")?.value || 1200);
+  const dur = +(form.querySelector("[name='durationSec']")?.value || 720);
   const quality = form.querySelector("[name='imageQuality']")?.value || "low";
   const provider = form.querySelector("[name='ttsProvider']")?.value || "openai";
   const scenes = +(form.querySelector("[name='sceneCount']")?.value || 26);

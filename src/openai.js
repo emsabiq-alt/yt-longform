@@ -261,7 +261,9 @@ export async function generateOpenAiSpeech({ itemId, text, voice, instructions, 
   let selectedVoice = voice || config.openai.ttsVoice;
   const filename = `${itemId}-${safeFilename(filenameSuffix)}-narration.mp3`;
   const outputPath = path.join(paths.audioDir, filename);
-  const speechInstructions = instructions || "Bacakan sepenuhnya dalam Bahasa Indonesia. Gaya suara: Sangat energik (high-energy), bersemangat (upbeat), dan penuh dorongan (encouraging), memproyeksikan antusiasme dan motivasi tinggi. Tanda baca & Jeda: Kalimat pendek dan bertenaga (punchy) dengan jeda strategis untuk menjaga keseruan. Penyampaian: Cepat dan dinamis (fast-paced & dynamic), dengan intonasi naik untuk membangun momentum. Gaya bahasa: Berorientasi tindakan (action-oriented). Nada suara: Positif dan memberdayakan (empowering).";
+  const speechInstructions = instructions || config.openai.ttsInstructions;
+  const speechSpeed = config.openai.ttsSpeed;
+  const supportsInstructions = !["tts-1", "tts-1-hd"].includes(config.openai.ttsModel);
 
   const requestSpeech = async (voiceName) => {
     const response = await openAiFetch(`${config.openai.baseUrl}/audio/speech`, TTS_TIMEOUT_MS, {
@@ -272,7 +274,8 @@ export async function generateOpenAiSpeech({ itemId, text, voice, instructions, 
         voice: voiceName,
         input: text,
         response_format: "mp3",
-        instructions: speechInstructions
+        speed: speechSpeed,
+        ...(supportsInstructions ? { instructions: speechInstructions } : {})
       })
     });
     return {
@@ -297,6 +300,7 @@ export async function generateOpenAiSpeech({ itemId, text, voice, instructions, 
     provider: providerName(),
     model: config.openai.ttsModel,
     voice: selectedVoice,
+    speed: speechSpeed,
     path: outputPath,
     url: `/generated/audio/${filename}`
   };

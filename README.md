@@ -42,6 +42,24 @@ Tab **Generate** bisa menjalankan pipeline lokal (Node) atau men-trigger GitHub 
 Tab **Monitor** menampilkan daftar video dari state hosting.
 
 ## Sinkronisasi TTS (longform)
+Default pembuatan video memakai target 720 detik (12 menit), 26 scene, dan
+OpenAI TTS dengan `OPENAI_TTS_SPEED=1.08`. Naskah dipadatkan sesuai target durasi;
+durasi video sebenarnya mengikuti hasil audio sehingga target 10–12 menit
+perlu dinilai dari hasil render. Target lain antara 300–1200 detik tetap tersedia.
+
+Gaya suara bawaan adalah narator dokumenter yang lincah, jelas, dan bervariasi
+sesuai isi. `OPENAI_TTS_INSTRUCTIONS` dapat mengganti gaya ini untuk
+`gpt-4o-mini-tts`; model `tts-1` dan `tts-1-hd` hanya menerima pengaturan speed.
+Untuk membandingkan pacing, uji `OPENAI_TTS_SPEED=1.08` dan `1.10` dengan naskah
+serta voice yang sama sebelum mengganti default. Pengaturan ini berlaku untuk
+audio yang baru dibuat.
+
+`npm run preview:speech` membuat dua sampel tersebut di
+`generated/audio/pacing-preview/` (memerlukan key OpenAI dan FFprobe).
+Workflow manual **YT Speech Pacing Preview** menjalankan perbandingan yang sama
+dengan secret produksi dan menyimpan MP3 serta `comparison.json` sebagai artifact;
+workflow ini tidak membuat atau mengunggah video ke YouTube.
+
 Setiap scene (image / reaction / summary) punya file TTS sendiri. Durasi visual
 mengikuti durasi audio aslinya, dan subtitle memakai timestamp transkripsi per scene.
 Hasilnya: suara dan teks selalu sinkron, narasi tidak terpotong, dan reaction

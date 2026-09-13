@@ -26,7 +26,7 @@ export default async function handler(req, res) {
       topic: topicInput,
       category: clampStr(body.category || "random", 80),
       format_type: clampStr(body.formatType || body.format_type || "", 40),
-      duration: dynamicScenes ? "" : clampStr(body.durationSec || body.duration || process.env.YT_DURATION_SEC || "360", 6),
+      duration: dynamicScenes ? "" : String(clampNum(body.durationSec || body.duration || process.env.YT_DURATION_SEC || 720, 300, 1200, 720)),
       scenes: dynamicScenes ? "" : String(clampNum(body.sceneCount || body.scenes || process.env.YT_SCENE_COUNT || 26, 26, 28, 26)),
       tts_provider: ttsProvider,
       tts_voice: clampStr(body.ttsVoice || defaultTtsVoice, 80),

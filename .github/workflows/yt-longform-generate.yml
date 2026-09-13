@@ -14,7 +14,7 @@ on:
       duration:
         description: Duration seconds (300-1200)
         required: false
-        default: "1200"
+        default: "720"
       scenes:
         description: Scene count (26-28)
         required: false
@@ -85,6 +85,8 @@ jobs:
       IMAGE_QUALITY: ${{ github.event.inputs.image_quality || secrets.IMAGE_QUALITY || 'low' }}
       OPENAI_TTS_MODEL: ${{ secrets.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts' }}
       OPENAI_TTS_VOICE: ${{ github.event.inputs.tts_voice || secrets.OPENAI_TTS_VOICE || 'cedar' }}
+      OPENAI_TTS_SPEED: ${{ secrets.OPENAI_TTS_SPEED || '1.08' }}
+      OPENAI_TTS_INSTRUCTIONS: ${{ secrets.OPENAI_TTS_INSTRUCTIONS || '' }}
       OPENAI_TRANSCRIBE_MODEL: ${{ secrets.OPENAI_TRANSCRIBE_MODEL || 'whisper-1' }}
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || secrets.deepseek_api_key }}
       DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}
@@ -106,7 +108,7 @@ jobs:
       YT_TTS_VOICE: ${{ secrets.YT_TTS_VOICE || secrets.OPENAI_TTS_VOICE || 'cedar' }}
       YT_TIME_ZONE: America/New_York
       YT_DAILY_GENERATE_LIMIT: ${{ secrets.YT_DAILY_GENERATE_LIMIT || '1' }}
-      YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '1200' }}
+      YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '720' }}
       YT_SCENE_COUNT: ${{ github.event.inputs.scenes || secrets.YT_SCENE_COUNT || '26' }}
       YT_WORKFLOW_FILE: yt-longform-generate.yml
       YT_FORMAT_TYPE: ${{ github.event.inputs.format_type || secrets.YT_FORMAT_TYPE || '' }}
