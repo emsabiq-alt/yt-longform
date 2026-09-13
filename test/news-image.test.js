@@ -3,7 +3,16 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ensureNewsImages, scrapeOgImage, applyNewsImageOverlays, extractSceneRealEntityQuery } from "../src/news-image.js";
+import {
+  ensureNewsImages,
+  scrapeOgImage,
+  applyNewsImageOverlays,
+  extractSceneRealEntityQuery,
+  isNewsItemRelevantToScene,
+  fetchWikipediaImage,
+  isValidImageBuffer,
+  createHeaderCardImage
+} from "../src/news-image.js";
 
 test("ensureNewsImages: memakai fallback gambar scene saat imageUrl tidak ada (Tab Buat)", async () => {
   const origSerper = process.env.SERPER_API_KEY;
@@ -199,5 +208,65 @@ test("extractSceneRealEntityQuery: menangani visualKeywords string dan visualSeg
   const q2 = extractSceneRealEntityQuery(sceneSegStr, "Sejarah");
   assert.equal(q2, "candi borobudur megah");
 });
+
+test("isNewsItemRelevantToScene: menolak berita tidak relevan dan menerima berita yang cocok", () => {
+  const sceneToba = {
+    screenText: "Letusan Danau Toba",
+    narration: "Danau Toba terbentuk akibat letusan supervolcano purba sekitar 74 ribu tahun yang lalu."
+  };
+
+  const unrelatedNews = {
+    headline: "Jejak Ulta Levenia, Deputi Bakom RI, dan Teori Konspirasinya HAARP",
+    excerpt: "Viral konspirasi HAARP mengendalikan cuaca dan bencana di Batam."
+  };
+  assert.equal(isNewsItemRelevantToScene(unrelatedNews, sceneToba), false, "Berita konspirasi HAARP tidak boleh cocok dengan Danau Toba");
+
+  const relevantNews = {
+    headline: "Penelitian Terbaru Endapan Vulkanik Danau Toba Mengungkap Bukti Zaman Es",
+    excerpt: "Letusan dahsyat gunung purba di Toba meninggalkan jejak sulfur tebal di atmosfer."
+  };
+  assert.equal(isNewsItemRelevantToScene(relevantNews, sceneToba), true, "Berita riset Toba harus cocok dengan Danau Toba");
+});
+
+test("isValidImageBuffer: memvalidasi magic header gambar dan menolak HTML redirect", () => {
+  const htmlBuf = Buffer.from("<html><head><script>location.href='https://facebook.com';</script></head></html>");
+  assert.equal(isValidImageBuffer(htmlBuf), false);
+
+  const tinyBuf = Buffer.from([0xFF, 0xD8, 0xFF]);
+  assert.equal(isValidImageBuffer(tinyBuf), false, "File terlalu kecil harus ditolak");
+
+  const validJpg = Buffer.concat([Buffer.from([0xFF, 0xD8, 0xFF]), Buffer.alloc(1500)]);
+  assert.equal(isValidImageBuffer(validJpg), true);
+
+  const validPng = Buffer.concat([Buffer.from([0x89, 0x50, 0x4E, 0x47]), Buffer.alloc(1500)]);
+  assert.equal(isValidImageBuffer(validPng), true);
+});
+
+test("fetchWikipediaImage: mengembalikan gambar ensiklopedis nyata untuk Danau Toba", async () => {
+  const res = await fetchWikipediaImage("Danau Toba");
+  assert.ok(res, "Harus menemukan artikel Danau Toba");
+  assert.ok(res.imageUrl.startsWith("http"), "Harus memiliki URL gambar");
+  assert.equal(res.outlet, "Wikipedia Indonesia");
+  assert.equal(res.title, "Danau Toba");
+});
+
+test("createHeaderCardImage: berhasil membuat kartu header PNG", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "news-card-"));
+  const cardPath = path.join(tmpDir, "card.png");
+  try {
+    await createHeaderCardImage({
+      outlet: "Wikipedia Indonesia",
+      headline: "Danau Toba",
+      width: 780,
+      isPhone: false,
+      destPath: cardPath
+    });
+    const stat = await fs.stat(cardPath);
+    assert.ok(stat.size > 1000, "Ukuran kartu header harus lebih besar dari 1KB");
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 
 

@@ -11,10 +11,11 @@
  */
 
 import fs from "node:fs/promises";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, existsSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import PImage from "pureimage";
 import { paths } from "./config.js";
 import { resolveGoogleNewsUrl, isGoogleLogo, extractArticleImage } from "./news-research.js";
 import { isGoogleImageApiAvailable, searchGoogleImages, downloadImageWithCandidates, isGenericPlaceholderQuery } from "./google-image.js";
@@ -62,6 +63,155 @@ function even(n) {
   return Math.round(n / 2) * 2;
 }
 
+const fontMontPath = path.join(paths.fontDir, "Montserrat-Black.ttf");
+let fontLoaded = false;
+function ensureFont() {
+  if (fontLoaded) return;
+  try {
+    if (existsSync(fontMontPath)) {
+      const f = PImage.registerFont(fontMontPath, "Montserrat");
+      f.loadSync();
+      fontLoaded = true;
+    }
+  } catch (err) {
+    console.warn(`[NewsImage] Gagal memuat font Montserrat: ${err.message}`);
+  }
+}
+
+/**
+ * Validasi buffer gambar asli (JPEG, PNG, WebP) dan bukan halaman HTML redirect / error.
+ */
+export function isValidImageBuffer(buf) {
+  if (!buf || buf.length < 1000) return false;
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return true;
+  // PNG: 89 50 4E 47
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return true;
+  // WebP: RIFF ... WEBP
+  if (buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") return true;
+  return false;
+}
+
+/**
+ * Ambil foto entitas nyata ensiklopedis langsung dari Wikipedia REST API (Bahasa Indonesia & English).
+ * Gratis, tanpa kuota API, dan 100% akurat untuk tempat bersejarah, gunung, danau, sains, dan tokoh.
+ */
+export async function fetchWikipediaImage(query) {
+  if (!query || typeof query !== "string") return null;
+  const clean = query.trim().replace(/\s+/g, "_");
+  if (clean.length < 2 || isGenericPlaceholderQuery(query)) return null;
+
+  for (const lang of ["id", "en"]) {
+    try {
+      const url = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(clean)}`;
+      const res = await fetch(url, {
+        headers: { "User-Agent": "yt-longform/1.0 (contact@banyaktau.id)" },
+        signal: AbortSignal.timeout(8000)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        let imgUrl = data.originalimage?.source || data.thumbnail?.source;
+        if (imgUrl && !isGoogleLogo(imgUrl)) {
+          if (imgUrl.includes("upload.wikimedia.org") && imgUrl.includes(".svg/")) {
+            imgUrl = imgUrl.replace(/\/langid-\d+px-/, "/langid-1280px-").replace(/\/\d+px-/, "/1280px-");
+          }
+          return {
+            imageUrl: imgUrl,
+            title: data.title || query,
+            outlet: lang === "id" ? "Wikipedia Indonesia" : "Wikipedia / Arsip"
+          };
+        }
+      }
+    } catch {
+      // coba bahasa berikutnya
+    }
+  }
+  return null;
+}
+
+/**
+ * Verifikasi apakah suatu artikel berita relevan dengan scene tertentu.
+ * Mencegah berita acak (seperti politik/gosip) nyasar ke scene sejarah/sains.
+ */
+export function isNewsItemRelevantToScene(ni, scene) {
+  if (!ni || !scene) return false;
+  const headline = String(ni.headline || ni.title || "").toLowerCase();
+  const excerpt = String(ni.excerpt || "").toLowerCase();
+  const narration = String(scene.narration || "").toLowerCase();
+  const screenText = String(scene.screenText || "").toLowerCase();
+
+  const entity = extractSceneRealEntityQuery(scene);
+  if (entity && entity.length >= 3 && !isGenericPlaceholderQuery(entity)) {
+    const eLower = entity.toLowerCase();
+    if (headline.includes(eLower) || excerpt.includes(eLower)) {
+      return true;
+    }
+  }
+
+  const stopWords = new Set([
+    "yang", "untuk", "pada", "dalam", "dengan", "akan", "dari", "bisa", "juga", "oleh",
+    "karena", "saat", "setelah", "sebelum", "namun", "ketika", "sementara", "adalah", "tentang",
+    "seperti", "lebih", "dapat", "bahwa", "tidak", "mereka", "kita", "kamu", "saya", "berita",
+    "terkini", "terbaru", "indonesia", "hari", "pagi", "siang", "malam", "tahun", "bulan"
+  ]);
+
+  const sceneWords = new Set(
+    `${narration} ${screenText}`
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length >= 4 && !stopWords.has(w))
+  );
+
+  const newsWords = `${headline} ${excerpt}`
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 4 && !stopWords.has(w));
+
+  let matches = 0;
+  for (const w of newsWords) {
+    if (sceneWords.has(w)) matches++;
+  }
+
+  return matches >= 2;
+}
+
+/**
+ * Render kartu header artikel/dokumen (Outlet badge + Judul) menggunakan pureimage.
+ */
+export async function createHeaderCardImage({ outlet, headline, width, isPhone, destPath }) {
+  ensureFont();
+  const height = isPhone ? 80 : 100;
+  const img = PImage.make(width, height);
+  const ctx = img.getContext("2d");
+
+  // Background gelap elegan
+  ctx.fillStyle = "rgba(15, 23, 42, 0.94)";
+  ctx.fillRect(0, 0, width, height);
+
+  // Garis aksen cyan di bawah header
+  ctx.fillStyle = "#00D2FF";
+  ctx.fillRect(0, height - 3, width, 3);
+
+  // Outlet badge pill
+  const safeOutlet = (outlet || "DOKUMEN REFERENSI").toUpperCase().slice(0, 26);
+  const badgeW = Math.min(width - 40, safeOutlet.length * (isPhone ? 8 : 10) + 20);
+  ctx.fillStyle = "#00D2FF";
+  ctx.fillRect(16, 10, badgeW, isPhone ? 22 : 24);
+
+  ctx.fillStyle = "#0F172A";
+  ctx.font = (isPhone ? "10pt" : "12pt") + " Montserrat";
+  ctx.fillText(safeOutlet, 22, isPhone ? 25 : 27);
+
+  // Headline
+  ctx.fillStyle = "#FFFFFF";
+  ctx.font = (isPhone ? "13pt" : "16pt") + " Montserrat";
+  const cleanTitle = (headline || "").slice(0, 36);
+  ctx.fillText(cleanTitle, 16, isPhone ? 58 : 70);
+
+  const out = createWriteStream(destPath);
+  await PImage.encodePNGToStream(img, out);
+}
+
 /**
  * Scrape og:image atau twitter:image langsung dari URL artikel berita jika belum ada imageUrl.
  * Menyelesaikan URL redirect Google News RSS dan menolak logo Google News.
@@ -102,7 +252,7 @@ export function extractSceneRealEntityQuery(scene, topic = "") {
   // 1. Cek spotlight label jika ada nama entitas konkret (bukan sekadar angka atau unit)
   if (scene.spotlight?.label && !isGenericPlaceholderQuery(scene.spotlight.label)) {
     const label = scene.spotlight.label.trim();
-    if (label.length >= 4 && !/^\d+[\s\w/%.-]*$/.test(label)) {
+    if (label.length >= 3 && !/^\d+[\s\w/%.-]*$/.test(label)) {
       return label;
     }
   }
@@ -129,7 +279,6 @@ export function extractSceneRealEntityQuery(scene, topic = "") {
   }
 
   // 3. Cek entity dari topik yang disebut secara spesifik dalam narasi scene ini
-  // Misal topik: "Anak Kratau vs Gunung Toba", narasi menyebut "Danau Toba" atau "Gunung Toba"
   const narration = String(scene.narration || "");
   const topicParts = String(topic || "")
     .split(/\s+(?:vs\.?|versus|lawan|dibandingkan|dan)\s+/i)
@@ -141,8 +290,14 @@ export function extractSceneRealEntityQuery(scene, topic = "") {
     }
   }
 
-  // 4. Deteksi nama tempat geografis / objek nyata di narasi: Danau [X], Gunung [X], Pulau [X], dsb.
-  const geoMatch = narration.match(/\b(Danau\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Gunung\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Anak\s+Krakatau|Krakatau|Krakatoa|Selat\s+Sunda|Pulau\s+[A-Z][a-z]+|Kawah\s+[A-Z][a-z]+|Candi\s+[A-Z][a-z]+|Sungai\s+[A-Z][a-z]+|Lembah\s+[A-Z][a-z]+|Taman\s+Nasional\s+[A-Z][a-z]+)\b/);
+  // 4. Deteksi nama tempat geografis / objek nyata di narasi
+  const geoMatch = narration.match(
+    /\b(Danau\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Gunung\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Anak\s+Krakatau|Krakatau|Krakatoa|Selat\s+Sunda|Pulau\s+[A-Z][a-z]+|Kawah\s+[A-Z][a-z]+|Lembah\s+[A-Z][a-z]+|Taman\s+Nasional\s+[A-Z][a-z]+|Candi\s+[A-Z][a-z]+|Sungai\s+[A-Z][a-z]+|Palung\s+[A-Z][a-z]+|Samudra\s+[A-Z][a-z]+|Laut\s+[A-Z][a-z]+)\b/
+  ) || narration.match(
+    /\b(Cincin\s+Api\s+Pasifik|Cincin\s+Api|Ring\s+of\s+Fire|Lempeng\s+[Tt]ektonik|Tektonika\s+[Ll]empeng|Zona\s+[Ss]ubduksi|Patahan\s+[A-Z][a-z]+|Zaman\s+[Ee]s(?:\s+Purba)?|Musim\s+[Dd]ingin\s+[Vv]ulkanik|Supervolcano|Yellowstone|Tambora|Toba|Semeru|Merapi|Sinabung|Vesuvius|Pompeii|Fuji|Everest|Mariana|Bermuda|Atlantis)\b/i
+  ) || narration.match(
+    /\b(Teleskop\s+(?:Luar\s+Angkasa\s+)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Stasiun\s+Luar\s+Angkasa(?:\s+Internasional)?|Apollo\s+\d+|Voyager\s+\d*|Bima\s+Sakti|Andromeda|Lubang\s+Hitam)\b/i
+  );
   if (geoMatch) {
     return geoMatch[1];
   }
@@ -201,7 +356,8 @@ export async function ensureNewsImages(item) {
   }
 
   // 2. Tambahkan scene bertipe image sebagai kandidat device mockup
-  // agar mockup tampil lebih sering dan merata di sepanjang video (target 4-6 mockup)
+  // agar mockup tampil lebih sering dan merata di sepanjang video (target 4-6 mockup).
+  // KRITIS: Konten mockup HARUS 100% inline dengan narasi scene!
   const candidateScenes = scenes.filter((s) => s.sceneType === "image" || !s.sceneType);
   if (candidateScenes.length >= 2) {
     const step = Math.max(2, Math.floor(candidateScenes.length / 5));
@@ -216,23 +372,31 @@ export async function ensureNewsImages(item) {
         const scene = targetScenes[i];
         const sIdx = Number(scene.index);
         if (newsImages.some((n) => n.sceneIndex === sIdx)) continue;
-        const ni = newsItems[i] || null;
+
+        // Hanya pakai newsItem jika BENAR-BENAR relevan dengan narasi scene ini!
+        // JANGAN pernah mapping newsItems[i] secara buta berdasarkan indeks array.
+        const relevantNews = newsItems.find((ni) => isNewsItemRelevantToScene(ni, scene));
         const entityQuery = extractSceneRealEntityQuery(scene, item.input?.topic);
+
         const headline = String(
-          ni?.headline || ni?.title
+          relevantNews?.headline || relevantNews?.title
           || (entityQuery && !isGenericPlaceholderQuery(entityQuery) ? entityQuery : scene.screenText)
           || item.input?.topic
           || "Dokumen Referensi"
         ).slice(0, 120);
-        const outlet = String(ni?.outlet || ni?.source || (ni ? "Dokumen Referensi" : "Arsip Dokumentasi")).slice(0, 60);
+
+        const outlet = String(
+          relevantNews?.outlet || relevantNews?.source
+          || (entityQuery && !isGenericPlaceholderQuery(entityQuery) ? "Arsip Dokumentasi" : "Dokumen Referensi")
+        ).slice(0, 60);
 
         newsImages.push({
           sceneIndex: sIdx,
           searchQuery: entityQuery || headline,
           headline,
           outlet,
-          imageUrl: ni?.imageUrl || null,
-          url: ni?.url || null,
+          imageUrl: relevantNews?.imageUrl || null,
+          url: relevantNews?.url || null,
           imagePath: null
         });
       } catch (err) {
@@ -253,15 +417,35 @@ export async function ensureNewsImages(item) {
       entry.imageUrl = null;
     }
 
-    // 1. Prioritas Utama: Ambil gambar langsung dari Google Images API jika tersedia
-    if (isGoogleImageApiAvailable()) {
+    const scene = scenes.find((s) => Number(s.index) === entry.sceneIndex);
+    const entityQ = entry.searchQuery || extractSceneRealEntityQuery(scene, item.input?.topic);
+
+    // 1. Prioritas Utama: Wikipedia REST API (Gratis, Akurat 1:1 untuk entitas nyata ensiklopedis)
+    if (!entry.imagePath && entityQ && !isGenericPlaceholderQuery(entityQ)) {
+      try {
+        const wiki = await fetchWikipediaImage(entityQ);
+        if (wiki?.imageUrl) {
+          const ext = wiki.imageUrl.match(/\.(jpe?g|png|webp)/i)?.[1]?.replace("jpeg", "jpg") || "jpg";
+          const dest = path.join(newsDir, `news-scene-${entry.sceneIndex}-wiki.${ext}`);
+          await downloadImage(wiki.imageUrl, dest);
+          entry.imagePath = dest;
+          entry.imageUrl = wiki.imageUrl;
+          entry.outlet = wiki.outlet;
+          if (!entry.headline || isGenericPlaceholderQuery(entry.headline)) {
+            entry.headline = wiki.title;
+          }
+          console.log(`[NewsImage] Scene ${entry.sceneIndex}: Berhasil ambil dari Wikipedia ("${entityQ}" → ${entry.outlet}) → ${path.basename(dest)}`);
+        }
+      } catch (err) {
+        console.warn(`[NewsImage] Scene ${entry.sceneIndex} Wikipedia error: ${err.message}`);
+      }
+    }
+
+    // 2. Google Images API jika tersedia
+    if (!entry.imagePath && isGoogleImageApiAvailable()) {
       let q = entry.searchQuery || entry.headline;
       if (isGenericPlaceholderQuery(q)) {
-        const fallback = extractSceneRealEntityQuery(
-          scenes.find((s) => Number(s.index) === entry.sceneIndex),
-          item.input?.topic
-        );
-        q = isGenericPlaceholderQuery(fallback) ? item.input?.topic : fallback;
+        q = entityQ;
       }
       if (q && !isGenericPlaceholderQuery(q)) {
         try {
@@ -286,7 +470,7 @@ export async function ensureNewsImages(item) {
       }
     }
 
-    // 2. Fallback Scraper: Jika Google Images API tidak aktif atau belum dapat, coba scraping og:image on-the-fly
+    // 3. Fallback Scraper jika ada URL artikel relevan
     if (!entry.imagePath && !entry.imageUrl && entry.url) {
       const scraped = await scrapeOgImage(entry.url);
       if (scraped) {
@@ -295,7 +479,7 @@ export async function ensureNewsImages(item) {
       }
     }
 
-    // 3. Coba download gambar berita jika ada imageUrl (jika belum didownload)
+    // 4. Download gambar jika imageUrl ada (misal dari mediaSource atau relevantNews)
     if (!entry.imagePath && entry.imageUrl) {
       try {
         const ext = entry.imageUrl.match(/\.(jpe?g|png|webp)/i)?.[1]?.replace("jpeg", "jpg") || "jpg";
@@ -308,22 +492,18 @@ export async function ensureNewsImages(item) {
       }
     }
 
-    // 4. Fallback: jika gambar berita tidak ada atau gagal unduh, gunakan aset gambar scene yang sudah ada (Tab Buat)
+    // 5. Fallback gambar scene milik scene INI SENDIRI (Tab Buat)
     if (!entry.imagePath) {
       const sceneImg = (item.assets?.images || []).find((img) => Number(img.sceneIndex) === entry.sceneIndex);
       if (sceneImg?.path) {
         entry.imagePath = sceneImg.path;
-        console.log(`[NewsImage] Scene ${entry.sceneIndex} memakai fallback gambar scene: ${path.basename(sceneImg.path)}`);
-      } else {
-        const anyImg = (item.assets?.images || [])[0];
-        if (anyImg?.path) {
-          entry.imagePath = anyImg.path;
-          console.log(`[NewsImage] Scene ${entry.sceneIndex} memakai fallback gambar alternatif: ${path.basename(anyImg.path)}`);
-        }
+        console.log(`[NewsImage] Scene ${entry.sceneIndex} memakai fallback gambar scene asli: ${path.basename(sceneImg.path)}`);
       }
     }
   }));
 
+  // PENTING: Hanya simpan entry yang memiliki imagePath yang valid & inline!
+  // JANGAN PERNAH memakai fallback gambar scene 0 / gambar acak yang tidak nyambung!
   item.assets.newsImages = newsImages.filter((n) => n.imagePath);
 }
 
@@ -369,9 +549,32 @@ export async function applyNewsImageOverlays(inputVideoPath, outputVideoPath, it
     }
 
     const clipPath = path.join(tmpDir, `news-overlay-${i}.mov`);
+    let headerPath = null;
+    if (entry.headline && entry.outlet) {
+      try {
+        const hPath = path.join(tmpDir, `news-header-${i}.png`);
+        const cfg = DEVICE_CONFIG[deviceType];
+        const multiplier = cfg.scaleMultiplier || 1.05;
+        const targetTemplateW = even(Math.round(videoW * multiplier));
+        const scaleRatio = targetTemplateW / cfg.templateW;
+        const sW = even(Math.round(cfg.screen.w * scaleRatio));
+        await createHeaderCardImage({
+          outlet: entry.outlet,
+          headline: entry.headline,
+          width: sW,
+          isPhone: deviceType === "phone",
+          destPath: hPath
+        });
+        headerPath = hPath;
+      } catch (err) {
+        // Lanjut tanpa header jika error pembuatan kartu
+      }
+    }
+
     try {
       await makeDeviceMockupClip({
         newsImagePath: entry.imagePath,
+        headerPath,
         templatePath,
         outputPath: clipPath,
         deviceType,
@@ -434,7 +637,7 @@ export async function applyNewsImageOverlays(inputVideoPath, outputVideoPath, it
  * Template di-chromakey dan di-despill TERLEBIH DAHULU, baru konten berita di-overlay di atasnya.
  * Dengan cara ini, konten berita TIDAK PERNAH kena chroma key (tidak akan tembus/transparan).
  */
-async function makeDeviceMockupClip({ newsImagePath, templatePath, outputPath, deviceType, resolution, runFfmpeg }) {
+async function makeDeviceMockupClip({ newsImagePath, headerPath, templatePath, outputPath, deviceType, resolution, runFfmpeg }) {
   const cfg = DEVICE_CONFIG[deviceType];
   const is1080 = resolution === "1080p";
 
@@ -458,15 +661,30 @@ async function makeDeviceMockupClip({ newsImagePath, templatePath, outputPath, d
   const contentOffX = sX;
   const contentOffY = sY;
 
+  const inputs = [
+    "-loop", "1", "-i", newsImagePath,
+    "-loop", "1", "-i", templatePath
+  ];
+
+  let contentFilter = `[0:v]scale=${contentW}:${contentH}:force_original_aspect_ratio=decrease,` +
+    `pad=${contentW}:${contentH}:(ow-iw)/2:(oh-ih)/2:black,` +
+    `noise=alls=6:allf=t+u[content]`;
+
+  if (headerPath) {
+    inputs.push("-loop", "1", "-i", headerPath);
+    contentFilter = `[0:v]scale=${contentW}:${contentH}:force_original_aspect_ratio=decrease,` +
+      `pad=${contentW}:${contentH}:(ow-iw)/2:(oh-ih)/2:black,` +
+      `noise=alls=6:allf=t+u[content_raw];` +
+      `[content_raw][2:v]overlay=0:0[content]`;
+  }
+
   const filters = [
     // 1. Scale template, chromakey green background, dan hilangkan sisa green spill pada tangan/device
     `[1:v]scale=${targetTemplateW}:${targetTemplateH},` +
       `chromakey=color=${CHROMA_COLOR}:similarity=${CHROMA_SIMILARITY}:blend=${CHROMA_BLEND},` +
       `despill=green:expand=0.2[tmpl_keyed]`,
-    // 2. Scale & pad foto berita ke area layar dengan letter/pillar box hitam + filter grain tipis
-    `[0:v]scale=${contentW}:${contentH}:force_original_aspect_ratio=decrease,` +
-      `pad=${contentW}:${contentH}:(ow-iw)/2:(oh-ih)/2:black,` +
-      `noise=alls=6:allf=t+u[content]`,
+    // 2. Scale & pad foto berita ke area layar (+ header jika ada)
+    contentFilter,
     // 3. Overlay konten ke atas layar template yang sudah di-key.
     // PENTING: Konten foto TIDAK PERNAH kena filter chromakey sehingga warna hijau foto tidak pernah tembus!
     `[tmpl_keyed][content]overlay=${contentOffX}:${contentOffY}[out]`
@@ -477,8 +695,7 @@ async function makeDeviceMockupClip({ newsImagePath, templatePath, outputPath, d
   // container .mov untuk clip transisi ini; hasilnya di-flatten ke libx264 tanpa alpha
   // begitu di-overlay ke video utama di applyNewsImageOverlays.
   await runFfmpeg([
-    "-loop", "1", "-i", newsImagePath,
-    "-loop", "1", "-i", templatePath,
+    ...inputs,
     "-t", String(OVERLAY_DURATION),
     "-filter_complex", filters.join(";"),
     "-map", "[out]",
@@ -503,8 +720,20 @@ async function downloadImage(imageUrl, destPath) {
     redirect: "follow"
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const out = createWriteStream(destPath);
-  await pipeline(res.body, out);
+
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("text/html") || contentType.includes("text/plain")) {
+    throw new Error(`Invalid content-type: ${contentType}`);
+  }
+
+  const arrayBuffer = await res.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
+  if (!isValidImageBuffer(buffer)) {
+    throw new Error(`Downloaded buffer is not a valid image or too small (${buffer.length} bytes)`);
+  }
+
+  await fs.writeFile(destPath, buffer);
 }
 
 async function copyFile(src, dest) {
