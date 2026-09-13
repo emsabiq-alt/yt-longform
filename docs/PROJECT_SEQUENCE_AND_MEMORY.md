@@ -50,6 +50,21 @@ diagrams with notes that should help the next coding session resume quickly.
   old first-scene behavior kept only as a fallback for legacy items missing
   the field. Verified with a real render (QA fixture, 4 distinct-colored
   scenes): cold-open frame showed scene 3's color, not scene 1's.
+- Top-left corner overlay is a chapter label now (2026-09-13), not the video
+  title repeated for the whole runtime — the title is redundant on screen
+  (already on thumbnail/YouTube title). `longform-render.js`'s
+  `writeContentCaptionAss()` groups render scenes into contiguous chapter runs
+  via `groupScenesForChapterOverlay()` (merges runs starting <10s apart, same
+  idea as `buildChapterList()` but also tracks each group's endSec, which that
+  function doesn't need) and emits one "BAB N · NAME" event per run, timed to
+  when that chapter is actually on screen. `chapterOverlayLabel()` hard-caps
+  the name to 22 chars + ellipsis and forces one line — chapter names can be
+  up to 80 chars (`cleanText(scene.chapter, 80)`, fine for the YouTube
+  description's chapter list) but must never wrap on this persistent overlay.
+  `sceneTitleOverlay()` (the old static-title version) was removed entirely.
+  Verified with a real render: short name ("BAB 1 · PEMBUKA") and a
+  deliberately 68-char name both rendered as clean single lines, no overflow,
+  no collision with the channel logo overlay top-right.
 - Purpose: generate Indonesian YouTube longform educational videos with AI story
   planning, image/B-roll generation, per-scene TTS, subtitle alignment, FFmpeg
   rendering, remote hosting upload, and YouTube publishing.

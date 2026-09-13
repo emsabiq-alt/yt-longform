@@ -1505,13 +1505,23 @@ async function muxVideoAudio({ videoPath, audioPath, outputPath }) {
 
 export async function writeContentCaptionAss({ outputPath, item, scenes, contentDuration }) {
   const events = [];
-  const titleOverlay = sceneTitleOverlay(item.title || item.plan?.title || "BanyakTau");
-  events.push(dialogue(
-    0.05,
-    Math.max(0.1, contentDuration - 0.5),
-    "SceneTitle",
-    `{\\fad(150,150)\\fs${titleOverlay.fontSize}}${assEscape(titleOverlay.text)}`
-  ));
+  // Pojok kiri atas menampilkan label BAB yang sedang berjalan (bukan judul video
+  // statis) — judulnya sendiri sudah tampil di thumbnail/judul YouTube, jadi
+  // mengulanginya sepanjang video tidak menambah info. Label berganti otomatis
+  // tiap bab berpindah, memberi penonton orientasi "sedang di bagian mana".
+  const chapterGroups = groupScenesForChapterOverlay(scenes);
+  chapterGroups.forEach((group, i) => {
+    const start = i === 0 ? 0.05 : group.startSec + 0.05;
+    const end = Math.min(contentDuration - 0.1, group.endSec);
+    if (end <= start + 0.3) return;
+    const label = chapterOverlayLabel(i + 1, group.label);
+    events.push(dialogue(
+      start,
+      end,
+      "SceneTitle",
+      `{\\fad(150,150)\\fs${label.fontSize}}${assEscape(label.text)}`
+    ));
+  });
 
   for (const scene of scenes) {
     const headline = headlineCardForScene(scene);
@@ -1897,25 +1907,48 @@ function normalizeSubtitleText(value) {
     .trim();
 }
 
-function sceneTitleOverlay(value) {
-  const title = String(value || "BanyakTau").replace(/\s+/g, " ").trim();
-  const layouts = [
-    { maxChars: 30, maxLines: 3, fontSize: 30 },
-    { maxChars: 36, maxLines: 3, fontSize: 27 },
-    { maxChars: 40, maxLines: 4, fontSize: 24 }
-  ];
-
-  for (const layout of layouts) {
-    const lines = splitLines(title, layout.maxChars, 99);
-    if (lines.length <= layout.maxLines) {
-      return { text: lines.join("\\N"), fontSize: layout.fontSize };
-    }
+// Bab bisa punya nama panjang dari AI (sampai 80 karakter, wajar untuk daftar
+// bab di deskripsi YouTube), tapi label pojok kiri atas HARUS selalu 1 baris —
+// tidak seperti kartu judul, label ini tetap di layar lama dan wrap 2-4 baris
+// akan terasa berat/menutupi visual. Potong tegas ke budget karakter yang sudah
+// terbukti muat 1 baris di font 30 (lihat layout pertama sceneTitleOverlay lama),
+// lalu tambahkan elipsis kalau terpotong.
+function chapterOverlayLabel(number, name) {
+  const MAX_NAME_CHARS = 22;
+  let clean = String(name || "").replace(/\s+/g, " ").trim();
+  if (clean.length > MAX_NAME_CHARS) {
+    clean = clean.slice(0, MAX_NAME_CHARS).replace(/\s+\S*$/, "").trim() + "…";
   }
+  return { text: `BAB ${number} · ${clean.toUpperCase()}`, fontSize: 30 };
+}
 
-  return {
-    text: splitLines(title, 44, 99).join("\\N"),
-    fontSize: 22
-  };
+// Kelompokkan scene render (sudah punya startSec/endSec) jadi rentang waktu per
+// bab yang berurutan, untuk dipakai label overlay yang berganti otomatis.
+// Beda dari buildChapterList (dipakai untuk daftar bab di deskripsi YouTube):
+// fungsi ini butuh endSec per kelompok juga, bukan cuma startSec.
+function groupScenesForChapterOverlay(scenes) {
+  const groups = [];
+  for (const scene of scenes || []) {
+    const label = polishOverlayLine(scene.chapter || "");
+    if (!label) continue;
+    const last = groups.at(-1);
+    if (last && last.label === label) {
+      last.endSec = Number(scene.endSec ?? last.endSec);
+      continue;
+    }
+    groups.push({ label, startSec: Number(scene.startSec || 0), endSec: Number(scene.endSec ?? scene.startSec ?? 0) });
+  }
+  // Gabungkan bab yang mulainya terlalu rapat (<10s) supaya label tidak berkedip cepat.
+  const merged = [];
+  for (const group of groups) {
+    const previous = merged.at(-1);
+    if (previous && group.startSec - previous.startSec < 10) {
+      previous.endSec = group.endSec;
+      continue;
+    }
+    merged.push({ ...group });
+  }
+  return merged;
 }
 
 function dialogue(start, end, style, text) {
