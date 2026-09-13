@@ -540,7 +540,15 @@ export async function renderLongformVideo(item, options = {}) {
   if (config.automation.coldOpenEnabled && hookText) {
     try {
       coldOpenDuration = layout.coldOpenDuration;
-      const coldScene = renderScenes.find((scene) => scene.sceneType !== "reaction") || renderScenes[0];
+      // Flash-forward: hook menceritakan momen dari pertengahan/akhir cerita, jadi
+      // visual cold open harus dari scene yang sama, bukan selalu scene 1. Item
+      // lama tanpa flashForwardSceneIndex (misal rerender draft lama) tetap jatuh
+      // ke perilaku lama sebagai fallback.
+      const flashForwardIndex = Number(item.plan?.flashForwardSceneIndex);
+      const coldScene = (Number.isInteger(flashForwardIndex) &&
+          renderScenes.find((scene) => scene.index === flashForwardIndex && scene.sceneType !== "reaction"))
+        || renderScenes.find((scene) => scene.sceneType !== "reaction")
+        || renderScenes[0];
       const coldMedia = resolveSceneMedia(item, coldScene);
       reportProgress("render", "Merender cold open (hook)", 92, "");console.log(`Rendering Cold Open hook (${coldOpenDuration}s, ${coldMedia.type})...`);
 

@@ -556,6 +556,37 @@ test("fallback offline sebenarnya tidak meneruskan keyword generik ke Pexels", a
   assert.ok(draft.assets.storyboard.path.startsWith(temporaryGeneratedDir));
 });
 
+test("flashForwardSceneIndex merujuk scene image/summary valid di paruh kedua cerita", async (t) => {
+  const originalApiKey = config.openai.apiKey;
+  const originalGeneratedDir = paths.generatedDir;
+  const temporaryGeneratedDir = await fs.mkdtemp(path.join(os.tmpdir(), "yt-longform-flashforward-"));
+  t.after(async () => {
+    config.openai.apiKey = originalApiKey;
+    paths.generatedDir = originalGeneratedDir;
+    await fs.rm(temporaryGeneratedDir, { recursive: true, force: true });
+  });
+  config.openai.apiKey = "";
+  paths.generatedDir = temporaryGeneratedDir;
+
+  const draft = await createLongformDraft({
+    topic: "Sejarah lift modern",
+    category: "teknologi",
+    durationSec: 300,
+    sceneCount: 36,
+    formatType: "dokumenter_klasik",
+    allowOfflineDraft: true
+  });
+
+  const index = draft.plan.flashForwardSceneIndex;
+  const scenes = draft.plan.scenes;
+  assert.ok(Number.isInteger(index), "flashForwardSceneIndex harus berupa angka");
+  const target = scenes.find((s) => s.index === index);
+  assert.ok(target, "flashForwardSceneIndex harus menunjuk scene yang benar-benar ada");
+  assert.notEqual(target.sceneType, "reaction");
+  // Hook menceritakan momen dari pertengahan/akhir cerita, bukan pembukaan.
+  assert.ok(index > scenes.length * 0.4, `flashForwardSceneIndex=${index} dari ${scenes.length} scene terasa terlalu awal`);
+});
+
 test("longformStoryboard mempertahankan intent Pexels per segmen", () => {
   const visualSegments = [{
     imagePrompt: "workers inspect an oil pipeline",

@@ -128,6 +128,26 @@ function extractHookQuestion(rawHook, topic) {
 }
 
 /**
+ * Tentukan scene mana yang visualnya dipakai untuk cold open "flash-forward".
+ * Field 'hook' menceritakan momen dari pertengahan/akhir cerita, jadi visualnya
+ * harus dari scene itu juga — bukan selalu scene 1 seperti sebelumnya.
+ * Kalau AI tidak mengisi index yang valid, jatuhkan ke scene sekitar 65% cerita
+ * (perkiraan zona klimaks) daripada scene 1, karena hook TIDAK PERNAH menceritakan
+ * pembukaan kronologis.
+ */
+function resolveFlashForwardSceneIndex(rawIndex, scenes) {
+  const candidates = (scenes || []).filter((s) => s.sceneType !== "reaction" && s.sceneType !== "summary");
+  if (!candidates.length) return scenes?.[0]?.index || 1;
+  const requested = Number(rawIndex);
+  if (Number.isInteger(requested)) {
+    const match = candidates.find((s) => s.index === requested);
+    if (match) return match.index;
+  }
+  const fallback = candidates[Math.min(candidates.length - 1, Math.round(candidates.length * 0.65))];
+  return fallback.index;
+}
+
+/**
  * Membuat draft naskah video panjang (landscape 16:9) memakai OpenAI GPT.
  * @param {object} rawInput - Parameter masukan dari user
  * @returns {Promise<object>} - Objek item naskah terstruktur
@@ -346,6 +366,12 @@ export function insertEnrichmentScenes(item, additions) {
     for (const extra of groups.get(scene.index) || []) scenes.push({ ...extra, index: scenes.length + 1 });
   }
   item.plan.scenes = scenes;
+  // Scene lama bergeser index setelah scene baru disisipkan; ikuti agar cold open
+  // flash-forward tetap merujuk scene yang sama, bukan scene lain yang kebetulan
+  // menempati index lama itu sekarang.
+  if (indexMap.has(item.plan.flashForwardSceneIndex)) {
+    item.plan.flashForwardSceneIndex = indexMap.get(item.plan.flashForwardSceneIndex);
+  }
   item.plan.longformStoryboard = buildLongformStoryboard(item.plan);
   item.input.sceneCount = scenes.length;
   item.assets.sceneAudio = (item.assets.sceneAudio || []).map((entry) => ({ ...entry, sceneIndex: indexMap.get(entry.sceneIndex) }));
@@ -568,16 +594,22 @@ function buildPrompt(input, wiki = null) {
     `KEMASAN VIRAL UTAMA:\n${viralBlock}`,
     "Gunakan kemasan viral ini sebagai tulang punggung judul, hook 30 detik pertama, dan transisi antar babak. Jangan hanya menempelkannya di judul.",
     "Kembalikan JSON valid saja dengan format:",
-    "{ title, hook, summary, importantPoints:[string], factCheckNote, scenes:[{ index, sceneType:'image'|'reaction'|'summary', durationSec, narration, screenText, visualKeywords, imagePrompt, visualSegments:[{ imagePrompt, visualKeywords, pexelsQuery, mustMatchTerms:[string], narrativeContext }], chapter, beatPurpose, reactionCue, spotlight, mediaSource:{ outlet, headline, url, publishedAt } }] }",
+    "{ title, hook, flashForwardSceneIndex, summary, importantPoints:[string], factCheckNote, scenes:[{ index, sceneType:'image'|'reaction'|'summary', durationSec, narration, screenText, visualKeywords, imagePrompt, visualSegments:[{ imagePrompt, visualKeywords, pexelsQuery, mustMatchTerms:[string], narrativeContext }], chapter, beatPurpose, reactionCue, spotlight, mediaSource:{ outlet, headline, url, publishedAt } }] }",
     "",
     "JUDUL (cadangan): Buat judul singkat (maksimal 60 karakter), spesifik dengan subjek konkret yang jelas, dan memancing rasa penasaran tanpa terasa template. Judul final akan disempurnakan terpisah, jadi cukup sediakan satu judul layak pakai.",
     "",
-    "FIELD 'hook' DALAM JSON:",
-    "Field 'hook' adalah SATU kalimat pertanyaan punchy yang muncul sebagai teaser pembuka (cold open) sebelum intro.",
-    "WAJIB: maksimal 15-20 kata, HARUS berakhir tanda tanya (?), dan HARUS merupakan kalimat utuh yang berdiri sendiri.",
-    "Contoh bagus: 'Kenapa kopi yang kamu pesan selalu lebih lama dari yang dijanjikan?'",
-    "Contoh buruk: 'Bayangkan Anda datang ke warung kopi yang selalu penuh. Data antrian menunjukkan waktu tunggu...' (terlalu panjang, bukan pertanyaan utuh)",
+    "FIELD 'hook' DALAM JSON (teaser 'flash-forward'):",
+    "Field 'hook' adalah SATU-DUA kalimat teaser pembuka (cold open) sebelum intro. WAJIB gaya 'flash-forward':",
+    "ungkapkan secara SPESIFIK satu momen/fakta paling mengejutkan yang baru terungkap di PERTENGAHAN atau AKHIR cerita",
+    "(bukan pertanyaan generik pembuka, bukan ringkasan topik). Sebutkan detail konkret (angka, nama, akibat) dari",
+    "momen itu sendiri, TAPI jangan langsung menjelaskan sebab/jawabannya — itu tugas isi video, bukan hook.",
+    "WAJIB: maksimal 15-25 kata, kalimat utuh berdiri sendiri, boleh berbentuk pertanyaan ATAU pernyataan tegas.",
+    "Contoh bagus (flash-forward, merujuk fakta spesifik dari tengah/akhir cerita): 'Yang tidak diduga, satu dokumen yang hampir dibuang ini ternyata membalikkan seluruh hasil penyelidikan.' atau 'Bagaimana bisa satu keputusan ini berakhir dengan kerugian satu triliun rupiah dalam semalam?'",
+    "Contoh buruk (setup generik, bukan flash-forward): 'Bayangkan Anda datang ke warung kopi yang selalu penuh. Data antrian menunjukkan waktu tunggu...' (terlalu panjang) atau 'Apa yang membuat topik ini menarik?' (tidak spesifik, tidak merujuk momen konkret).",
     "Field 'hook' BERBEDA dari narasi scene 1. Scene 1 boleh panjang; field 'hook' HARUS singkat.",
+    "",
+    "FIELD 'flashForwardSceneIndex' DALAM JSON:",
+    "Angka index scene (field 'index' di array scenes, BUKAN reaction/summary) yang visualnya paling menggambarkan momen yang diceritakan di 'hook'. Pilih scene dari PARUH KEDUA cerita (sekitar 60-85% posisi), bukan scene 1, karena hook menceritakan sesuatu yang baru terungkap belakangan.",
     "",
     "NARASI SCENE 1 (30 DETIK PERTAMA):",
     "Scene 1 HARUS membuat penonton TIDAK BISA meninggalkan video. Gunakan salah satu teknik hook yang kuat dan relevan:",
@@ -1008,6 +1040,7 @@ function normalizePlan(plan, input) {
   let normalized = {
     title: cleanText(plan?.title || input.topic, 100),
     hook: extractHookQuestion(plan?.hook, input.topic),
+    flashForwardSceneIndex: resolveFlashForwardSceneIndex(plan?.flashForwardSceneIndex, scenes),
     summary,
     importantPoints: Array.isArray(plan?.importantPoints) ? plan.importantPoints.map(p => cleanText(p, 220)).slice(0, 8) : ["Poin utama pertama."],
     factCheckNote: cleanText(plan?.factCheckNote || "Konten disusun dengan bantuan AI dan belum diverifikasi manual. Periksa ulang fakta penting sebelum dipublikasikan.", 300),
@@ -1064,6 +1097,7 @@ function fallbackPlan(input, errorMsg = "") {
   return {
     title: cleanText(input.topic, 100),
     hook: `Mengapa ${input.topic} menjadi pelajaran penting hari ini?`,
+    flashForwardSceneIndex: resolveFlashForwardSceneIndex(null, scenes),
     summary: `Pembahasan ini menelusuri ${input.topic} mulai dari latar belakang, sebab, hingga dampaknya, lalu menutup dengan intisari yang mudah diingat.`,
     importantPoints: [
       `Latar belakang penting seputar ${input.topic}.`,
@@ -1208,6 +1242,8 @@ export async function writeLongformStoryboard(item) {
     category: item.input.category,
     durationSec: item.input.durationSec,
     durationControl: item.assets.durationControl,
+    hook: item.plan.hook,
+    flashForwardSceneIndex: item.plan.flashForwardSceneIndex,
     sceneCount: item.plan.scenes.length,
     formatType: item.input.formatType,
     angle: item.input.angle,

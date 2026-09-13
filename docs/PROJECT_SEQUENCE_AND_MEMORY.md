@@ -37,6 +37,19 @@ diagrams with notes that should help the next coding session resume quickly.
   labels are present. Shares the same phrase-sync/quota pipeline as
   keypoint/figure (`planSceneSpotlights`), just with a longer card duration
   (6s vs 4.5s) since it has more to read.
+- Cold open is now a "flash-forward" (2026-09-13), not a generic setup
+  question. `plan.hook` must describe a specific striking moment/fact from the
+  MIDDLE/END of the story (question or statement, 15-25 words), and the new
+  `plan.flashForwardSceneIndex` field says which scene's visual to use for that
+  teaser — `resolveFlashForwardSceneIndex()` validates/defaults it to a
+  non-reaction scene around 65% through the story if the AI omits or misaims
+  it (never scene 1, since the whole point is spoiling something that hasn't
+  happened yet). `insertEnrichmentScenes()` remaps it through `indexMap` when
+  scenes get re-indexed by storyboard enrichment. `longform-render.js`'s cold
+  open now looks up this scene instead of always `renderScenes[0]`, with the
+  old first-scene behavior kept only as a fallback for legacy items missing
+  the field. Verified with a real render (QA fixture, 4 distinct-colored
+  scenes): cold-open frame showed scene 3's color, not scene 1's.
 - Purpose: generate Indonesian YouTube longform educational videos with AI story
   planning, image/B-roll generation, per-scene TTS, subtitle alignment, FFmpeg
   rendering, remote hosting upload, and YouTube publishing.
