@@ -184,6 +184,26 @@ test("mockup otomatis tersebar di empat bagian dokumenter panjang dan memakai ga
   item.assets.newsImages.forEach((n) => assert.equal(n.imagePath, `scene-${n.sceneIndex}.jpg`));
 });
 
+test("ensureNewsImages: subjek yang sama tidak muncul lebih dari 1 kali sebagai mockup", async (t) => {
+  const names = ["SERPER_API_KEY", "SERPER_API_KEYS", "GOOGLE_CSE_KEY", "GOOGLE_CSE_CX", "SERPAPI_API_KEY"];
+  const previous = names.map((name) => process.env[name]);
+  names.forEach((name) => { delete process.env[name]; });
+  t.after(() => names.forEach((name, i) => {
+    if (previous[i] === undefined) delete process.env[name]; else process.env[name] = previous[i];
+  }));
+  t.mock.method(globalThis, "fetch", async () => new Response("{}", { status: 404 }));
+  // 16 scene, semua screenText SAMA ("Anak Krakatau") -- topik dominan tunggal yang
+  // gampang terpilih berulang di banyak scene sekaligus (kasus nyata: video 1 topik).
+  const scenes = Array.from({ length: 16 }, (_, i) => ({ index: i + 1, sceneType: "image", screenText: "Anak Krakatau" }));
+  const item = { input: { topic: "Anak Krakatau" }, plan: { scenes }, assets: {
+    images: scenes.map((scene) => ({ sceneIndex: scene.index, path: `scene-${scene.index}.jpg` }))
+  } };
+  await ensureNewsImages(item);
+  // Tanpa dedup, count = min(8, ceil(16/4)) = 4 kandidat -- semuanya headline sama.
+  // Dengan dedup, hanya kandidat PERTAMA yang lolos.
+  assert.equal(item.assets.newsImages.length, 1, "subjek sama harus di-dedup jadi 1 mockup saja");
+});
+
 test("extractSceneRealEntityQuery: mengekstrak nama tempat dan entitas konkret dari narasi", () => {
   const scene1 = {
     screenText: "Fakta 1",

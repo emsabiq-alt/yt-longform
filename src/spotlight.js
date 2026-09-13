@@ -217,8 +217,8 @@ const CMP_Y = 210;
 const CMP_BAR_W = 100;
 const CMP_BAR_GAP = 70;
 const CMP_BAR_MAX_H = 130;
-const CMP_PAD_TOP = 40; // ruang label angka di atas bar
-const CMP_NAME_ROW_H = 42; // ruang label nama di bawah bar
+const CMP_PAD_TOP = 46; // ruang label angka di atas bar
+const CMP_NAME_ROW_H = 48; // ruang label nama di bawah bar
 const CMP_H = CMP_PAD_TOP + CMP_BAR_MAX_H + CMP_NAME_ROW_H;
 
 /**
@@ -235,7 +235,7 @@ export function spotlightDialogueLines(placements, dialogueFn, escapeFn) {
 
     if (isFigure) {
       // Kartu tokoh: tengah layar, lebih besar, lega untuk avatar 92px
-      const height = twoLine ? 144 : 116;
+      const height = twoLine ? 160 : 128;
       const top = FIG_Y;
       events.push(dialogueFn(
         card.startSec, card.endSec, "FigurePanel",
@@ -308,7 +308,7 @@ export function spotlightDialogueLines(placements, dialogueFn, escapeFn) {
       ));
     } else {
       // Kartu keypoint: pojok kiri bawah (font lebih besar, panel lebih lega)
-      const height = twoLine ? 116 : 80;
+      const height = twoLine ? 132 : 92;
       const top = KP_Y + (twoLine ? 0 : 20);
       events.push(dialogueFn(
         card.startSec, card.endSec, "SpotlightPanel",
@@ -339,18 +339,18 @@ export function spotlightStyles() {
     // Keypoint — pojok kiri bawah (font diperbesar dari 30->36 dan 22->26)
     `Style: SpotlightPanel,${body},20,&HC011171B,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     `Style: SpotlightBar,${body},20,${ACCENT},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
-    `Style: SpotlightLabel,${body},36,&H00FFFFFF,&H000000FF,&H9011171B,&H0011171B,-1,0,0,0,100,100,0,0,1,1.5,0,7,0,0,0,1`,
-    `Style: SpotlightSub,${body},26,${ACCENT},&H000000FF,&H9011171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.5,0,7,0,0,0,1`,
+    `Style: SpotlightLabel,${body},42,&H00FFFFFF,&H000000FF,&H9011171B,&H0011171B,-1,0,0,0,100,100,0,0,1,1.5,0,7,0,0,0,1`,
+    `Style: SpotlightSub,${body},30,${ACCENT},&H000000FF,&H9011171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.5,0,7,0,0,0,1`,
     // Figure — tengah layar (font diperbesar dari 38->46 dan 26->30)
     `Style: FigurePanel,${body},20,&HE011171B,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     `Style: FigureBar,${body},20,${ACCENT},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
-    `Style: FigureLabel,${body},46,&H00FFFFFF,&H000000FF,&HAA11171B,&H0011171B,-1,0,0,0,100,100,0,0,1,1.8,0,5,0,0,0,1`,
-    `Style: FigureSub,${body},30,${ACCENT},&H000000FF,&HAA11171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.5,0,5,0,0,0,1`,
+    `Style: FigureLabel,${body},52,&H00FFFFFF,&H000000FF,&HAA11171B,&H0011171B,-1,0,0,0,100,100,0,0,1,1.8,0,5,0,0,0,1`,
+    `Style: FigureSub,${body},34,${ACCENT},&H000000FF,&HAA11171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.5,0,5,0,0,0,1`,
     // Compare — kartu bar chart 2 nilai, tengah layar
     `Style: ComparePanel,${body},20,&HE011171B,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     `Style: CompareBar,${body},20,${ACCENT},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     `Style: CompareBarMuted,${body},20,&H00888888,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
-    `Style: CompareValue,${body},34,&H00FFFFFF,&H000000FF,&HAA11171B,&H0011171B,-1,0,0,0,100,100,0,0,1,1.5,0,2,0,0,0,1`,
-    `Style: CompareName,${body},24,${ACCENT},&H000000FF,&HAA11171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.2,0,8,0,0,0,1`
+    `Style: CompareValue,${body},40,&H00FFFFFF,&H000000FF,&HAA11171B,&H0011171B,-1,0,0,0,100,100,0,0,1,1.5,0,2,0,0,0,1`,
+    `Style: CompareName,${body},28,${ACCENT},&H000000FF,&HAA11171B,&H0011171B,0,0,0,0,100,100,0,0,1,1.2,0,8,0,0,0,1`
   ];
 }

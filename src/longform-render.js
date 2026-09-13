@@ -1307,10 +1307,14 @@ async function makeColdOpenVisual({ media, outputPath, duration, zoomDirection, 
  * Caption hook untuk cold open — teks besar di tengah memakai style "Hook".
  */
 async function writeColdOpenCaptionAss({ outputPath, hookText, duration }) {
-  const text = splitLines(normalizeSubtitleText(hookText), 26, 4).join("\\N");
+  // Hook flash-forward sekarang boleh sampai 15-25 kata (sebelumnya 15-20), jadi
+  // budget tetap "26 karakter x 4 baris" bisa kepotong untuk hook yang lebih
+  // panjang. fitOverlayText() turun ke font lebih kecil/baris lebih banyak
+  // dulu sebelum menyerah, dan tier terakhirnya menjamin teks tidak pernah hilang.
+  const fit = fitOverlayText(normalizeSubtitleText(hookText), HOOK_CAPTION_TIERS);
   const end = Math.max(0.4, duration - 0.15);
   const events = [
-    dialogue(0.15, end, "Hook", `{\\fad(240,200)}${assEscape(text)}`)
+    dialogue(0.15, end, "Hook", `{\\fad(240,200)\\fs${fit.fontSize}}${assEscape(fit.text)}`)
   ];
   const ass = [
     "[Script Info]",
@@ -1907,19 +1911,43 @@ function normalizeSubtitleText(value) {
     .trim();
 }
 
-// Bab bisa punya nama panjang dari AI (sampai 80 karakter, wajar untuk daftar
-// bab di deskripsi YouTube), tapi label pojok kiri atas HARUS selalu 1 baris —
-// tidak seperti kartu judul, label ini tetap di layar lama dan wrap 2-4 baris
-// akan terasa berat/menutupi visual. Potong tegas ke budget karakter yang sudah
-// terbukti muat 1 baris di font 30 (lihat layout pertama sceneTitleOverlay lama),
-// lalu tambahkan elipsis kalau terpotong.
-function chapterOverlayLabel(number, name) {
-  const MAX_NAME_CHARS = 22;
-  let clean = String(name || "").replace(/\s+/g, " ").trim();
-  if (clean.length > MAX_NAME_CHARS) {
-    clean = clean.slice(0, MAX_NAME_CHARS).replace(/\s+\S*$/, "").trim() + "…";
+// Coba beberapa kombinasi (lebar baris, jumlah baris, ukuran font) berurutan;
+// pakai yang pertama yang menampung SELURUH teks tanpa kehilangan kata. Kalau
+// tidak ada satu pun yang cukup, tier terakhir dipaksa tanpa batas baris — teks
+// tidak boleh pernah terpotong diam-diam (splitLines() sendiri MEMBUANG baris
+// yang melebihi maxLines, jadi dipanggil naif itu bisa memotong teks).
+function fitOverlayText(text, tiers) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  const totalWords = clean.split(/\s+/).filter(Boolean).length;
+  for (const tier of tiers) {
+    const lines = splitLines(clean, tier.maxChars, tier.maxLines);
+    const coveredWords = lines.join(" ").split(/\s+/).filter(Boolean).length;
+    if (coveredWords >= totalWords) return { text: lines.join("\\N"), fontSize: tier.fontSize };
   }
-  return { text: `BAB ${number} · ${clean.toUpperCase()}`, fontSize: 30 };
+  const last = tiers[tiers.length - 1];
+  return { text: splitLines(clean, last.maxChars, 99).join("\\N"), fontSize: last.fontSize };
+}
+
+// Hook cold-open (flash-forward) 15-25 kata. Coba tampilan besar dulu, turun
+// ke font lebih kecil/baris lebih banyak kalau perlu, tapi jangan pernah
+// membuang isinya.
+const HOOK_CAPTION_TIERS = [
+  { maxChars: 26, maxLines: 4, fontSize: 48 },
+  { maxChars: 32, maxLines: 5, fontSize: 40 },
+  { maxChars: 38, maxLines: 6, fontSize: 34 }
+];
+
+// Kartu judul/bab kadang panjang (hook flash-forward 15-25 kata, nama bab dari
+// AI sampai 80 karakter). Coba muat di tampilan ringkas dulu, turun ke font
+// lebih kecil kalau perlu, tapi jangan pernah membuang isinya.
+const CHAPTER_LABEL_TIERS = [
+  { maxChars: 20, maxLines: 4, fontSize: 22 },
+  { maxChars: 26, maxLines: 6, fontSize: 18 }
+];
+
+function chapterOverlayLabel(number, name) {
+  const clean = String(name || "").replace(/\s+/g, " ").trim().toUpperCase();
+  return fitOverlayText(`BAB ${number} · ${clean}`, CHAPTER_LABEL_TIERS);
 }
 
 // Kelompokkan scene render (sudah punya startSec/endSec) jadi rentang waktu per

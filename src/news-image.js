@@ -380,6 +380,12 @@ export async function ensureNewsImages(item) {
   const scenes = item.plan?.scenes || [];
   const newsImages = [];
   const newsItems = item.input?.trend?.newsItems || [];
+  // Mockup harus menampilkan referensi yang BEDA tiap kali muncul, bukan foto/subjek
+  // yang sama diulang — subjek generik (nama topik utama, misal "Anak Krakatau")
+  // gampang kepakai lagi di banyak scene sekaligus karena itu subjek dominan
+  // seluruh video. Lacak subjek yang sudah dipakai, tolak kalau sama persis.
+  const usedSubjects = new Set();
+  const normalizeSubject = (value) => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
 
   // 1. Ambil scene yang secara eksplisit memiliki mediaSource
   for (const scene of scenes) {
@@ -396,6 +402,9 @@ export async function ensureNewsImages(item) {
       if (newsImages.some((n) => n.sceneIndex === Number(scene.index))) continue;
 
       const entityQuery = extractSceneRealEntityQuery(scene, item.input?.topic);
+      const subjectKey = normalizeSubject(entityQuery || src.headline);
+      if (subjectKey && usedSubjects.has(subjectKey)) continue;
+      if (subjectKey) usedSubjects.add(subjectKey);
       newsImages.push({
         sceneIndex: Number(scene.index),
         searchQuery: entityQuery || src.headline || "",
@@ -440,6 +449,10 @@ export async function ensureNewsImages(item) {
         const outlet = String(
           relevantNews?.outlet || relevantNews?.source || "Dokumentasi"
         ).slice(0, 60);
+
+        const subjectKey = normalizeSubject(entityQuery || headline);
+        if (subjectKey && usedSubjects.has(subjectKey)) continue;
+        if (subjectKey) usedSubjects.add(subjectKey);
 
         newsImages.push({
           sceneIndex: sIdx,

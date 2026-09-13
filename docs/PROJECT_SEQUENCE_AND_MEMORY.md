@@ -57,14 +57,38 @@ diagrams with notes that should help the next coding session resume quickly.
   via `groupScenesForChapterOverlay()` (merges runs starting <10s apart, same
   idea as `buildChapterList()` but also tracks each group's endSec, which that
   function doesn't need) and emits one "BAB N · NAME" event per run, timed to
-  when that chapter is actually on screen. `chapterOverlayLabel()` hard-caps
-  the name to 22 chars + ellipsis and forces one line — chapter names can be
-  up to 80 chars (`cleanText(scene.chapter, 80)`, fine for the YouTube
-  description's chapter list) but must never wrap on this persistent overlay.
-  `sceneTitleOverlay()` (the old static-title version) was removed entirely.
-  Verified with a real render: short name ("BAB 1 · PEMBUKA") and a
-  deliberately 68-char name both rendered as clean single lines, no overflow,
-  no collision with the channel logo overlay top-right.
+  when that chapter is actually on screen. `sceneTitleOverlay()` (the old
+  static-title version) was removed entirely.
+- Overlay text sizing revised again same day after watching a real render:
+  first pass hard-truncated long chapter names to 1 line + ellipsis, but the
+  user found that "aneh" and asked for the FULL name instead, wrapped smaller
+  rather than cut. `fitOverlayText()` (shared by the chapter label AND the
+  cold-open hook caption) tries a few (chars-per-line, max-lines, font-size)
+  tiers in order and picks the first one that fits the WHOLE text with no
+  words dropped; if none of the tiers fit, the last tier is forced with no
+  line cap so text is never silently lost. This also fixed a real truncation
+  bug: `writeColdOpenCaptionAss` used to hard-slice to 4 lines via
+  `splitLines()` (which drops any line past `maxLines`), and the flash-forward
+  hook (now 15-25 words, up from 15-20) could overflow that budget — a real
+  generated video's hook got cut off mid-sentence because of this.
+- Real-render feedback fixes (2026-09-14), all from watching an actual
+  generated "Anak Krakatau" video:
+  - Mockup/device-overlay images repeated the same subject across many scenes
+    (Serper searches for the dominant topic keep returning the same top
+    photos). `news-image.js#ensureNewsImages` now tracks `usedSubjects` (a
+    normalized-text Set) across both the mediaSource pass and the fallback
+    candidate-scene pass, and skips a scene if its resolved query/headline was
+    already used — each real-world subject gets at most one mockup per video.
+  - Spotlight card fonts (keypoint/figure/compare) enlarged (~15-20%) per user
+    request; panel/card heights bumped to match so text doesn't clip.
+  - Narration stated wrong years repeatedly. Added an explicit accuracy
+    guardrail to both the main storyboard prompt and the enrichment prompt:
+    only state a year/date when genuinely confident it's correct, prefer a
+    relative phrase ("beberapa dekade kemudian") over a specific year when
+    unsure. This is a prompt-level mitigation, not a hard guarantee — AI
+    narration should still be spot-checked before publish.
+  - Speech tempo/speed was explicitly NOT touched — user likes the current
+    pacing, the actual complaint was factual accuracy, not delivery speed.
 - Purpose: generate Indonesian YouTube longform educational videos with AI story
   planning, image/B-roll generation, per-scene TTS, subtitle alignment, FFmpeg
   rendering, remote hosting upload, and YouTube publishing.
