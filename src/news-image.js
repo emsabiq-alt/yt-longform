@@ -249,6 +249,8 @@ export async function scrapeOgImage(url) {
 export function extractSceneRealEntityQuery(scene, topic = "") {
   if (!scene) return "";
 
+  const narration = String(scene.narration || "");
+
   // 1. Cek spotlight label jika ada nama entitas konkret (bukan sekadar angka atau unit)
   if (scene.spotlight?.label && !isGenericPlaceholderQuery(scene.spotlight.label)) {
     const label = scene.spotlight.label.trim();
@@ -257,7 +259,62 @@ export function extractSceneRealEntityQuery(scene, topic = "") {
     }
   }
 
-  // 2. Cek visualKeywords konkret (nama tempat, objek alam, fenomena)
+  // 2. Deteksi nama tempat geografis / objek alam nyata di narasi
+  const geoMatch = narration.match(
+    /\b(Danau\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Gunung\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Anak\s+Krakatau|Krakatau|Krakatoa|Selat\s+Sunda|Pulau\s+[A-Z][a-z]+|Kawah\s+[A-Z][a-z]+|Lembah\s+[A-Z][a-z]+|Taman\s+Nasional\s+[A-Z][a-z]+|Candi\s+[A-Z][a-z]+|Sungai\s+[A-Z][a-z]+|Palung\s+[A-Z][a-z]+|Samudra\s+[A-Z][a-z]+|Laut\s+[A-Z][a-z]+)\b/
+  ) || narration.match(
+    /\b(Cincin\s+Api\s+Pasifik|Cincin\s+Api|Ring\s+of\s+Fire|Lempeng\s+[Tt]ektonik|Tektonika\s+[Ll]empeng|Zona\s+[Ss]ubduksi|Patahan\s+[A-Z][a-z]+|Zaman\s+[Ee]s(?:\s+Purba)?|Musim\s+[Dd]ingin\s+[Vv]ulkanik|Supervolcano|Yellowstone|Tambora|Toba|Semeru|Merapi|Sinabung|Vesuvius|Pompeii|Fuji|Everest|Mariana|Bermuda|Atlantis)\b/i
+  ) || narration.match(
+    /\b(Teleskop\s+(?:Luar\s+Angkasa\s+)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Stasiun\s+Luar\s+Angkasa(?:\s+Internasional)?|Apollo\s+\d+|Voyager\s+\d*|Bima\s+Sakti|Andromeda|Lubang\s+Hitam)\b/i
+  );
+  if (geoMatch) {
+    return geoMatch[1].trim();
+  }
+
+  // 3. Deteksi Tokoh / Figur Nyata dari Narasi
+  const figureMatch = narration.match(
+    /\b(Prabowo\s+Subianto|Prabowo|Joko\s+Widodo|Jokowi|Soekarno|Sukarno|Mohammad\s+Hatta|B\.?\s*J\.?\s*Habibie|Gus\s+Dur|Megawati|Susilo\s+Bambang\s+Yudhoyono|SBY)\b/i
+  ) || narration.match(
+    /\b(Jim\s+O['’]Neill|Katherine\s+Johnson|Albert\s+Einstein|Isaac\s+Newton|Ibnu\s+Sina|Al[- ]Khawarizmi|Nikola\s+Tesla|Marie\s+Curie|Galileo\s+Galilei|Thomas\s+Edison|Stephen\s+Hawking|Alexander\s+the\s+Great|Julius\s+Caesar|Napoleon\s+Bonaparte|Nelson\s+Mandela|Vladimir\s+Putin|Xi\s+Jinping|Narendra\s+Modi|Joe\s+Biden|Donald\s+Trump)\b/i
+  ) || narration.match(
+    /\b(Presiden\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Perdana\s+Menteri\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Menteri\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/
+  );
+  if (figureMatch) {
+    return figureMatch[1].trim();
+  }
+
+  // 4. Deteksi Peta / Geografi / Indonesia & Negara Dunia (Sesuai instruksi user)
+  if (/\b(indonesia)\b/i.test(narration)) {
+    if (/\b(kekuatan\s+dunia|dunia|global|internasional|wilayah|geografis|maritim|kepulauan|posisi|strategis|arsipelago|peta)\b/i.test(narration)) {
+      return "peta indonesia";
+    }
+    if (/\b(ekonomi|perdagangan|komoditas|ekspor)\b/i.test(narration)) {
+      return "peta ekonomi indonesia";
+    }
+  }
+
+  // Peta negara / kawasan lain
+  const countryMapMatch = narration.match(
+    /\b(Rusia|Tiongkok|China|Brasil|India|Afrika\s+Selatan|Asia\s+Tenggara|ASEAN|Eropa|Amerika\s+Serikat)\b/i
+  );
+  if (countryMapMatch && /\b(peta|wilayah|negara|kawasan|kekuatan|aliansi)\b/i.test(narration)) {
+    return `peta ${countryMapMatch[1].toLowerCase()}`;
+  }
+
+  // Peta dunia umum jika membahas geopolitik global
+  if (/\b(peta\s+dunia|peta\s+global|kekuatan\s+global|tatanan\s+dunia|geopolitik\s+global)\b/i.test(narration)) {
+    return "peta dunia";
+  }
+
+  // 5. Deteksi KTT / Organisasi Internasional / Aliansi
+  const summitMatch = narration.match(
+    /\b(KTT\s+BRICS|BRICS|KTT\s+G20|G20|KTT\s+ASEAN|ASEAN|PBB|Perserikatan\s+Bangsa-Bangsa|NATO|IMF|Bank\s+Dunia|World\s+Bank|NASA|BMKG|BPS)\b/i
+  );
+  if (summitMatch) {
+    return summitMatch[1].trim();
+  }
+
+  // 6. Cek visualKeywords konkret (nama tempat, objek alam, fenomena)
   const kwCandidates = [];
   const collectKw = (val) => {
     if (!val) return;
@@ -278,8 +335,7 @@ export function extractSceneRealEntityQuery(scene, topic = "") {
     if (concreteKw) return concreteKw;
   }
 
-  // 3. Cek entity dari topik yang disebut secara spesifik dalam narasi scene ini
-  const narration = String(scene.narration || "");
+  // 7. Cek entity dari topik yang disebut secara spesifik dalam narasi scene ini
   const topicParts = String(topic || "")
     .split(/\s+(?:vs\.?|versus|lawan|dibandingkan|dan)\s+/i)
     .map((s) => s.trim())
@@ -290,36 +346,25 @@ export function extractSceneRealEntityQuery(scene, topic = "") {
     }
   }
 
-  // 4. Deteksi nama tempat geografis / objek nyata di narasi
-  const geoMatch = narration.match(
-    /\b(Danau\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Gunung\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Anak\s+Krakatau|Krakatau|Krakatoa|Selat\s+Sunda|Pulau\s+[A-Z][a-z]+|Kawah\s+[A-Z][a-z]+|Lembah\s+[A-Z][a-z]+|Taman\s+Nasional\s+[A-Z][a-z]+|Candi\s+[A-Z][a-z]+|Sungai\s+[A-Z][a-z]+|Palung\s+[A-Z][a-z]+|Samudra\s+[A-Z][a-z]+|Laut\s+[A-Z][a-z]+)\b/
-  ) || narration.match(
-    /\b(Cincin\s+Api\s+Pasifik|Cincin\s+Api|Ring\s+of\s+Fire|Lempeng\s+[Tt]ektonik|Tektonika\s+[Ll]empeng|Zona\s+[Ss]ubduksi|Patahan\s+[A-Z][a-z]+|Zaman\s+[Ee]s(?:\s+Purba)?|Musim\s+[Dd]ingin\s+[Vv]ulkanik|Supervolcano|Yellowstone|Tambora|Toba|Semeru|Merapi|Sinabung|Vesuvius|Pompeii|Fuji|Everest|Mariana|Bermuda|Atlantis)\b/i
-  ) || narration.match(
-    /\b(Teleskop\s+(?:Luar\s+Angkasa\s+)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|Stasiun\s+Luar\s+Angkasa(?:\s+Internasional)?|Apollo\s+\d+|Voyager\s+\d*|Bima\s+Sakti|Andromeda|Lubang\s+Hitam)\b/i
-  );
-  if (geoMatch) {
-    return geoMatch[1];
-  }
-
-  // 5. Cek mediaSource headline jika ada dan bukan generic
+  // 8. Cek mediaSource headline jika ada dan bukan generic
   if (scene.mediaSource?.headline && !isGenericPlaceholderQuery(scene.mediaSource.headline)) {
     return scene.mediaSource.headline;
   }
 
-  // 6. Cek screenText jika bukan generic
+  // 9. Cek screenText jika bukan generic
   if (scene.screenText && !isGenericPlaceholderQuery(scene.screenText)) {
     return scene.screenText;
   }
 
-  // 7. Fallback ke topik
+  // 10. Fallback ke topik
   return !isGenericPlaceholderQuery(topic) ? topic : "";
 }
 
 /**
- * Download og:image dari newsItems yang cocok dengan mediaSource tiap scene.
- * Mendukung mode berita (Tab Tren/Ide) dan fallback gambar scene (Tab Buat).
- * Hasil: item.assets.newsImages = [{ sceneIndex, headline, outlet, imageUrl, imagePath }]
+ * Download foto/visual asli untuk mockup tiap scene (peta, tokoh, artefak, lanskap nyata).
+ * Prioritaskan Serper.dev / Google Images dan Wikipedia REST API agar konten mockup
+ * 100% inline dengan apa yang sedang dinarasikan.
+ * Hasil: item.assets.newsImages = [{ sceneIndex, searchQuery, headline, outlet, imageUrl, imagePath }]
  */
 export async function ensureNewsImages(item) {
   const scenes = item.plan?.scenes || [];
@@ -344,8 +389,8 @@ export async function ensureNewsImages(item) {
       newsImages.push({
         sceneIndex: Number(scene.index),
         searchQuery: entityQuery || src.headline || "",
-        headline: String(src.headline || match?.headline || match?.title || entityQuery || "Dokumen Referensi").slice(0, 120),
-        outlet: String(src.outlet || match?.outlet || match?.source || "Media Terkait").slice(0, 60),
+        headline: String(entityQuery || src.headline || match?.headline || match?.title || "Visual Referensi").slice(0, 120),
+        outlet: String(src.outlet || match?.outlet || match?.source || "Dokumentasi").slice(0, 60),
         imageUrl: match?.imageUrl || src.imageUrl || null,
         url: match?.url || src.url || null,
         imagePath: null
@@ -374,20 +419,19 @@ export async function ensureNewsImages(item) {
         if (newsImages.some((n) => n.sceneIndex === sIdx)) continue;
 
         // Hanya pakai newsItem jika BENAR-BENAR relevan dengan narasi scene ini!
-        // JANGAN pernah mapping newsItems[i] secara buta berdasarkan indeks array.
         const relevantNews = newsItems.find((ni) => isNewsItemRelevantToScene(ni, scene));
         const entityQuery = extractSceneRealEntityQuery(scene, item.input?.topic);
 
         const headline = String(
-          relevantNews?.headline || relevantNews?.title
-          || (entityQuery && !isGenericPlaceholderQuery(entityQuery) ? entityQuery : scene.screenText)
+          (entityQuery && !isGenericPlaceholderQuery(entityQuery) ? entityQuery : null)
+          || relevantNews?.headline || relevantNews?.title
+          || scene.screenText
           || item.input?.topic
-          || "Dokumen Referensi"
+          || "Visual Referensi"
         ).slice(0, 120);
 
         const outlet = String(
-          relevantNews?.outlet || relevantNews?.source
-          || (entityQuery && !isGenericPlaceholderQuery(entityQuery) ? "Arsip Dokumentasi" : "Dokumen Referensi")
+          relevantNews?.outlet || relevantNews?.source || "Dokumentasi"
         ).slice(0, 60);
 
         newsImages.push({
@@ -420,7 +464,33 @@ export async function ensureNewsImages(item) {
     const scene = scenes.find((s) => Number(s.index) === entry.sceneIndex);
     const entityQ = entry.searchQuery || extractSceneRealEntityQuery(scene, item.input?.topic);
 
-    // 1. Prioritas Utama: Wikipedia REST API (Gratis, Akurat 1:1 untuk entitas nyata ensiklopedis)
+    // 1. Prioritas Utama: Google Images API (Serper.dev) — gambar web asli (peta, tokoh, foto KTT, dsb)
+    if (!entry.imagePath && isGoogleImageApiAvailable()) {
+      let q = entityQ || entry.searchQuery || entry.headline;
+      if (q && !isGenericPlaceholderQuery(q)) {
+        try {
+          const fallbackQueries = [
+            entityQ && entityQ !== q ? entityQ : null,
+            !isGenericPlaceholderQuery(item.input?.topic) ? `${item.input.topic} ${q}` : null
+          ].filter(Boolean);
+          const candidates = await searchGoogleImages(q, { fallbackQueries });
+          if (candidates.length) {
+            const dest = path.join(newsDir, `news-scene-${entry.sceneIndex}.jpg`);
+            const dl = await downloadImageWithCandidates(candidates, dest);
+            if (dl.success) {
+              entry.imagePath = dest;
+              entry.imageUrl = dl.url;
+              if (dl.source) entry.outlet = dl.source;
+              console.log(`[NewsImage] Scene ${entry.sceneIndex}: Berhasil ambil dari Serper/Google Images ("${q}") → ${path.basename(dest)}`);
+            }
+          }
+        } catch (err) {
+          console.warn(`[NewsImage] Scene ${entry.sceneIndex} Serper/Google Images API error: ${err.message}`);
+        }
+      }
+    }
+
+    // 2. Prioritas 2: Wikipedia REST API (Gratis, Akurat 1:1 untuk entitas ensiklopedis)
     if (!entry.imagePath && entityQ && !isGenericPlaceholderQuery(entityQ)) {
       try {
         const wiki = await fetchWikipediaImage(entityQ);
@@ -431,42 +501,10 @@ export async function ensureNewsImages(item) {
           entry.imagePath = dest;
           entry.imageUrl = wiki.imageUrl;
           entry.outlet = wiki.outlet;
-          if (!entry.headline || isGenericPlaceholderQuery(entry.headline)) {
-            entry.headline = wiki.title;
-          }
-          console.log(`[NewsImage] Scene ${entry.sceneIndex}: Berhasil ambil dari Wikipedia ("${entityQ}" → ${entry.outlet}) → ${path.basename(dest)}`);
+          console.log(`[NewsImage] Scene ${entry.sceneIndex}: Berhasil ambil dari Wikipedia ("${entityQ}") → ${path.basename(dest)}`);
         }
       } catch (err) {
         console.warn(`[NewsImage] Scene ${entry.sceneIndex} Wikipedia error: ${err.message}`);
-      }
-    }
-
-    // 2. Google Images API jika tersedia
-    if (!entry.imagePath && isGoogleImageApiAvailable()) {
-      let q = entry.searchQuery || entry.headline;
-      if (isGenericPlaceholderQuery(q)) {
-        q = entityQ;
-      }
-      if (q && !isGenericPlaceholderQuery(q)) {
-        try {
-          const fallbackQueries = [
-            (entry.outlet && !isGenericPlaceholderQuery(entry.headline)) ? `${entry.outlet} ${entry.headline || ""}`.trim() : null,
-            !isGenericPlaceholderQuery(item.input?.topic) ? item.input?.topic : null
-          ].filter(Boolean);
-          const candidates = await searchGoogleImages(q, { fallbackQueries });
-          if (candidates.length) {
-            const dest = path.join(newsDir, `news-scene-${entry.sceneIndex}.jpg`);
-            const dl = await downloadImageWithCandidates(candidates, dest);
-            if (dl.success) {
-              entry.imagePath = dest;
-              entry.imageUrl = dl.url;
-              if (dl.source) entry.outlet = dl.source;
-              console.log(`[NewsImage] Scene ${entry.sceneIndex}: Berhasil ambil dari Google Images API ("${q}" → ${entry.outlet}) → ${path.basename(dest)}`);
-            }
-          }
-        } catch (err) {
-          console.warn(`[NewsImage] Scene ${entry.sceneIndex} Google Images API error: ${err.message}`);
-        }
       }
     }
 
@@ -549,27 +587,9 @@ export async function applyNewsImageOverlays(inputVideoPath, outputVideoPath, it
     }
 
     const clipPath = path.join(tmpDir, `news-overlay-${i}.mov`);
-    let headerPath = null;
-    if (entry.headline && entry.outlet) {
-      try {
-        const hPath = path.join(tmpDir, `news-header-${i}.png`);
-        const cfg = DEVICE_CONFIG[deviceType];
-        const multiplier = cfg.scaleMultiplier || 1.05;
-        const targetTemplateW = even(Math.round(videoW * multiplier));
-        const scaleRatio = targetTemplateW / cfg.templateW;
-        const sW = even(Math.round(cfg.screen.w * scaleRatio));
-        await createHeaderCardImage({
-          outlet: entry.outlet,
-          headline: entry.headline,
-          width: sW,
-          isPhone: deviceType === "phone",
-          destPath: hPath
-        });
-        headerPath = hPath;
-      } catch (err) {
-        // Lanjut tanpa header jika error pembuatan kartu
-      }
-    }
+    // Mockup menampilkan visual foto/peta/tokoh murni di layar device tanpa kartu banner outlet/headline
+    // (sesuai instruksi user: jangan menampilkan tulisan detik.com lalu headlinenya)
+    const headerPath = null;
 
     try {
       await makeDeviceMockupClip({

@@ -4,6 +4,7 @@
  */
 
 import { cleanText } from "./util.js";
+import { buildChapterList } from "./longform-render.js";
 
 function oneLine(value, max = 5000) {
   return cleanText(String(value || "").replace(/\s+/g, " "), max).trim();
@@ -71,31 +72,59 @@ export function buildDescription(item) {
 
   const chapters = buildChapters(item);
   const sources = buildSourcesBlock(item);
-  const mediaAttribution = buildMediaAttributionBlock(item);
+  let mediaAttribution = buildMediaAttributionBlock(item);
   const tags = buildTags(item);
   const hashtags = tags.slice(0, 6).map((t) => `#${t.replace(/\s+/g, "")}`).join(" ");
 
-  const contentBlocks = [
-    hook || item.title,
-    summary,
-    points ? `Yang akan kamu pahami:\n${points}` : "",
-    chapters ? `Bab:\n${chapters}` : "",
+  const chaptersBlock = chapters ? `Bab:\n${chapters}` : "";
+  const pointsBlock = points ? `Yang akan kamu pahami:\n${points}` : "";
+  const ctaBlock = [
     "Tonton sampai habis supaya gambaran lengkapnya nyambung.",
     "Kalau bermanfaat, like dan subscribe untuk video pengetahuan lainnya."
-  ].filter(Boolean);
-  const protectedBlocks = [
-    sources,
-    mediaAttribution,
-    hashtags
-  ].filter(Boolean);
+  ].join("\n");
 
-  // Atribusi lisensi tidak boleh terpotong ketika deskripsi panjang. Konten
-  // editorial dipangkas lebih dulu dan blok sumber selalu dipertahankan.
-  const protectedText = protectedBlocks.join("\n\n");
-  const separatorLength = protectedText ? 2 : 0;
-  const contentBudget = Math.max(0, 4900 - protectedText.length - separatorLength);
-  const contentText = contentBlocks.join("\n\n").slice(0, contentBudget).trim();
-  return [contentText, protectedText].filter(Boolean).join("\n\n").slice(0, 4900);
+  // Blok wajib penonton & SEO yang TIDAK BOLEH dipotong:
+  // Hook, Poin, BAB / TIMESTAMPS, CTA, Sumber, Hashtags
+  let activeSummary = summary;
+
+  const assemble = (sum, attr) => {
+    const top = [
+      hook || item.title,
+      sum,
+      pointsBlock,
+      chaptersBlock,
+      ctaBlock
+    ].filter(Boolean).join("\n\n");
+
+    const bottom = [
+      sources,
+      attr,
+      hashtags
+    ].filter(Boolean).join("\n\n");
+
+    return [top, bottom].filter(Boolean).join("\n\n");
+  };
+
+  let desc = assemble(activeSummary, mediaAttribution);
+
+  // Jika melebihi batas 4900 karakter YouTube:
+  // 1. Pangkas mediaAttribution terlebih dahulu
+  if (desc.length > 4900 && mediaAttribution) {
+    const overflow = desc.length - 4900;
+    const targetAttrLen = Math.max(150, mediaAttribution.length - overflow - 40);
+    mediaAttribution = mediaAttribution.slice(0, targetAttrLen).trim() + "\n...dan aset berlisensi lainnya.";
+    desc = assemble(activeSummary, mediaAttribution);
+  }
+
+  // 2. Jika masih melebihi batas, pangkas ringkasan (summary)
+  if (desc.length > 4900 && activeSummary) {
+    const overflow = desc.length - 4900;
+    const targetSumLen = Math.max(80, activeSummary.length - overflow - 20);
+    activeSummary = activeSummary.slice(0, targetSumLen).trim() + "...";
+    desc = assemble(activeSummary, mediaAttribution);
+  }
+
+  return desc.slice(0, 4900);
 }
 
 /**
@@ -119,13 +148,9 @@ export function buildSourcesBlock(item) {
 }
 
 /**
- * Atribusi visual berlisensi terbuka (Wikimedia Commons, Openverse, Wikidata).
- * Semua aset tetap dicantumkan, termasuk Public Domain, agar asal-usul media
- * dapat diaudit. URL lisensi didedup agar deskripsi tetap ringkas.
- *
- * Filternya sengaja berbasis KEBERADAAN metadata lisensi, bukan daftar nama
- * provider: menambah sumber baru tanpa memperbarui daftar akan diam-diam
- * menghilangkan atribusi, dan itu melanggar syarat lisensi CC BY.
+ * Atribusi visual berlisensi terbuka (Wikimedia Commons, Openverse, Wikidata, Pixabay).
+ * Semua aset tetap dicantumkan agar asal-usul media dapat diaudit.
+ * Dibatasi maksimal 10 entri agar tidak meluap menghabiskan jatah karakter deskripsi.
  */
 const ATTRIBUTION_PROVIDERS = new Set(["wikimedia", "openverse", "wikidata", "pixabay"]);
 
@@ -149,8 +174,8 @@ export function buildMediaAttributionBlock(item) {
     if (!key || seen.has(key)) continue;
     seen.add(key);
     assets.push({
-      title: oneLine(asset.title || asset.pixabayTags || asset.wikimediaPageTitle || (isPixabay ? "Media Pixabay" : "Media berlisensi terbuka"), 100),
-      creator: oneLine(asset.creator || (isPixabay ? (asset.user || "Kontributor Pixabay") : "Kontributor Wikimedia Commons"), 90),
+      title: oneLine(asset.title || asset.pixabayTags || asset.wikimediaPageTitle || (isPixabay ? "Media Pixabay" : "Media berlisensi terbuka"), 80),
+      creator: oneLine(asset.creator || (isPixabay ? (asset.user || "Kontributor Pixabay") : "Kontributor Wikimedia Commons"), 80),
       license: oneLine(asset.license || (isPixabay ? "Pixabay Content License" : "Lisensi pada halaman sumber"), 50),
       licenseUrl: oneLine(asset.licenseUrl || (isPixabay ? "https://pixabay.com/service/license-summary/" : ""), 300),
       sourceUrl
@@ -158,9 +183,16 @@ export function buildMediaAttributionBlock(item) {
   }
   if (!assets.length) return "";
 
-  const lines = assets.map((asset) => (
+  // Batasi daftar media agar tidak membengkak ribuan karakter di deskripsi YouTube
+  const maxDisplayed = 10;
+  const displayedAssets = assets.slice(0, maxDisplayed);
+  const lines = displayedAssets.map((asset) => (
     `• ${asset.title} — ${asset.creator} — ${asset.license} — ${asset.sourceUrl}`
   ));
+  if (assets.length > maxDisplayed) {
+    lines.push(`• ...dan ${assets.length - maxDisplayed} media berlisensi terbuka lainnya.`);
+  }
+
   const licenseLinks = [];
   const seenLicenses = new Set();
   for (const asset of assets) {
@@ -182,12 +214,30 @@ export function buildMediaAttributionBlock(item) {
   ].filter(Boolean).join("\n");
 }
 
-/** Timestamp bab dari timeline render (kalau ada). */
-function buildChapters(item) {
+/** Timestamp bab dari timeline render (kalau ada) atau estimasi storyboard. */
+export function buildChapters(item) {
   const render = Array.isArray(item.assets?.video?.chapters) ? item.assets.video.chapters : null;
-  // Tanpa data timing per scene yang pasti, lewati agar tidak menyesatkan.
-  if (!render?.length) return "";
-  return render.map((c) => `${c.time} ${c.label}`).join("\n");
+  if (render?.length) {
+    return render.map((c) => `${c.time} ${c.label}`).join("\n");
+  }
+
+  // Fallback ke estimasi storyboard jika belum dirender / item.assets.video.chapters kosong
+  const scenes = Array.isArray(item.plan?.scenes) ? item.plan.scenes : [];
+  if (scenes.length >= 3) {
+    const totalDuration = scenes.reduce((sum, s) => sum + (Number(s.durationSec) || 30), 0);
+    let cursor = 0;
+    const timedScenes = scenes.map((s) => {
+      const st = cursor;
+      cursor += Number(s.durationSec) || 30;
+      return { ...s, startSec: st };
+    });
+    const fallbackList = buildChapterList(timedScenes, 0, totalDuration);
+    if (fallbackList.length >= 3) {
+      return fallbackList.map((c) => `${c.time} ${c.label}`).join("\n");
+    }
+  }
+
+  return "";
 }
 
 /** Bundel lengkap untuk disimpan/ditampilkan. */

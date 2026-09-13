@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildChapterList, buildSrtBody, sceneCaptionSegments, srtTime } from "../src/longform-render.js";
+import { buildDescription, buildChapters } from "../src/youtube-meta.js";
 
 test("srtTime memakai format jam:menit:detik,milidetik", () => {
   assert.equal(srtTime(0), "00:00:00,000");
@@ -109,4 +110,69 @@ test("buildChapterList: bab berdurasi di bawah 10 detik dilewati", () => {
     { time: "0:40", label: "Bukti Baru" },
     { time: "1:20", label: "Penutup" }
   ]);
+});
+
+test("buildDescription: daftar bab (Bab: 0:00 ...) selalu dipertahankan dan tidak terpotong meski banyak aset media", () => {
+  // Simulasikan 30 aset media (seperti pada video 26 scene) yang sebelumnya memicu pemotongan deskripsi
+  const manyClips = Array.from({ length: 30 }, (_, i) => ({
+    provider: "pixabay",
+    pixabayId: 1000 + i,
+    title: `video tag sample number ${i} with long description and tags`,
+    creator: `Creator_${i}`,
+    license: "Pixabay Content License",
+    licenseUrl: "https://pixabay.com/service/license-summary/",
+    sourceUrl: `https://pixabay.com/videos/id-${1000 + i}/`
+  }));
+
+  const item = {
+    title: "Dua Puluh Empat Tahun BRICS",
+    plan: {
+      hook: "Apa penyebab kecil di balik lahirnya kekuatan besar BRICS sebenarnya?",
+      summary: "Ringkasan cerita BRICS yang sangat panjang ".repeat(20),
+      importantPoints: ["Poin satu", "Poin dua", "Poin tiga"],
+      scenes: [
+        { index: 1, chapter: "Pembuka", durationSec: 30 },
+        { index: 2, chapter: "Awal Masalah", durationSec: 40 },
+        { index: 3, chapter: "Bukti Baru", durationSec: 50 }
+      ]
+    },
+    assets: {
+      video: {
+        chapters: [
+          { time: "0:00", label: "Awal Kisah BRICS" },
+          { time: "1:15", label: "Rintangan dan Perkembangan" },
+          { time: "3:40", label: "Indonesia dan Masa Depan" }
+        ]
+      },
+      clips: manyClips,
+      images: []
+    }
+  };
+
+  const desc = buildDescription(item);
+  assert.ok(desc.length <= 4900, `Deskripsi tidak boleh melebihi batas 4900 YouTube, panjang: ${desc.length}`);
+  assert.match(desc, /Bab:/, "Deskripsi WAJIB memuat bagian Bab:");
+  assert.match(desc, /0:00 Awal Kisah BRICS/, "Timestamp 0:00 bab pertama harus ada");
+  assert.match(desc, /1:15 Rintangan dan Perkembangan/, "Timestamp bab kedua harus ada");
+  assert.match(desc, /3:40 Indonesia dan Masa Depan/, "Timestamp bab ketiga harus ada");
+});
+
+test("buildChapters: fallback ke estimasi storyboard jika item belum memiliki assets.video.chapters", () => {
+  const item = {
+    plan: {
+      scenes: [
+        { index: 1, chapter: "Pembuka", durationSec: 30 },
+        { index: 2, chapter: "Awal Masalah", durationSec: 35 },
+        { index: 3, chapter: "Bukti Baru", durationSec: 40 },
+        { index: 4, chapter: "Penutup", durationSec: 40 }
+      ]
+    },
+    assets: {}
+  };
+
+  const ch = buildChapters(item);
+  assert.ok(ch.length > 0, "Harus menghasilkan bab dari estimasi storyboard");
+  assert.match(ch, /0:00 Pembuka/);
+  assert.match(ch, /0:30 Awal Masalah/);
+  assert.match(ch, /1:05 Bukti Baru/);
 });

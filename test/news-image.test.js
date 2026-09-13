@@ -186,6 +186,27 @@ test("extractSceneRealEntityQuery: mengekstrak nama tempat dan entitas konkret d
   };
   const q3 = extractSceneRealEntityQuery(scene3, "Teknologi");
   assert.equal(q3, "BJ Habibie");
+
+  const sceneIndonesia = {
+    screenText: "Peran Global",
+    narration: "Indonesia sebagai salah satu kekuatan dunia memiliki peran strategis di kancah global."
+  };
+  const qIndo = extractSceneRealEntityQuery(sceneIndonesia, "BRICS dan Pengaruh Global");
+  assert.equal(qIndo, "peta indonesia");
+
+  const sceneFigure = {
+    screenText: "Lahirnya Konsep",
+    narration: "Pada tahun 2001, ekonom Jim O'Neill merumuskan potensi besar empat negara berkembang."
+  };
+  const qFig = extractSceneRealEntityQuery(sceneFigure, "Sejarah BRICS");
+  assert.equal(qFig, "Jim O'Neill");
+
+  const sceneSummit = {
+    screenText: "Pertemuan Puncak",
+    narration: "Konferensi Tingkat Tinggi KTT BRICS menjadi panggung perundingan mata uang dan perdagangan."
+  };
+  const qSummit = extractSceneRealEntityQuery(sceneSummit, "Ekonomi Global");
+  assert.equal(qSummit, "KTT BRICS");
 });
 
 test("extractSceneRealEntityQuery: menangani visualKeywords string dan visualSegments tanpa error", () => {
