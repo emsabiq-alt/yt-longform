@@ -134,7 +134,7 @@ export function dedupeSentences(value, max = 2000, seen = null) {
   let firstSentence = "";
 
   for (const raw of sentences) {
-    const sentence = cleanText(raw, 500);
+    const sentence = cleanText(raw, max);
     if (!sentence) continue;
     const fingerprint = textFingerprint(sentence);
     if (!fingerprint) continue;
@@ -181,7 +181,7 @@ export function polishPlanForLayAudience(plan, input = {}) {
       ...scene,
       narration: sceneType === "reaction"
         ? simplifyForLayAudience(scene?.narration || "", 180)
-        : dedupeSentences(scene?.narration || "", 1600, shared),
+        : dedupeSentences(scene?.narration || "", 4000, shared),
       reactionCue: simplifyForLayAudience(scene?.reactionCue || "", 120)
     };
     if (shared) droppedSentences += Math.max(0, before - sentenceCount(next.narration));
@@ -259,7 +259,7 @@ export function polishPlanForLayAudience(plan, input = {}) {
 }
 
 function sentenceCount(value) {
-  return (cleanText(value || "", 1600).match(/[^.!?]+[.!?]?/g) || []).filter((s) => cleanText(s, 500)).length;
+  return (cleanText(value || "", 4000).match(/[^.!?]+[.!?]?/g) || []).filter((s) => cleanText(s, 4000)).length;
 }
 
 const PHRASE_WORDS = 5;
@@ -329,7 +329,7 @@ function sliceNarrationPhrase(words, index, total, used) {
  */
 export function alignNarrativeContext(segments, narration) {
   const list = Array.isArray(segments) ? segments : [];
-  const words = cleanText(narration || "", 1600).split(/\s+/).filter(Boolean);
+  const words = cleanText(narration || "", 4000).split(/\s+/).filter(Boolean);
   const narrationTokens = matchTokens(narration);
   const used = new Set();
   let cursor = 0;

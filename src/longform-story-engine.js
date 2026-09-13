@@ -13,14 +13,15 @@ import { getViralAngleById, pickViralAngle, viralAngleSummary } from "./viral-an
 import { isGenericStoryboardText, polishPlanForLayAudience, simplifyForLayAudience } from "./story-language.js";
 import { normalizeSpotlight } from "./spotlight.js";
 import { enrichTrendNewsItems, fetchNewsArticlesForTopic } from "./news-research.js";
+import { MAX_ENRICHED_SCENES } from "./duration-control.js";
 
 // Kontrak durasi longform, dipakai bersama config, API, workflow, dan render.
-export const DEFAULT_DURATION_SEC = 720;
+export const DEFAULT_DURATION_SEC = 1200;
 export const MAX_DURATION_SEC = 1200;
 
 // Naskah lebih pendek dari porsi ini tidak akan pernah menghasilkan video
 // sepanjang target, jadi run dihentikan sebelum gambar/TTS/render dibayar.
-// Ambang ini tetap di bawah minimum revisi 1.6 kata/detik.
+// Ambang ini tetap di bawah minimum revisi 1.8 kata/detik.
 const MIN_PUBLISHABLE_WORDS_PER_SEC = 1.4;
 
 const categories = [
@@ -259,6 +260,7 @@ export async function createLongformDraft(rawInput) {
   if (source === "openai" && wiki?.sources?.length) {
     normalized.sources = wiki.sources;
     normalized.factSource = "wikipedia";
+    normalized.researchFacts = wiki.facts;
   }
 
   normalized = finalizeNormalizedPlan(normalized, input);
@@ -304,6 +306,79 @@ export async function createLongformDraft(rawInput) {
   return item;
 }
 
+// Only new scenes are normalized. Existing narration and visual directions stay intact.
+export function insertEnrichmentScenes(item, additions) {
+  const original = item.plan.scenes;
+  if (!Array.isArray(additions) || !additions.length || original.length + additions.length > MAX_ENRICHED_SCENES) {
+    throw new Error("Jumlah scene pengayaan kosong atau melebihi batas 48 scene.");
+  }
+  const anchors = new Map(original.slice(0, -1).map((scene) => [scene.index, scene]));
+  const usedNarrations = new Set(original.map((scene) => String(scene.narration).toLowerCase().replace(/\s+/g, " ").trim()));
+  for (const addition of additions) {
+    if (!anchors.has(Number(addition.afterSceneIndex))) throw new Error("Scene pengayaan harus mengikuti scene yang ada sebelum penutup.");
+    const narration = String(addition.narration || "").trim();
+    const key = narration.toLowerCase().replace(/\s+/g, " ");
+    if (narration.split(/\s+/).length < 35 || narration.length > 4000 || usedNarrations.has(key)) {
+      throw new Error("Scene pengayaan harus berisi pembahasan baru yang lengkap, bukan salinan atau ringkasan.");
+    }
+    if (!addition.beatPurpose || !addition.imagePrompt || !Array.isArray(addition.visualSegments) || addition.visualSegments.length < 4) {
+      throw new Error("Scene pengayaan wajib memiliki tujuan naratif dan empat arahan visual.");
+    }
+    usedNarrations.add(key);
+  }
+  const normalized = normalizePlan({ ...item.plan, scenes: [
+    ...additions.map((scene) => ({ ...scene, sceneType: "image", chapter: anchors.get(Number(scene.afterSceneIndex)).chapter })),
+    original.at(-1)
+  ] }, { ...item.input, sceneCount: additions.length + 1 }).scenes.slice(0, -1);
+  const groups = new Map();
+  additions.forEach((addition, index) => {
+    const anchor = Number(addition.afterSceneIndex);
+    if (!groups.has(anchor)) groups.set(anchor, []);
+    const extra = normalized[index];
+    if (extra.narration.split(/\s+/).length < 35) throw new Error("Scene tambahan kehilangan isi setelah normalisasi; pengayaan dibatalkan.");
+    groups.get(anchor).push({ ...extra, chapter: anchors.get(anchor).chapter });
+  });
+  const indexMap = new Map();
+  const scenes = [];
+  for (const scene of original) {
+    indexMap.set(scene.index, scenes.length + 1);
+    scenes.push({ ...scene, index: scenes.length + 1 });
+    for (const extra of groups.get(scene.index) || []) scenes.push({ ...extra, index: scenes.length + 1 });
+  }
+  item.plan.scenes = scenes;
+  item.plan.longformStoryboard = buildLongformStoryboard(item.plan);
+  item.input.sceneCount = scenes.length;
+  item.assets.sceneAudio = (item.assets.sceneAudio || []).map((entry) => ({ ...entry, sceneIndex: indexMap.get(entry.sceneIndex) }));
+  return item;
+}
+
+export async function enrichLongformDraft(item, { missingSec, rawAudioSec, request = requestKnowledgeJson }) {
+  const scenes = item.plan.scenes;
+  const wordCount = scenes.reduce((sum, scene) => sum + String(scene.narration).split(/\s+/).length, 0);
+  const wordsToAdd = Math.max(45, Math.ceil(missingSec * wordCount / rawAudioSec));
+  const count = Math.min(6, MAX_ENRICHED_SCENES - scenes.length, Math.max(1, Math.ceil(wordsToAdd / 80)));
+  if (count <= 0) throw new Error("Durasi belum terpenuhi setelah 48 scene. Storyboard dipertahankan; publikasi dihentikan.");
+  const prompt = [
+    "Perkaya dokumenter Bahasa Indonesia berikut dengan scene TAMBAHAN. Jangan menulis ulang, memendekkan, atau menghapus scene lama.",
+    `Topik: ${item.input.topic}. Tambahkan tepat ${count} scene image, sekitar ${Math.min(wordsToAdd, count * 110)} kata baru total.`,
+    "Setiap scene baru menjelaskan bukti, contoh, studi kasus, sebab-akibat, atau sudut pandang yang belum dijelaskan. Gunakan fakta dari sumber yang tersedia; jangan mengarang angka, kutipan, atau sumber.",
+    "Sisipkan pada bab yang paling relevan melalui afterSceneIndex. Jangan sisipkan setelah scene penutup. Pertahankan alur dan nama bab.",
+    "Setiap scene memerlukan narration lengkap, screenText spesifik, beatPurpose, imagePrompt, visualKeywords, dan tepat 4 visualSegments dengan imagePrompt, visualKeywords, pexelsQuery, mustMatchTerms, narrativeContext (salinan 3-8 kata dari narasi).",
+    "Isi spotlight {type, label, sublabel, phrase} untuk fakta/nama penting, phrase disalin dari narasi. Isi mediaSource hanya dari sumber relevan untuk mockup phone/tablet yang sudah ada.",
+    "Kembalikan JSON {scenes:[{afterSceneIndex,narration,screenText,beatPurpose,imagePrompt,visualKeywords,visualSegments,spotlight,mediaSource}]}.",
+    `Sumber berita: ${JSON.stringify(item.input.trend?.newsItems || [])}`,
+    `Referensi tambahan: ${JSON.stringify(item.plan.sources || [])}`,
+    `Fakta riset: ${item.plan.researchFacts || "Gunakan materi sumber berita yang tersedia di atas."}`,
+    `Storyboard yang harus dipertahankan: ${JSON.stringify(scenes.map(({ index, chapter, narration, beatPurpose }) => ({ index, chapter, narration, beatPurpose })))}`
+  ].join("\n");
+  const result = await request(prompt);
+  if (result?.scenes?.length !== count) throw new Error(`Pengayaan harus mengembalikan tepat ${count} scene lengkap.`);
+  insertEnrichmentScenes(item, result.scenes);
+  item.assets.storyboard = await writeLongformStoryboard(item);
+  item.updatedAt = nowIso();
+  return item;
+}
+
 function normalizeInput(input) {
   let sceneCount, durationSec;
 
@@ -311,10 +386,10 @@ function normalizeInput(input) {
     // Mode Ide: hitung dari volume konten artikel, min 18 scene (6 menit)
     const totalWords = (input.trend?.newsItems || [])
       .reduce((sum, it) => sum + String(it.excerpt || it.headline || "").split(/\s+/).length, 0);
-    sceneCount = Math.max(18, Math.min(30, Math.ceil(totalWords / 80)));
-    durationSec = Math.max(360, sceneCount * 22); // ~22 detik per scene rata-rata
+    sceneCount = Math.max(32, Math.min(36, Math.ceil(totalWords / 80)));
+    durationSec = clamp(Number(input.durationSec || DEFAULT_DURATION_SEC), 300, MAX_DURATION_SEC);
   } else {
-    sceneCount = clamp(Number(input.sceneCount || 26), 26, 28);
+    sceneCount = clamp(Number(input.sceneCount || 36), 32, 36);
     durationSec = clamp(Number(input.durationSec || DEFAULT_DURATION_SEC), 300, MAX_DURATION_SEC);
   }
 
@@ -328,6 +403,7 @@ function normalizeInput(input) {
     trend: normalizeTrend(input.trend),
     tone: cleanText(input.tone || "narrator, serius tapi menarik, informatif, mendalam, seperti video dokumenter Vox atau Lemmino", 180),
     durationSec,
+    durationLocked: input.durationLocked ?? true,
     sceneCount,
     ttsProvider: String(input.ttsProvider || "openai").toLowerCase() === "elevenlabs" ? "elevenlabs" : "openai",
     imageSize: "1536x1024", // Default landscape
@@ -389,7 +465,7 @@ function trendPromptBlock(trend) {
     headlines,
     "",
     "ATURAN SUMBER MEDIA DAN KUTIPAN (DEVICE MOCKUP OVERLAY):",
-    "- Pada 2-4 scene image yang membahas berita atau referensi penting, sertakan field mediaSource: { outlet, headline, url, publishedAt } yang disalin dari item di atas agar tampil di mockup smartphone/tablet.",
+    "- Sebarkan 6-8 scene image yang membahas berita atau referensi penting ke seluruh bab; sertakan field mediaSource: { outlet, headline, url, publishedAt } yang disalin dari item di atas agar tampil di mockup smartphone/tablet. Pilih hanya sumber yang relevan.",
     "- Narasi boleh menyebut nama outlet secara alami atau langsung memaparkan faktanya secara mendalam.",
     ...(hasExcerpts ? [
       "KUTIPAN LANGSUNG (WAJIB jika ISI ARTIKEL tersedia):",
@@ -451,7 +527,8 @@ function buildPrompt(input, wiki = null) {
     `Setiap scene image wajib memiliki ${words.imageMin}-${words.imageMax} kata narasi. Scene summary wajib memiliki ${words.summaryMin}-${words.summaryMax} kata narasi.`,
     "Scene reaction tidak memerlukan visualKeywords atau imagePrompt. Isi reactionCue dengan ekspresi yang cocok: heran, kaget, skeptis, menemukan petunjuk, atau setuju.",
     "Scene terakhir wajib bertipe summary dengan screenText 'Ringkasan Inti' dan narasi kesimpulan yang tidak kosong.",
-    "Buat storyboard longform yang komprehensif: banyak beat kecil, punya fungsi naratif jelas, dan tidak terasa seperti storyboard Shorts.",
+    "Buat storyboard longform mendalam: sekitar enam bab yang berurutan, berisi pertanyaan utama, konteks, cara kerja/sebab, bukti dan studi kasus, dampak serta sudut pandang pembanding, lalu jawaban dan kesimpulan. Sesuaikan susunan dengan format dan topik.",
+    "Perkaya setiap bab dengan bukti, contoh konkret, detail sebab-akibat, atau batas penjelasan yang didukung sumber. Pertahankan kedalaman pembahasan; jangan meringkas bab menjadi satu kalimat untuk mengejar jumlah scene.",
     "Storyboard tidak boleh memakai judul layar generik berulang. Tulis screenText yang spesifik sesuai fakta scene, bukan label konsep umum.",
     "",
     "ANTI-PENGULANGAN NARASI (WAJIB DIPATUHI):",
@@ -474,7 +551,7 @@ function buildPrompt(input, wiki = null) {
     "- Jawaban pertanyaan pembuka bab TIDAK boleh langsung diberikan di kalimat berikutnya; ungkap secara bertahap sepanjang bab itu.",
     "- Scene reaction yang berada di batas bab difungsikan sebagai checkpoint tebakan: pertanyaan singkat yang jawabannya dibuka di scene sesudahnya.",
     "",
-    "SPOTLIGHT (WAJIB diisi pada setiap scene image yang memenuhi syarat, target 8-12 scene per naskah):",
+    "SPOTLIGHT (WAJIB diisi pada scene image yang memenuhi syarat, target 18-22 scene tersebar dari awal sampai bab terakhir):",
     "- Untuk scene yang punya satu fakta paling layak diingat (angka, tahun, nama tokoh, atau istilah kunci), tambahkan field spotlight.",
     "- Format: spotlight: { type:'keypoint'|'figure', label, sublabel, phrase }.",
     "- label = fakta itu sendiri, maksimal 5 kata (misal '1.200 kilometer per jam' atau 'Ibnu Sina'). sublabel = penjelas singkat maksimal 6 kata (misal peran/jabatan tokoh), boleh kosong.",
@@ -484,7 +561,7 @@ function buildPrompt(input, wiki = null) {
     "- Jangan memberi spotlight pada scene reaction atau summary.",
     "",
     "MOCKUP GADGET (SMARTPHONE / TABLET OVERLAY):",
-    "- Pada 2-3 scene bertipe image yang membahas data, riset, artikel berita, arsip dokumen, atau kutipan penting, sertakan field mediaSource: { outlet, headline } (misal outlet: 'Arsip Dokumen / Riset Ilmiah / Media', headline: 'Poin Fakta Kunci'). Sistem akan otomatis menampilkan mockup device smartphone/tablet yang estetik pada scene tersebut.",
+    "- Sebarkan 6-8 scene bertipe image dengan referensi relevan di seluruh bab. Sertakan mediaSource dari sumber yang tersedia agar tampil memakai template mockup smartphone/tablet milik pengguna. Foto tokoh, benda, atau dokumen di dalam mockup wajib sesuai dengan narasi saat itu. Jangan mengarang sumber atau menempelkan artikel yang tidak relevan.",
     `CATATAN KATEGORI (${input.category}): ${categoryNote}`,
     `VARIASI CERITA UNTUK NASKAH INI: ${variation}`,
     `KEMASAN VIRAL UTAMA:\n${viralBlock}`,
@@ -534,14 +611,14 @@ function buildPrompt(input, wiki = null) {
     "FALLBACK IMAGE PROMPT (imagePrompt) untuk scene image/summary wajib menggambarkan pemandangan horizontal 16:9 yang artistik tanpa teks/tulisan di dalamnya.",
     "",
     "VISUAL SEGMENTS (WAJIB untuk scene image/summary, TIDAK untuk reaction):",
-    "Setiap scene berdurasi 20-25 detik. JANGAN hanya pakai 1 gambar/video selama itu — penonton AKAN bosan.",
-    "Setiap scene image/summary WAJIB punya array 'visualSegments' berisi TEPAT 6 sub-visual berurutan.",
-    "Dengan 6 sub-visual per scene ~20-25 detik, setiap klip hanya tayang ~3-4 detik — cut cepat membuat penonton tetap fokus.",
-    "6 sub-visual itu HARUS membentuk PROGRESI VISUAL ketat yang mengikuti urutan narasi scene:",
+    "Durasi tiap scene mengikuti panjang narasinya. Siapkan beberapa gambar/video yang berganti sesuai alur narasi.",
+    `Setiap scene image/summary WAJIB punya array 'visualSegments' berisi TEPAT ${VISUAL_SEGMENT_COUNT} sub-visual berurutan.`,
+    "Pergantian sub-visual mengikuti kalimat narasi; sisipkan detail, sumber dalam mockup, dan spotlight yang relevan agar adegan panjang tetap hidup.",
+    "Keempat sub-visual itu HARUS membentuk PROGRESI VISUAL yang mengikuti seluruh urutan narasi scene:",
     "  - Sub-visual 1 = apa yang terlihat saat kalimat pembuka scene dibacakan.",
-    "  - Sub-visual 2-3 = bukti/detail pertama di bagian tengah awal.",
-    "  - Sub-visual 4-5 = perkembangan/konflik/data di bagian tengah akhir.",
-    "  - Sub-visual 6 = penutup/akibat/kesimpulan bagian akhir narasi scene.",
+    "  - Sub-visual 2 = bukti/detail pertama di bagian tengah awal.",
+    "  - Sub-visual 3 = perkembangan/konflik/data di bagian tengah akhir.",
+    "  - Sub-visual 4 = penutup/akibat/kesimpulan bagian akhir narasi scene.",
     "KONTINUITAS: keempat sub-visual harus terasa seperti satu rangkaian cerita — subjek utama, lokasi, atau objek kunci yang sama berlanjut antar sub-visual (berubah sudut pandang, jarak, atau momen), BUKAN 4 gambar acak yang tidak berhubungan.",
     "Setiap sub-visual menggambarkan APA yang harus TERLIHAT di layar saat bagian narasi itu dibacakan.",
     "narrativeContext (SANGAT PENTING untuk sinkronisasi): WAJIB berupa potongan frasa 3-8 kata yang DISALIN PERSIS (verbatim) dari teks narration scene itu, sesuai urutan kemunculannya. Sistem memakai frasa ini untuk mengganti gambar TEPAT saat frasa itu diucapkan oleh narator. Jangan memparafrase, jangan menerjemahkan, jangan mengarang frasa yang tidak ada di narration.",
@@ -838,6 +915,9 @@ function normalizePlan(plan, input) {
   const scenes = rawScenes.slice(0, input.sceneCount).map((scene, index) => {
     const duration = durations[index] || 20;
     const sceneType = resolveSceneType(scene?.sceneType, index, input.sceneCount, input.formatType);
+    if (sceneType !== "reaction" && String(scene?.narration || "").trim().length > 4000) {
+      throw new Error("Narasi scene terlalu panjang untuk satu TTS. Pecah menjadi scene tambahan, jangan potong naskah.");
+    }
     const reactionLine = sceneType === "reaction" ? normalizeReactionNarration(scene, index) : "";
     const screenText = sceneType === "summary"
       ? "Ringkasan Inti"
@@ -846,7 +926,7 @@ function normalizePlan(plan, input) {
         : cleanText(scene?.screenText || `Babak ${index + 1}`, 100);
     const narration = sceneType === "reaction"
       ? reactionLine
-      : cleanText(scene?.narration || `Ini adalah bagian penjelasan untuk babak ke-${index + 1}.`, 1600);
+      : cleanText(scene?.narration || `Ini adalah bagian penjelasan untuk babak ke-${index + 1}.`, 4000);
     const rawSceneVisualKeywords = sceneType === "reaction" ? "" : cleanText(scene?.visualKeywords || "", 150);
     const sceneVisualKeywords = sceneType === "reaction" ? "" : rawSceneVisualKeywords || fallbackKeywords(index);
     const sceneImagePrompt = sceneType === "reaction" ? "" : cleanText(scene?.imagePrompt || fallbackImagePrompt(input.topic, index), 500);
@@ -1006,6 +1086,8 @@ export function buildLongformStoryboard(plan) {
     visualSegments: scene.visualSegments || [],
     reactionCue: scene.reactionCue || "",
     mediaSource: scene.mediaSource || null,
+    spotlight: scene.spotlight || null,
+    narration: scene.narration || "",
     narrationPreview: cleanText(scene.narration, 240)
   }));
 }
@@ -1072,7 +1154,7 @@ function completeSummary(summary, importantPoints, topic) {
 }
 
 function completeSummaryNarration(sceneNarration, summary) {
-  const sceneText = cleanText(sceneNarration || "", 1600);
+  const sceneText = cleanText(sceneNarration || "", 4000);
   const summaryText = cleanText(summary || "", 700);
   const sceneWords = sceneText.split(/\s+/).filter(Boolean).length;
   if (sceneWords >= 50 && /[.!?]$/.test(sceneText)) return sceneText;
@@ -1113,7 +1195,7 @@ function narrationWordCount(plan) {
     .reduce((sum, scene) => sum + String(scene.narration || "").split(/\s+/).filter(Boolean).length, 0);
 }
 
-async function writeLongformStoryboard(item) {
+export async function writeLongformStoryboard(item) {
   const storyboardDir = path.join(paths.generatedDir, "storyboards");
   await fs.mkdir(storyboardDir, { recursive: true });
   const filename = `${item.id}-longform-storyboard.json`;
@@ -1124,6 +1206,7 @@ async function writeLongformStoryboard(item) {
     topic: item.input.topic,
     category: item.input.category,
     durationSec: item.input.durationSec,
+    durationControl: item.assets.durationControl,
     sceneCount: item.plan.scenes.length,
     formatType: item.input.formatType,
     angle: item.input.angle,

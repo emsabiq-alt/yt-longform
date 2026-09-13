@@ -42,11 +42,24 @@ Tab **Generate** bisa menjalankan pipeline lokal (Node) atau men-trigger GitHub 
 Tab **Monitor** menampilkan daftar video dari state hosting.
 
 ## Sinkronisasi TTS (longform)
-Default pembuatan video memakai target 720 detik (12 menit), 26 scene, dan
-OpenAI TTS dengan `OPENAI_TTS_SPEED=1.08`. Target naskah sekitar 1.300 kata
-untuk 12 menit, dengan anggaran kata dan ambang revisi yang mengikuti durasi;
-durasi video sebenarnya mengikuti hasil audio sehingga target 10–12 menit
-perlu dinilai dari hasil render. Target lain antara 300–1200 detik tetap tersedia.
+Default pembuatan video memakai target **1200 detik (20 menit)**, **36 scene awal**,
+dan OpenAI TTS dengan `OPENAI_TTS_SPEED=1.08`. Storyboard awal menargetkan sekitar
+2.280 kata dalam enam bab dengan bukti, contoh, sebab-akibat, dan perspektif berbeda.
+Sesudah TTS, sistem mengukur durasi audio termasuk hook, intro, dan outro.
+Jika masih kurang, sistem menyisipkan scene baru berdasarkan sumber dan laju bicara
+terukur, maksimal tiga tahap pengayaan dan 48 scene. Narasi scene lama tetap utuh
+dan audionya digunakan kembali. File storyboard JSON menyimpan narasi lengkap.
+
+Penyesuaian akhir memakai tempo render 0.98–1.12x dengan timestamp subtitle,
+pergantian visual, dan spotlight yang ikut disesuaikan. Audio tidak dipotong untuk
+mengejar durasi. FFprobe memeriksa MP4 akhir dengan toleransi satu detik dari target;
+run berhenti sebelum publikasi bila target tidak bisa dipenuhi dalam batas tersebut.
+Mockup tetap memakai `assets/phone-mockup.png` dan `assets/tablet-mockup.png`, dengan
+sekitar 6–8 penempatan relevan di seluruh cerita; kuota 22 spotlight tersebar hingga
+bab terakhir ketika tersedia pemicu yang cocok dengan audio.
+
+Samakan `YT_DURATION_SEC=1200` dan `YT_SCENE_COUNT=36` di `.env`, GitHub Secrets,
+dan Vercel production. Pengaturan eksplisit pengguna tetap didahulukan.
 
 Gaya suara bawaan adalah narator dokumenter yang lincah, jelas, dan bervariasi
 sesuai isi. `OPENAI_TTS_INSTRUCTIONS` dapat mengganti gaya ini untuk
@@ -62,9 +75,8 @@ dengan secret produksi dan menyimpan MP3 serta `comparison.json` sebagai artifac
 workflow ini tidak membuat atau mengunggah video ke YouTube.
 
 Setiap scene (image / reaction / summary) punya file TTS sendiri. Durasi visual
-mengikuti durasi audio aslinya, dan subtitle memakai timestamp transkripsi per scene.
-Hasilnya: suara dan teks selalu sinkron, narasi tidak terpotong, dan reaction
-ikut bersuara.
+mengikuti durasi audio yang telah disesuaikan, dan subtitle memakai timestamp
+transkripsi per scene yang dikoreksi dengan tempo yang sama. Reaction ikut bersuara.
 
 ## Deploy
 

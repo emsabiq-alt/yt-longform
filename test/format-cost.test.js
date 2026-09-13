@@ -35,8 +35,8 @@ test("sceneWordRange: semua format bisa mencapai target kata dan ambang revisi",
   // Batas kata tetap "48-65" membuat mitos_vs_fakta & countdown selalu gagal di
   // durasi panjang, memicu satu tulis-ulang penuh yang gagal lagi.
   for (const formatType of Object.keys(FORMAT_TYPES)) {
-    for (const durationSec of [300, 420, 600, 720, 900]) {
-      const sceneCount = Math.max(26, Math.min(28, Math.round(durationSec / 18)));
+    for (const durationSec of [300, 420, 600, 720, 900, 1200]) {
+      const sceneCount = 36;
       const range = sceneWordRange(sceneCount, formatType, durationSec);
       const reachable = range.narratedScenes * range.imageMax;
       const threshold = Math.max(range.targetWords, range.minimumWords);

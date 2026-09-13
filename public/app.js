@@ -758,12 +758,12 @@ function toggleAllFacts() {
 
 function updateEstimate() {
   const form = document.getElementById("createForm");
-  const dur = +(form.querySelector("[name='durationSec']")?.value || 720);
+  const dur = +(form.querySelector("[name='durationSec']")?.value || 1200);
   const quality = form.querySelector("[name='imageQuality']")?.value || "low";
   const provider = form.querySelector("[name='ttsProvider']")?.value || "openai";
-  const scenes = +(form.querySelector("[name='sceneCount']")?.value || 26);
+  const scenes = +(form.querySelector("[name='sceneCount']")?.value || 36);
 
-  const words = Math.round(dur * 1.8);
+  const words = Math.round(dur * 1.9);
   const ttsCost = provider === "elevenlabs" ? words * 0.00003 : words * 0.000015;
   const imgPerScene = quality === "high" ? 3 : quality === "medium" ? 2 : 1;
   const imgCost = scenes * imgPerScene * 0.04;

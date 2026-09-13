@@ -101,7 +101,7 @@ function cleanShort(value, max) {
  * @returns {{ sceneIndex: number, startSec: number, endSec: number, label: string, sublabel: string, type: string, score: number }[]}
  */
 export function planSceneSpotlights(scenes, options = {}) {
-  const maxPerVideo = Number(options.maxPerVideo ?? MAX_PER_VIDEO);
+  const maxPerVideo = Math.max(0, Math.floor(Number(options.maxPerVideo ?? MAX_PER_VIDEO)));
   const minGap = Number(options.minGapSec ?? MIN_GAP_SEC);
   const minScore = Number(options.minScore ?? MIN_SCORE);
   const placed = [];
@@ -111,11 +111,6 @@ export function planSceneSpotlights(scenes, options = {}) {
     const spotlight = normalizeSpotlight(scene?.spotlight) || extractAutoSpotlight(scene);
     if (!spotlight) continue;
     stats.candidates += 1;
-
-    if (placed.length >= maxPerVideo) {
-      stats.rejectedQuota += 1;
-      continue;
-    }
 
     const timeline = buildWordTimeline(scene.sceneCaptions);
     const match = findPhraseTime(timeline, tokenizeMatchText(spotlight.phrase));
@@ -149,10 +144,17 @@ export function planSceneSpotlights(scenes, options = {}) {
       type: spotlight.type,
       score: Number(match.score.toFixed(2))
     });
-    stats.placed += 1;
   }
 
-  return placed;
+  // Spread a limited quota across the entire story, including its final chapters.
+  const selected = placed.length <= maxPerVideo ? placed
+    : Array.from({ length: maxPerVideo }, (_, i) => placed[
+      maxPerVideo === 1 ? Math.floor(placed.length / 2)
+        : Math.round(i * (placed.length - 1) / (maxPerVideo - 1))
+    ]);
+  stats.rejectedQuota += placed.length - selected.length;
+  stats.placed += selected.length;
+  return selected;
 }
 
 /**

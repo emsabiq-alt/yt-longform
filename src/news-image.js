@@ -411,16 +411,13 @@ export async function ensureNewsImages(item) {
   }
 
   // 2. Tambahkan scene bertipe image sebagai kandidat device mockup
-  // agar mockup tampil lebih sering dan merata di sepanjang video (target 4-6 mockup).
+  // agar mockup tersebar di seluruh bab (sekitar 6-8 pada dokumenter 20 menit).
   // KRITIS: Konten mockup HARUS 100% inline dengan narasi scene!
   const candidateScenes = scenes.filter((s) => s.sceneType === "image" || !s.sceneType);
   if (candidateScenes.length >= 2) {
-    const step = Math.max(2, Math.floor(candidateScenes.length / 5));
-    const targetScenes = [];
-    for (let i = 1; i < candidateScenes.length; i += step) {
-      targetScenes.push(candidateScenes[i]);
-      if (targetScenes.length >= 6) break;
-    }
+    const count = Math.min(8, Math.ceil(candidateScenes.length / 4));
+    const targetScenes = Array.from({ length: count }, (_, i) =>
+      candidateScenes[Math.floor((i + 0.5) * candidateScenes.length / count)]);
 
     for (let i = 0; i < targetScenes.length; i++) {
       try {

@@ -75,6 +75,19 @@ test("scene reaction dan summary tidak pernah dapat kartu", () => {
   assert.deepEqual(planSceneSpotlights([scene({ sceneType: "reaction" }), scene({ sceneType: "summary" })]), []);
 });
 
+test("kuota spotlight tersebar sampai bab terakhir dari 48 scene", () => {
+  const scenes = Array.from({ length: 48 }, (_, i) => scene({ index: i + 1, startSec: i * 25, durationSec: 25 }));
+  const cards = planSceneSpotlights(scenes);
+  assert.equal(cards.length, 22);
+  assert.equal(cards[0].sceneIndex, 1);
+  assert.equal(cards.at(-1).sceneIndex, 48);
+  for (let quarter = 0; quarter < 4; quarter++) {
+    assert.ok(cards.filter((card) => card.startSec >= quarter * 300 && card.startSec < (quarter + 1) * 300).length >= 5);
+  }
+  assert.deepEqual(planSceneSpotlights(scenes, { maxPerVideo: 0 }), []);
+  assert.equal(planSceneSpotlights(scenes, { maxPerVideo: 1 }).length, 1);
+});
+
 test("kartu dipotong di akhir scene, bukan menyeberang", () => {
   const placed = planSceneSpotlights([scene({ durationSec: 4 })]);
   assert.equal(placed.length, 1);

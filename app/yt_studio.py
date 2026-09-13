@@ -648,9 +648,9 @@ class YTStudioApp(ctk.CTk):
         env_vars = parse_env()
         self.f_duration = self._labeled_combo(body, "Durasi (detik)", 1, 1,
                                               ["300", "360", "480", "600", "720", "900", "1200"],
-                                              default=env_vars.get("YT_DURATION_SEC", "720"))
+                                              default=env_vars.get("YT_DURATION_SEC", "1200"))
         self.f_scenes = self._labeled_combo(body, "Jumlah scene", 1, 2,
-                                            ["26", "27", "28"], default="26")
+                                            ["32", "34", "36"], default="36")
         # Get defaults based on .env
         default_tts = env_vars.get("YT_TTS_PROVIDER", "openai")
         default_voice = env_vars.get("ELEVENLABS_VOICE_ID", "wUrGnU2Kx934kbDdOWDo") if default_tts == "elevenlabs" else env_vars.get("OPENAI_TTS_VOICE", "cedar")

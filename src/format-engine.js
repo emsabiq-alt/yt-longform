@@ -247,7 +247,7 @@ function patternStickFigureRich(count) {
  * @returns {string[]}
  */
 export function buildScenePattern(sceneCount, formatType = "dokumenter_klasik") {
-  const count = Math.max(8, Math.floor(sceneCount || 26));
+  const count = Math.max(8, Math.floor(sceneCount || 36));
   switch (formatType) {
     case "dokumenter_klasik": return patternDokumenterKlasik(count);
     case "investigasi_misteri": return patternInvestigasiMisteri(count);
@@ -280,12 +280,11 @@ export function sceneWordRange(sceneCount, formatType, durationSec) {
   const narratedScenes = buildScenePattern(sceneCount, formatType)
     .filter((type) => type !== "reaction").length || 1;
   const seconds = Math.max(60, Number(durationSec) || 300);
-  // Sampel dokumenter cedar 1.08x sekitar 114 kata/menit. Target 108 kata
-  // per menit video memberi ruang untuk hook/reaction dan jeda antar scene.
-  const targetWords = Math.round(seconds * 1.8);
-  const minimumWords = Math.round(seconds * 1.6);
+  // Around 2,280 words at 20 minutes; measured TTS determines enrichment and final timing.
+  const targetWords = Math.round(seconds * 1.9);
+  const minimumWords = Math.round(seconds * 1.8);
   const imageMin = Math.max(35, Math.ceil(minimumWords / narratedScenes));
-  const imageMax = Math.max(imageMin + 8, Math.ceil((seconds * 1.9) / narratedScenes));
+  const imageMax = Math.max(imageMin + 12, Math.ceil((seconds * 2.05) / narratedScenes));
   return {
     narratedScenes,
     targetWords,

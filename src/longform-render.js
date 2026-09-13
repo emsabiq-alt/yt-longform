@@ -8,10 +8,11 @@ import { buildWordTimeline, findPhraseTime, tokenizeMatchText } from "./word-tim
 import { planSceneSpotlights, spotlightDialogueLines, spotlightStyles, logSpotlightStats } from "./spotlight.js";
 import { applyNewsImageOverlays } from "./news-image.js";
 import { isGenericStoryboardText } from "./story-language.js";
+import { assertFinalDuration, fitSceneAudio, quantizeDurations, scaleCaptionTimes } from "./duration-control.js";
 
 const fps = 30;
 const minLongformDurationSec = 300;
-const maxLongformDurationSec = 900;
+const maxLongformDurationSec = 1200;
 const backgroundMusicVolume = 0.07;
 
 /**
@@ -279,7 +280,39 @@ async function makeContentAudioOnlyMusic({ musicPath, outputPath, duration, musi
  * @param {object} item - Objek item naskah panjang
  * @returns {Promise<object>} - Hasil data video yang dirender
  */
-export async function renderLongformVideo(item) {
+export async function prepareRenderLayout(item) {
+  const bumperOutroEnabled = item.input?.bumperOutroEnabled ?? config.render.bumperOutroEnabled;
+  const introEnabled = item.input?.introEnabled ?? config.render.introEnabled;
+  const outroEnabled = item.input?.outroEnabled ?? config.render.outroEnabled;
+  const bumperOutroRaw = path.join(paths.rootDir, "assets", "bumper-yt", "bumper-youtube-outro.mp4");
+  const bumperExists = await fs.access(bumperOutroRaw).then(() => true, () => false);
+  const introVideoPath = introEnabled ? await selectIntroVideo(item.input?.category) : null;
+  const outroVideoPath = outroEnabled ? await selectOutroVideo() : null;
+  const introDuration = introVideoPath ? await probeDuration(introVideoPath) : 0;
+  const outroDuration = outroVideoPath ? await probeDuration(outroVideoPath) : 0;
+  const bumperOutroDuration = bumperOutroEnabled && bumperExists ? await probeDuration(bumperOutroRaw) : 0;
+  let coldOpenDuration = 0;
+  if (config.automation.coldOpenEnabled && (item.plan?.hook || item.assets?.hookAudio?.text)) {
+    const hookSec = item.assets?.hookAudio?.path ? await probeDuration(item.assets.hookAudio.path) : 0;
+    const duration = item.input?.durationLocked ? Math.max(4, (hookSec || 6) + 0.5) : clamp((hookSec || 6) + 0.5, 4, 18);
+    coldOpenDuration = Math.ceil(duration * fps) / fps;
+  }
+  return { bumperOutroEnabled, introEnabled, outroEnabled, bumperOutroRaw,
+    bumperIntroDuration: 0, bumperOutroDuration, introVideoPath, introDuration,
+    outroVideoPath, outroDuration, coldOpenDuration,
+    fixedDuration: introDuration + outroDuration + bumperOutroDuration + coldOpenDuration };
+}
+
+export async function measureNarrationFit(item, layout) {
+  const byIndex = new Map((item.assets.sceneAudio || []).map((entry) => [entry.sceneIndex, entry]));
+  const durations = await Promise.all(item.plan.scenes.map((scene) => {
+    const audio = byIndex.get(scene.index);
+    return audio?.path ? probeDuration(audio.path) : 0;
+  }));
+  return fitSceneAudio(item.plan.scenes, durations, item.input.durationSec, layout.fixedDuration);
+}
+
+export async function renderLongformVideo(item, options = {}) {
   const workDir = path.join(paths.workDir, item.id);
   await fs.mkdir(workDir, { recursive: true });
   await fs.mkdir(paths.videoDir, { recursive: true });
@@ -291,37 +324,10 @@ export async function renderLongformVideo(item) {
     throw new Error("Background music not found! Please place Marimba Curiosity Case MP3 under assets/music.");
   }
 
-  const bumperOutroEnabled = item.input?.bumperOutroEnabled ?? config.render?.bumperOutroEnabled ?? false;
-  const introEnabled = item.input?.introEnabled ?? config.render?.introEnabled ?? false;
-  const outroEnabled = item.input?.outroEnabled ?? config.render?.outroEnabled ?? false;
-
-  const bumperOutroRaw = path.join(paths.rootDir, "assets", "bumper-yt", "bumper-youtube-outro.mp4");
-  // Bumper intro dihapus: era modern lebih efektif cold open hook langsung.
-  const bumperIntroDuration = 0;
-  const bumperOutroDuration = bumperOutroEnabled && fs.existsSync(bumperOutroRaw)
-    ? await probeDuration(bumperOutroRaw)
-    : 0;
-
-  // 1. Select the intro and outro videos (hanya jika diaktifkan)
-  let introVideoPath = null;
-  let introDuration = 0;
-  if (introEnabled) {
-    introVideoPath = await selectIntroVideo(item.input?.category);
-    introDuration = await probeDuration(introVideoPath);
-    console.log(`Selected Category Intro: ${introVideoPath} (${introDuration}s)`);
-  } else {
-    console.log(`[Render] Category Intro dinonaktifkan sesuai preferensi pengguna.`);
-  }
-
-  let outroVideoPath = null;
-  let outroDuration = 0;
-  if (outroEnabled) {
-    outroVideoPath = await selectOutroVideo();
-    outroDuration = await probeDuration(outroVideoPath);
-    console.log(`Selected Outro: ${outroVideoPath} (${outroDuration}s)`);
-  } else {
-    console.log(`[Render] Category Outro dinonaktifkan sesuai preferensi pengguna.`);
-  }
+  const layout = options.layout || await prepareRenderLayout(item);
+  const { bumperOutroEnabled, introEnabled, outroEnabled, bumperOutroRaw,
+    bumperIntroDuration, bumperOutroDuration, introVideoPath, introDuration,
+    outroVideoPath, outroDuration } = layout;
 
   // Mode baru: TTS per scene (termasuk reaction). Durasi visual mengikuti durasi audio
   // sehingga subtitle dan suara selalu sinkron dan tidak ada narasi yang terpotong.
@@ -336,7 +342,8 @@ export async function renderLongformVideo(item) {
       introDuration,
       outroDuration,
       bumperIntroDuration,
-      bumperOutroDuration
+      bumperOutroDuration,
+      coldOpenDuration: layout.coldOpenDuration
     });
     timing = built.timing;
     renderScenes = built.renderScenes;
@@ -387,7 +394,7 @@ export async function renderLongformVideo(item) {
         // Multi-media: render tiap sub-segment lalu concat.
         // Durasi sub-segment mengikuti timestamp kata TTS (narrativeContext),
         // sehingga gambar berganti tepat saat ide itu diucapkan.
-        const subDurations = computeSegmentDurations(scene, mediaList.length);
+        const subDurations = quantizeDurations(computeSegmentDurations(scene, mediaList.length), fps);
         const subPaths = [];
         for (let mi = 0; mi < mediaList.length; mi++) {
           const subPath = path.join(workDir, `content-segment-${String(index).padStart(2, "0")}-sub-${mi}.mp4`);
@@ -532,8 +539,7 @@ export async function renderLongformVideo(item) {
   const hookText = item.plan?.hook || item.assets?.hookAudio?.text || "";
   if (config.automation.coldOpenEnabled && hookText) {
     try {
-      const hookAudioDur = hookAudioPath ? await probeDuration(hookAudioPath) : 0;
-      coldOpenDuration = Number(clamp((hookAudioDur || 6) + 0.5, 4, 18).toFixed(3));
+      coldOpenDuration = layout.coldOpenDuration;
       const coldScene = renderScenes.find((scene) => scene.sceneType !== "reaction") || renderScenes[0];
       const coldMedia = resolveSceneMedia(item, coldScene);
       reportProgress("render", "Merender cold open (hook)", 92, "");console.log(`Rendering Cold Open hook (${coldOpenDuration}s, ${coldMedia.type})...`);
@@ -552,6 +558,7 @@ export async function renderLongformVideo(item) {
       coldOpenPath = path.join(workDir, "part-cold-open.mp4");
       await muxVideoAudio({ videoPath: coldSubtitledPath, audioPath: coldAudioPath, outputPath: coldOpenPath });
     } catch (error) {
+      if (item.input?.durationLocked) throw error;
       console.warn(`[Cold Open] Gagal, lanjut tanpa cold open: ${error.message}`);
       coldOpenPath = null;
       coldOpenDuration = 0;
@@ -584,6 +591,8 @@ export async function renderLongformVideo(item) {
 
   reportProgress("render", "Menggabungkan video final", 95, "");console.log(`Concatenating ${coreParts.length} parts into final video${coldOpenPath ? " (with cold open)" : ""}...`);
   await concatSegments(coreParts, outputPath);
+  const measuredDuration = await probeDuration(outputPath);
+  if (item.input?.durationLocked) assertFinalDuration(measuredDuration, item.input.durationSec);
 
   // Sidecar .srt + daftar bab. Keduanya memakai timeline final (setelah bagian
   // pembuka), jadi harus dihitung sesudah pola opening dipilih.
@@ -601,7 +610,8 @@ export async function renderLongformVideo(item) {
     srtPath,
     chapters,
     provider,
-    durationSec: totalDuration,
+    durationSec: measuredDuration,
+    targetDurationSec: item.input?.durationLocked ? item.input.durationSec : null,
     scenes: renderScenes.length,
     coldOpen: Boolean(coldOpenPath)
   };
@@ -677,10 +687,17 @@ function estimateReactionDuration(scene) {
  * Durasi tiap scene = durasi audio aslinya (plus jeda kecil), sehingga visual,
  * audio, dan subtitle otomatis sinkron. Reaction juga punya suara sendiri.
  */
-async function buildSceneAudioTiming(item, { introDuration, outroDuration, bumperIntroDuration = 0, bumperOutroDuration = 0 }) {
+export async function buildSceneAudioTiming(item, { introDuration = 0, outroDuration = 0, bumperIntroDuration = 0, bumperOutroDuration = 0, coldOpenDuration = 0 } = {}) {
   const scenes = item.plan?.scenes || [];
   const sceneAudio = Array.isArray(item.assets?.sceneAudio) ? item.assets.sceneAudio : [];
   const audioByIndex = new Map(sceneAudio.map((entry) => [Number(entry.sceneIndex), entry]));
+  const audioDurations = await Promise.all(scenes.map((scene) => {
+    const entry = audioByIndex.get(Number(scene.index));
+    return entry?.path ? probeDuration(entry.path) : 0;
+  }));
+  const fit = item.input?.durationLocked ? fitSceneAudio(scenes, audioDurations,
+    item.input.durationSec, introDuration + outroDuration + bumperIntroDuration + bumperOutroDuration + coldOpenDuration) : null;
+  if (fit?.status === "enrich") throw new Error("Narasi masih terlalu pendek; tambahkan scene sebelum render.");
 
   // Jeda minimal di akhir tiap scene: cukup agar audio tidak terpotong,
   // tapi tidak cukup lama untuk terdengar sebagai "jeda diam" yang mengganggu.
@@ -692,21 +709,22 @@ async function buildSceneAudioTiming(item, { introDuration, outroDuration, bumpe
 
   for (const scene of scenes) {
     const entry = audioByIndex.get(Number(scene.index));
-    const audioDuration = entry?.path ? await probeDuration(entry.path) : 0;
+    const audioDuration = audioDurations[renderScenes.length];
     const type = scene.sceneType || "image";
     const tailPad = tailPadByType[type] ?? 0.35;
     const minDuration = minDurationByType[type] ?? 1.5;
 
-    const durationSec = Math.max(minDuration, (audioDuration || estimateReactionDuration(scene)) + tailPad);
+    const durationSec = fit ? fit.durations[renderScenes.length] : Math.max(minDuration, (audioDuration || estimateReactionDuration(scene)) + tailPad);
 
     renderScenes.push({
       ...scene,
       sceneAudioPath: entry?.path || null,
-      sceneCaptions: Array.isArray(entry?.captions) ? entry.captions : [],
-      audioDurationSec: Number(audioDuration.toFixed(3)),
-      startSec: Number(cursor.toFixed(3)),
-      durationSec: Number(durationSec.toFixed(3)),
-      endSec: Number((cursor + durationSec).toFixed(3))
+      sceneCaptions: scaleCaptionTimes(Array.isArray(entry?.captions) ? entry.captions : [], fit?.tempo || 1),
+      narrationTempo: fit?.tempo || 1,
+      audioDurationSec: audioDuration / (fit?.tempo || 1),
+      startSec: cursor,
+      durationSec,
+      endSec: cursor + durationSec
     });
     cursor += durationSec;
   }
@@ -719,7 +737,7 @@ async function buildSceneAudioTiming(item, { introDuration, outroDuration, bumpe
     timing: {
       contentDuration,
       totalDuration: Number((contentDuration + fixedDuration).toFixed(2)),
-      narrationTempo: 1,
+      narrationTempo: fit?.tempo || 1,
       adjustedNarrationDuration: contentDuration
     }
   };
@@ -730,7 +748,7 @@ async function buildSceneAudioTiming(item, { introDuration, outroDuration, bumpe
  * Setiap scene (image/summary/reaction) ditempel sesuai durasinya, lalu di-pad
  * dengan silence agar pas dengan durasi visual, dan dicampur musik latar.
  */
-async function makeContentAudioFromScenes({ scenes, musicPath, outputPath, duration, workDir }) {
+export async function makeContentAudioFromScenes({ scenes, musicPath, outputPath, duration, workDir }) {
   const inputs = [];
   const filters = [];
   const partLabels = [];
@@ -745,6 +763,7 @@ async function makeContentAudioFromScenes({ scenes, musicPath, outputPath, durat
       // Format ke stereo 44.1k, lalu pad/trim tepat ke durasi scene.
       filters.push(
         `[${audioInputIdx}:a]aformat=sample_rates=44100:channel_layouts=stereo,`
+        + `atempo=${Number(scene.narrationTempo || 1).toFixed(10)},`
         + `loudnorm=I=-16:TP=-1.5:LRA=9,volume=1.08,`
         + `apad,atrim=duration=${sceneDuration.toFixed(3)},asetpts=PTS-STARTPTS[${label}]`
       );
@@ -1321,7 +1340,12 @@ async function makeColdOpenAudio({ hookAudioPath, musicPath, outputPath, duratio
     [
       `[0:a]aformat=sample_rates=44100:channel_layouts=stereo,loudnorm=I=-16:TP=-1.5:LRA=9,volume=1.1[speech]`,
       `[1:a]volume=${(backgroundMusicVolume * 1.4).toFixed(3)}[music]`,
-      `[speech][music]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]`
+      // duration=longest (bukan first): [speech] (hook TTS) sering LEBIH PENDEK dari slot
+      // coldOpenDuration yang sudah dipesan untuk visualnya. Dengan "first", sisa musik latar
+      // ikut terpotong ke panjang speech, lalu -shortest di muxVideoAudio memotong video juga
+      // -> durasi final hilang ~1 detik. "longest" membiarkan musik (di-loop -1) mengisi sisa
+      // slot; -t di bawah tetap membatasi ke panjang persis yang dipesan.
+      `[speech][music]amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.95[a]`
     ].join(";"),
     "-map", "[a]",
     "-t", String(duration),
@@ -2007,7 +2031,7 @@ function atempoFilters(tempo) {
   return [`atempo=${value.toFixed(3)}`];
 }
 
-async function probeDuration(filePath) {
+export async function probeDuration(filePath) {
   const output = await runCommand("ffprobe", [
     "-v", "error",
     "-show_entries", "format=duration",

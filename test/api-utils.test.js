@@ -77,29 +77,29 @@ test("durasi default dashboard dan antrean selaras, dengan override env dan pili
   const original = process.env.YT_DURATION_SEC;
   try {
     delete process.env.YT_DURATION_SEC;
-    assert.equal(configSummary().durationSec, 720);
-    assert.equal(buildQueueItem({}).durationSec, 720);
+    assert.equal(configSummary().durationSec, 1200);
+    assert.equal(buildQueueItem({}).durationSec, 1200);
     process.env.YT_DURATION_SEC = "";
-    assert.equal(configSummary().durationSec, 720);
-    assert.equal(buildQueueItem({}).durationSec, 720);
+    assert.equal(configSummary().durationSec, 1200);
+    assert.equal(buildQueueItem({}).durationSec, 1200);
     process.env.YT_DURATION_SEC = "600";
     assert.equal(configSummary().durationSec, 600);
     assert.equal(buildQueueItem({}).durationSec, 600);
     assert.equal(buildQueueItem({ durationSec: 900 }).durationSec, 900);
     process.env.YT_DURATION_SEC = "invalid";
-    assert.equal(configSummary().durationSec, 720);
-    assert.equal(buildQueueItem({}).durationSec, 720);
+    assert.equal(configSummary().durationSec, 1200);
+    assert.equal(buildQueueItem({}).durationSec, 1200);
   } finally {
     if (original === undefined) delete process.env.YT_DURATION_SEC;
     else process.env.YT_DURATION_SEC = original;
   }
 });
 
-test("buildQueueItem: sceneCount dibatasi ke 26-28", () => {
-  assert.equal(buildQueueItem({ sceneCount: 100 }).sceneCount, 28);
-  assert.equal(buildQueueItem({ sceneCount: 27 }).sceneCount, 27);
-  assert.equal(buildQueueItem({ sceneCount: 1 }).sceneCount, 26);
-  assert.equal(buildQueueItem({ sceneCount: 0 }).sceneCount, 26);
+test("buildQueueItem: sceneCount awal dibatasi ke 32-36", () => {
+  assert.equal(buildQueueItem({ sceneCount: 100 }).sceneCount, 36);
+  assert.equal(buildQueueItem({ sceneCount: 34 }).sceneCount, 34);
+  assert.equal(buildQueueItem({ sceneCount: 1 }).sceneCount, 32);
+  assert.equal(buildQueueItem({ sceneCount: 0 }).sceneCount, 36);
 });
 
 test("buildQueueItem: ttsProvider hanya 'openai' atau 'elevenlabs'", () => {

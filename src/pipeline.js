@@ -19,10 +19,10 @@ import { findPersonImage } from "./wikidata.js";
 import { ensureFigureImages } from "./person-image.js";
 import { ensureNewsImages, extractSceneRealEntityQuery } from "./news-image.js";
 import { isGoogleImageApiAvailable, searchGoogleImages, downloadImageWithCandidates, isGenericPlaceholderQuery } from "./google-image.js";
-import { renderLongformVideo } from "./longform-render.js";
+import { renderLongformVideo, prepareRenderLayout, measureNarrationFit } from "./longform-render.js";
 import { generateThumbnail } from "./thumbnail.js";
 import { saveItem, listContextItems } from "./storage.js";
-import { createLongformDraft } from "./longform-story-engine.js";
+import { createLongformDraft, enrichLongformDraft, buildLongformStoryboard, writeLongformStoryboard } from "./longform-story-engine.js";
 import { nowIso, normalizeTtsText, alignCaptionsToSource } from "./util.js";
 import { reportProgress } from "./progress.js";
 
@@ -104,14 +104,13 @@ export async function generateFullItem(input = {}, options = {}) {
   await saveItem(item);
   reportProgress("script", "Naskah siap", 100, item.title || "");
 
-  // Pexels dulu, Wikimedia Commons untuk slot kosong, lalu OpenAI sebagai fallback.
-  await ensureVisualAssets(item, { warnings, strict: true });
   await ensureLongformSceneAudio(item, {
     provider: item.input.ttsProvider,
     voice: options.voice || input.ttsVoice,
     instructions: config.openai.ttsInstructions,
     warnings,
-    strict: true
+    strict: true,
+    reuseExisting: true
   });
   if (config.automation.coldOpenEnabled) {
     await ensureHookAudio(item, {
@@ -120,6 +119,30 @@ export async function generateFullItem(input = {}, options = {}) {
       warnings
     });
   }
+  const layout = await prepareRenderLayout(item);
+  if (item.input.durationLocked) {
+    for (let attempt = 0; ; attempt++) {
+      const fit = await measureNarrationFit(item, layout);
+      if (fit.status === "ready") {
+        item.assets.durationControl = { ...fit, sceneCount: item.plan.scenes.length };
+        item.plan.scenes.forEach((scene, index) => { scene.durationSec = fit.durations[index]; });
+        item.plan.longformStoryboard = buildLongformStoryboard(item.plan);
+        item.assets.storyboard = await writeLongformStoryboard(item);
+        console.log(`[Duration] Target ${item.input.durationSec}s, ${item.plan.scenes.length} scene, koreksi tempo ${fit.tempo.toFixed(4)}x.`);
+        break;
+      }
+      if (attempt >= 3) throw new Error("Durasi belum terpenuhi setelah tiga tahap pengayaan. Storyboard tetap utuh; render dihentikan.");
+      reportProgress("script", "Memperkaya storyboard sesuai durasi audio", 70, `tambahan sekitar ${Math.round(fit.missingSec)} detik`);
+      await enrichLongformDraft(item, fit);
+      await ensureLongformSceneAudio(item, {
+        provider: item.input.ttsProvider, voice: options.voice || input.ttsVoice,
+        instructions: config.openai.ttsInstructions, warnings, strict: true, reuseExisting: true
+      });
+    }
+    await saveItem(item);
+  }
+  // Finalize the enriched scene order before generating mockups, spotlight portraits and B-roll.
+  await ensureVisualAssets(item, { warnings, strict: true });
   if (config.thumbnail?.enabled) {
     reportProgress("thumbnail", "Membuat thumbnail", 20, "");
     await ensureThumbnail(item, { warnings });
@@ -129,7 +152,7 @@ export async function generateFullItem(input = {}, options = {}) {
     reportProgress("thumbnail", "Thumbnail dilewati", 100, "manual mode");
   }
   reportProgress("render", "Merender video (FFmpeg)", 5, "menyusun segmen");
-  await renderAndPersist(item);
+  await renderAndPersist(item, { layout });
   reportProgress("render", "Render selesai", 100, "");
   return { item, warnings };
 }
@@ -1286,19 +1309,32 @@ export async function ensureLongformSceneAudio(item, options = {}) {
     : "openai";
   const scenes = item.plan?.scenes || [];
   const sceneAudio = [];
+  const cachedAudio = new Map((item.assets.sceneAudio || []).map((entry) => [entry.sceneIndex, entry]));
   let totalChars = 0;
   let audioDone = 0;
   reportProgress("audio", "Membuat suara TTS per scene", 0, `0/${scenes.length}`);
 
   for (const scene of scenes) {
     const text = normalizeTtsText(sceneNarrationText(scene));
+    const textHash = createHash("sha256").update(JSON.stringify({ text, provider,
+      voice: options.voice || (provider === "openai" ? config.openai.ttsVoice : config.elevenlabs.voiceId),
+      speed: provider === "openai" ? config.openai.ttsSpeed : config.elevenlabs.speed,
+      instructions: options.instructions || config.openai.ttsInstructions })).digest("hex");
+    const cached = cachedAudio.get(scene.index);
+    if (options.reuseExisting && cached?.textHash === textHash && cached.path &&
+        await fs.access(cached.path).then(() => true, () => false)) {
+      sceneAudio.push(cached);
+      totalChars += cached.characters;
+      audioDone++;
+      continue;
+    }
     if (!text) {
       sceneAudio.push({ sceneIndex: scene.index, sceneType: scene.sceneType || "image", path: null, captions: [], characters: 0 });
       continue;
     }
 
     reportProgress("audio", "Membuat suara TTS per scene", Math.round((audioDone / scenes.length) * 100), `scene ${scene.index}`);
-    const suffix = `scene-${String(scene.index).padStart(2, "0")}-${provider}-natural`;
+    const suffix = `scene-${String(scene.index).padStart(2, "0")}-${provider}-${textHash.slice(0, 12)}`;
     let audio;
     let currentProvider = provider;
     try {
@@ -1309,7 +1345,7 @@ export async function ensureLongformSceneAudio(item, options = {}) {
           console.warn(`[TTS] ElevenLabs gagal, fallback ke OpenAI: ${elError.message}`);
           warnings.push(`ElevenLabs scene ${scene.index} gagal: ${elError.message}. Menggunakan fallback OpenAI.`);
           currentProvider = "openai";
-          const fallbackSuffix = `scene-${String(scene.index).padStart(2, "0")}-openai-fallback`;
+          const fallbackSuffix = `scene-${String(scene.index).padStart(2, "0")}-openai-fallback-${textHash.slice(0, 12)}`;
           audio = await generateOpenAiSpeech({
             itemId: item.id,
             text,
@@ -1351,6 +1387,7 @@ export async function ensureLongformSceneAudio(item, options = {}) {
       sceneType: scene.sceneType || "image",
       provider: currentProvider,
       speed: audio.speed,
+      textHash,
       path: audio.path,
       url: audio.url,
       characters: text.length,
@@ -1366,7 +1403,8 @@ export async function ensureLongformSceneAudio(item, options = {}) {
     scenes: sceneAudio.filter((entry) => entry.path).length
   };
   item.input.ttsProvider = provider;
-  item.cost.ttsUsd = estimateTtsUsd(totalChars, provider, config.pricing);
+  item.cost.ttsUsd = estimateTtsUsd(totalChars, provider, config.pricing)
+    + (item.assets.hookAudio ? estimateTtsUsd(item.assets.hookAudio.characters, item.assets.hookAudio.provider, config.pricing) : 0);
   updateTotalCost(item);
   item.updatedAt = nowIso();
   await saveItem(item);
@@ -1454,9 +1492,9 @@ export async function ensureThumbnail(item, options = {}) {
   }
 }
 
-export async function renderAndPersist(item) {
+export async function renderAndPersist(item, options = {}) {
   assertReadyToRender(item);
-  item.assets.video = await renderLongformVideo(item);
+  item.assets.video = await renderLongformVideo(item, options);
   item.status = "rendered";
   item.updatedAt = nowIso();
   await saveItem(item);

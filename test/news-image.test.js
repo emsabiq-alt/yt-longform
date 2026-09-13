@@ -164,6 +164,26 @@ test("applyNewsImageOverlays: animasi slide masuk dari bawah, rapat ke batas baw
   }
 });
 
+test("mockup otomatis tersebar di empat bagian dokumenter panjang dan memakai gambar scene terkait", async (t) => {
+  const names = ["SERPER_API_KEY", "SERPER_API_KEYS", "GOOGLE_CSE_KEY", "GOOGLE_CSE_CX", "SERPAPI_API_KEY"];
+  const previous = names.map((name) => process.env[name]);
+  names.forEach((name) => { delete process.env[name]; });
+  t.after(() => names.forEach((name, i) => {
+    if (previous[i] === undefined) delete process.env[name]; else process.env[name] = previous[i];
+  }));
+  t.mock.method(globalThis, "fetch", async () => new Response("{}", { status: 404 }));
+  const scenes = Array.from({ length: 32 }, (_, i) => ({ index: i + 1, sceneType: "image", screenText: `Bagian ${i + 1}` }));
+  const item = { input: {}, plan: { scenes }, assets: {
+    images: scenes.map((scene) => ({ sceneIndex: scene.index, path: `scene-${scene.index}.jpg` }))
+  } };
+  await ensureNewsImages(item);
+  assert.equal(item.assets.newsImages.length, 8);
+  for (let quarter = 0; quarter < 4; quarter++) {
+    assert.equal(item.assets.newsImages.filter((n) => n.sceneIndex > quarter * 8 && n.sceneIndex <= (quarter + 1) * 8).length, 2);
+  }
+  item.assets.newsImages.forEach((n) => assert.equal(n.imagePath, `scene-${n.sceneIndex}.jpg`));
+});
+
 test("extractSceneRealEntityQuery: mengekstrak nama tempat dan entitas konkret dari narasi", () => {
   const scene1 = {
     screenText: "Fakta 1",
@@ -288,6 +308,5 @@ test("createHeaderCardImage: berhasil membuat kartu header PNG", async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 });
-
 
 

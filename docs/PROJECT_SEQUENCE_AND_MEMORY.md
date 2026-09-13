@@ -5,18 +5,27 @@ diagrams with notes that should help the next coding session resume quickly.
 
 ## Project Memory Snapshot
 
-- Narration pacing (2026-09-13): default target is 720 seconds / 26 scenes,
-  OpenAI speech speed is 1.08, and narration uses a clear, lively documentary
-  style from `config.openai.ttsInstructions`. `OPENAI_TTS_SPEED` and optional
-  `OPENAI_TTS_INSTRUCTIONS` apply to new scene, cold-open, and fallback audio.
-  Match `YT_DURATION_SEC=720` in local, GitHub Actions, and Vercel environments;
-  an existing environment setting overrides code defaults. Final video duration
-  follows measured scene audio, not a mandatory 20-minute timeline. Preserve
-  per-scene transcription timing when changing provider speed.
-  Real cedar samples measured about 114–122 words/minute at 1.08/1.10, so the
-  storyboard now targets 1.8 words/second of requested video (1296 at 720s),
-  with a 1.6 words/second rewrite threshold from `sceneWordRange()`. The former
-  2.6 target / 2.15 rewrite floor would lengthen the shorter documentary again.
+- User's latest direction (2026-09-13): keep **20 minutes**, enrich the storyboard,
+  and preserve the supplied phone/tablet mockups and spotlight. This supersedes
+  the earlier 12-minute default. Use `YT_DURATION_SEC=1200`, `YT_SCENE_COUNT=36`
+  in local, GitHub Actions, and Vercel environments. OpenAI speed remains 1.08
+  with `config.openai.ttsInstructions` for a lively, clear documentary voice.
+- Start with ~2,280 words / six chapters. `generateFullItem()` now measures TTS
+  before generating visuals, includes fixed hook/intro/outro durations, and asks
+  `enrichLongformDraft()` for new sourced examples, evidence, and perspectives
+  when short. Up to three passes / 48 scenes; original narration, chapters,
+  spotlight and mediaSource survive insertion. Audio hashes allow reuse after
+  reindexing; full narration is retained in the exported storyboard JSON.
+- `duration-control.js` fits measured audio using render tempo 0.98–1.12x,
+  retimes captions/word triggers, and quantizes scene/subscene durations to frames.
+  FFprobe checks final MP4 against the target with a one-second tolerance.
+  Impossible fits stop before publishing; never shorten the script or insert
+  long silence to reach 20 minutes. Legacy drafts without `durationLocked` keep
+  their prior timing behavior. AI output quality still requires reviewing a real run.
+- Mockups use the existing `assets/phone-mockup.png` and `assets/tablet-mockup.png`.
+  Spread ~6–8 relevant placements and up to 22 matched spotlights across the story.
+  Prompt and normalizer both use four visual segments, including the end of each
+  scene's narration; grid 2x2 generation remains compatible.
 - Purpose: generate Indonesian YouTube longform educational videos with AI story
   planning, image/B-roll generation, per-scene TTS, subtitle alignment, FFmpeg
   rendering, remote hosting upload, and YouTube publishing.

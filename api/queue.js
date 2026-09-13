@@ -47,7 +47,7 @@ export default async function handler(req, res) {
         topic: envelope ? JSON.stringify(envelope) : item.topic,
         category: item.category || "random",
         format_type: item.formatType || "",
-        duration: dynamicScenes ? "" : String(item.durationSec),
+        duration: String(item.durationSec),
         scenes: dynamicScenes ? "" : String(item.sceneCount),
         tts_provider: item.ttsProvider,
         tts_voice: item.ttsVoice,

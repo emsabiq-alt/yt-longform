@@ -542,14 +542,14 @@ test("fallback offline sebenarnya tidak meneruskan keyword generik ke Pexels", a
     topic: "Sejarah lift modern",
     category: "teknologi",
     durationSec: 300,
-    sceneCount: 26,
+    sceneCount: 36,
     formatType: "dokumenter_klasik",
     allowOfflineDraft: true
   });
   const visualSegments = draft.plan.scenes.flatMap((scene) => scene.visualSegments || []);
 
   assert.equal(draft.source, "offline");
-  assert.equal(draft.plan.scenes.length, 26);
+  assert.equal(draft.plan.scenes.length, 36);
   assert.ok(visualSegments.length > 0);
   assert.ok(visualSegments.every((segment) => segment.pexelsQuery === ""));
   assert.ok(visualSegments.every((segment) => segment.mustMatchTerms.length === 0));
@@ -597,7 +597,7 @@ test("scene reaction selalu berupa pertanyaan penasaran berakhiran tanda tanya d
     topic: "Anak Krakatau vs Gunung Toba",
     category: "sains",
     durationSec: 300,
-    sceneCount: 26,
+    sceneCount: 36,
     formatType: "dokumenter_klasik",
     allowOfflineDraft: true
   });
