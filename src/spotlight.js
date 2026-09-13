@@ -193,8 +193,8 @@ export function spotlightDialogueLines(placements, dialogueFn, escapeFn) {
     const fade = "{\\fad(250,300)}";
 
     if (isFigure) {
-      // Kartu tokoh: tengah layar, lebih besar
-      const height = twoLine ? 144 : 98;
+      // Kartu tokoh: tengah layar, lebih besar, lega untuk avatar 92px
+      const height = twoLine ? 144 : 116;
       const top = FIG_Y;
       events.push(dialogueFn(
         card.startSec, card.endSec, "FigurePanel",
@@ -204,15 +204,16 @@ export function spotlightDialogueLines(placements, dialogueFn, escapeFn) {
         card.startSec, card.endSec, "FigureBar",
         `${fade}{\\an7\\pos(${FIG_X},${top})\\p1}m 0 0 l 8 0 l 8 ${height} l 0 ${height}`
       ));
-      // Nama tokoh (centered dalam kartu)
+      // Teks tokoh ditaruh di area tengah-kanan kartu (setelah avatar di sisi kiri)
+      const textCenterX = Math.round(FIG_X + 120 + (FIG_W - 120) / 2);
       events.push(dialogueFn(
         card.startSec + 0.08, card.endSec, "FigureLabel",
-        `${fade}{\\an5\\pos(${Math.round(FIG_X + FIG_W / 2)},${top + (twoLine ? 46 : 52)})}${escapeFn(card.label)}`
+        `${fade}{\\an5\\pos(${textCenterX},${top + (twoLine ? 46 : 56)})}${escapeFn(card.label)}`
       ));
       if (twoLine) {
         events.push(dialogueFn(
           card.startSec + 0.14, card.endSec, "FigureSub",
-          `${fade}{\\an5\\pos(${Math.round(FIG_X + FIG_W / 2)},${top + 100})}${escapeFn(card.sublabel)}`
+          `${fade}{\\an5\\pos(${textCenterX},${top + 98})}${escapeFn(card.sublabel)}`
         ));
       }
     } else {

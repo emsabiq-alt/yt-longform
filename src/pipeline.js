@@ -54,16 +54,22 @@ export async function ensureVisualAssets(item, options = {}) {
   const realPhotoOptions = options.realPhotoOptions || {};
   const imageOptions = options.imageOptions || {};
 
+  // 1. ATURAN ENTITAS SPESIFIK: Cari foto asli via Serper.dev / Google Images untuk entitas/tempat/tokoh/peta
+  // sebelum slot sisanya diisi klip video latar Pexels / Pixabay
+  await realPhotoRunner(item, { ...realPhotoOptions, warnings }).catch((err) => {
+    console.warn(`[RealPhoto] realPhotoRunner gagal: ${err.message}`);
+  });
+
+  // 2. Klip video B-roll Pexels / Pixabay (sebagai video utama atau video latar di belakang foto nyata)
   await pexelsRunner(item, { ...pexelsOptions, warnings });
   if (options.pixabayRunner || (!options.pexelsRunner && !options.wikimediaRunner)) {
     await pixabayRunner(item, { ...pixabayOptions, warnings });
   }
   await wikimediaRunner(item, { ...wikimediaOptions, warnings });
 
-  // Cari foto nyata via Google Images / Serper / Bing untuk entitas/tempat/tokoh spesifik
-  // sebelum slot sisanya digenerate AI (DALL-E / Pollinations)
+  // 3. Fallback jika masih ada slot kosong yang belum terisi foto nyata
   await realPhotoRunner(item, { ...realPhotoOptions, warnings }).catch((err) => {
-    console.warn(`[RealPhoto] realPhotoRunner gagal: ${err.message}`);
+    console.warn(`[RealPhoto] realPhotoRunner fallback gagal: ${err.message}`);
   });
 
   // Openverse dihapus — API tidak stabil (sering 502). Slot gambar ditangani
@@ -378,7 +384,11 @@ export async function ensurePexelsClips(item, options = {}) {
     }
     if (!await mediaExists(image.path)) continue;
     images.push(image);
-    blockingMediaBySlot.set(slot, "existing-image");
+    // Foto entitas riil (isRealEntity / provider google-images) TIDAK boleh memblokir Pexels!
+    // Klip Pexels tetap diunduh untuk dijadikan video latar (backdrop B-roll) di belakang foto entitas.
+    if (!image.isRealEntity && image.provider !== "google-images") {
+      blockingMediaBySlot.set(slot, "existing-image");
+    }
   }
 
   // Klip manual/non-Pexels yang file-nya masih valid juga menang. Pengecekan
@@ -1054,31 +1064,48 @@ export async function ensureRealPhotosForScenes(item, options = {}) {
   const images = [...(item.assets.images || [])];
   const clips = item.assets.clips || [];
 
-  // Scene yang belum punya klip video maupun gambar, dan bukan reaction/summary
-  const missingScenes = scenes.filter((scene) => {
-    if (scene.sceneType === "reaction" || scene.sceneType === "summary") return false;
-    const hasClip = clips.some((c) => Number(c.sceneIndex) === Number(scene.index) && c.path);
-    const hasImg = images.some((img) => Number(img.sceneIndex) === Number(scene.index) && img.path);
-    return !hasClip && !hasImg;
-  });
+  // 1. ATURAN ENTITAS SPESIFIK:
+  // Jika scene membahas tokoh nyata, geopolitik/peta, landmark sejarah/KTT, atau arsip dokumen,
+  // sistem WAJIB memprioritaskan Serper.dev (Google Images) untuk mengambil foto/peta/arsip asli
+  // tanpa memedulikan apakah klip video B-roll sudah ada atau belum.
+  const entityTargets = [];
+  const genericEmptyTargets = [];
 
-  if (!missingScenes.length) return;
+  for (const scene of scenes) {
+    if (scene.sceneType === "reaction" || scene.sceneType === "summary") continue;
+    const hasRealImg = images.some(
+      (img) => Number(img.sceneIndex) === Number(scene.index) && img.path && (img.provider === "google-images" || img.isRealEntity)
+    );
+    if (hasRealImg) continue;
+
+    const query = extractSceneRealEntityQuery(scene, item.input?.topic);
+    if (query && !isGenericPlaceholderQuery(query)) {
+      entityTargets.push({ scene, query, isSpecificEntity: true });
+    } else {
+      const hasClip = clips.some((c) => Number(c.sceneIndex) === Number(scene.index) && c.path);
+      const hasImg = images.some((img) => Number(img.sceneIndex) === Number(scene.index) && img.path);
+      if (!hasClip && !hasImg) {
+        genericEmptyTargets.push({ scene, query: item.input?.topic || "", isSpecificEntity: false });
+      }
+    }
+  }
+
+  const targetQueue = [...entityTargets, ...genericEmptyTargets];
+  if (!targetQueue.length) return;
 
   const realPhotosDir = path.join(paths.generatedDir, "real-photos");
   await fs.mkdir(realPhotosDir, { recursive: true });
 
   let filledCount = 0;
-  // Batasi agar tidak berlebihan (maksimal 6-8 foto nyata per video)
-  const maxRealPhotos = Math.min(8, Math.max(2, Math.floor(scenes.length * 0.35)));
+  // Kuota fleksibel agar seluruh entitas nyata dapat dipenuhi
+  const maxRealPhotos = Math.min(18, Math.max(6, Math.floor(scenes.length * 0.75)));
 
-  for (const scene of missingScenes) {
+  for (const { scene, query, isSpecificEntity } of targetQueue) {
     if (filledCount >= maxRealPhotos) break;
-
-    const query = extractSceneRealEntityQuery(scene, item.input?.topic);
     if (!query || isGenericPlaceholderQuery(query)) continue;
 
     try {
-      console.log(`[RealPhoto] Mencari foto nyata untuk Scene ${scene.index}: "${query}"...`);
+      console.log(`[RealPhoto] Mencari foto nyata untuk Scene ${scene.index} (${isSpecificEntity ? "Entitas Spesifik" : "Slot Kosong"}): "${query}"...`);
       const candidates = await searchGoogleImages(query, {
         fallbackQueries: [item.input?.topic].filter(Boolean)
       });
@@ -1091,6 +1118,7 @@ export async function ensureRealPhotosForScenes(item, options = {}) {
             segmentIndex: 0,
             provider: "google-images",
             query,
+            isRealEntity: true,
             source: dl.source || "Google Images",
             path: dest,
             url: `/generated/real-photos/${path.basename(dest)}`
@@ -1109,7 +1137,7 @@ export async function ensureRealPhotosForScenes(item, options = {}) {
     item.updatedAt = nowIso();
     const persistItem = options.persistItem || saveItem;
     await persistItem(item);
-    console.log(`[RealPhoto] Total ${filledCount} foto nyata berhasil dipasang langsung ke dalam video.`);
+    console.log(`[RealPhoto] Total ${filledCount} foto nyata berhasil dipasang langsung ke dalam aset video.`);
   }
 }
 

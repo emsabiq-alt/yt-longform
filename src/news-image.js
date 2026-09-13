@@ -361,6 +361,16 @@ export function extractSceneRealEntityQuery(scene, topic = "") {
 }
 
 /**
+ * Cek apakah sebuah scene memenuhi Aturan Entitas Spesifik
+ * (tokoh nyata, geopolitik/peta, landmark sejarah, KTT/peristiwa, atau arsip dokumen).
+ */
+export function isSpecificEntityScene(scene, topic = "") {
+  if (!scene || scene.sceneType === "reaction" || scene.sceneType === "summary") return false;
+  const q = extractSceneRealEntityQuery(scene, topic);
+  return Boolean(q && !isGenericPlaceholderQuery(q));
+}
+
+/**
  * Download foto/visual asli untuk mockup tiap scene (peta, tokoh, artefak, lanskap nyata).
  * Prioritaskan Serper.dev / Google Images dan Wikipedia REST API agar konten mockup
  * 100% inline dengan apa yang sedang dinarasikan.

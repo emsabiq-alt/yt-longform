@@ -374,7 +374,14 @@ export async function renderLongformVideo(item) {
         if (media.type === "video") {
           await makeVideoSegment({ videoPath: media.path, outputPath: segmentPath, duration: scene.durationSec, resolution });
         } else {
-          await makeImageSegment({ imagePath: media.path, outputPath: segmentPath, duration: scene.durationSec, zoomDirection: index % 2 ? "out" : "in", resolution });
+          await makeImageSegment({
+            imagePath: media.path,
+            outputPath: segmentPath,
+            duration: scene.durationSec,
+            zoomDirection: index % 2 ? "out" : "in",
+            resolution,
+            backgroundVideoPath: media.backgroundVideoPath || null
+          });
         }
       } else {
         // Multi-media: render tiap sub-segment lalu concat.
@@ -391,7 +398,14 @@ export async function renderLongformVideo(item) {
           } else {
             // Alternasi zoom direction per sub-segment
             const zoomDir = (index + mi) % 2 ? "out" : "in";
-            await makeImageSegment({ imagePath: media.path, outputPath: subPath, duration: subDuration, zoomDirection: zoomDir, resolution });
+            await makeImageSegment({
+              imagePath: media.path,
+              outputPath: subPath,
+              duration: subDuration,
+              zoomDirection: zoomDir,
+              resolution,
+              backgroundVideoPath: media.backgroundVideoPath || null
+            });
           }
           subPaths.push(subPath);
         }
@@ -846,8 +860,22 @@ export function computeSegmentDurations(scene, segmentCount) {
 function resolveSceneMedia(item, scene) {
   const sourceIndex = scene.imageSourceSceneIndex || scene.index;
 
-  // Cek jika ada klip video dari Pexels
+  // Aturan Entitas Spesifik: Cek foto riil (Serper / Google Images)
+  const realImg = item.assets?.images?.find(
+    (entry) => Number(entry.sceneIndex) === Number(sourceIndex) && (entry.provider === "google-images" || entry.isRealEntity)
+  );
   const clip = item.assets?.clips?.find((entry) => Number(entry.sceneIndex) === Number(sourceIndex));
+
+  if (realImg?.path) {
+    return {
+      type: "image",
+      path: realImg.path,
+      backgroundVideoPath: clip?.path || null,
+      isRealEntity: true
+    };
+  }
+
+  // Cek jika ada klip video dari Pexels
   if (clip?.path) {
     return { type: "video", path: clip.path };
   }
@@ -875,6 +903,30 @@ export function resolveSceneMediaList(item, scene) {
   const usedPaths = new Set();
 
   for (let i = 0; i < targetCount; i++) {
+    // 0. ATURAN ENTITAS SPESIFIK: Cek apakah ada foto riil (Serper / Google Images) untuk scene/segmen ini
+    const realImg = images.find((img) =>
+      Number(img.sceneIndex) === Number(sourceIndex)
+      && (Number(img.segmentIndex || 0) === i || i === 0)
+      && img.path
+      && (img.isRealEntity || img.provider === "google-images")
+      && !usedPaths.has(img.path)
+    );
+    if (realImg?.path) {
+      // Cari klip video pendamping sebagai video latar (B-roll)
+      const companionClip = clips.find((c) =>
+        Number(c.sceneIndex) === Number(sourceIndex) && c.path
+      ) || clips.find((c) => c.path && !usedPaths.has(c.path)) || null;
+
+      mediaList.push({
+        type: "image",
+        path: realImg.path,
+        backgroundVideoPath: companionClip?.path || null,
+        isRealEntity: true
+      });
+      usedPaths.add(realImg.path);
+      continue;
+    }
+
     // 1. Cari klip yang spesifik untuk segmen ini (dan belum pernah dipakai)
     const clip = clips.find((c) =>
       Number(c.sceneIndex) === Number(sourceIndex) && Number(c.segmentIndex || 0) === i && c.path && !usedPaths.has(c.path)
@@ -958,11 +1010,11 @@ export function resolveSceneMediaList(item, scene) {
 async function applyFigureImageOverlays(inputPath, outputPath, figurePlacements, item, resolution) {
   const figureImages = item.assets?.figureImages || {};
   const scale = resolution === "1080p" ? 1.5 : 1;
-  // Figure spotlight di tengah layar (PlayRes 1280×720, FIG_X=350, FIG_W=580, FIG_Y=240)
-  // Portrait bulat besar di sisi kiri dalam kartu
-  const portraitSize = Math.round(100 * scale);
-  const posX = Math.round(358 * scale); // FIG_X + 8px margin
-  const posY = Math.round(255 * scale); // FIG_Y + 15px padding
+  // Figure spotlight di tengah layar (PlayRes 1280×720, FIG_X=310, FIG_W=660, FIG_Y=230)
+  // Portrait bulat elegan di sisi kiri dalam kartu dengan framing top-bias agar wajah/kepala tidak terpotong
+  const portraitSize = Math.round(92 * scale);
+  const posX = Math.round((310 + 18) * scale); // FIG_X + 18px margin
+  const posY = Math.round((230 + 14) * scale); // FIG_Y + 14px padding
 
   const overlays = figurePlacements
     .filter((p) => figureImages[p.sceneIndex]?.imagePath)
@@ -985,7 +1037,7 @@ async function applyFigureImageOverlays(inputPath, outputPath, figurePlacements,
     const start = o.startSec.toFixed(3);
     const end = o.endSec.toFixed(3);
     filters.push(
-      `[${inLabel}]scale=${portraitSize}:${portraitSize}:force_original_aspect_ratio=increase,crop=${portraitSize}:${portraitSize},format=rgba[p${idx}]`,
+      `[${inLabel}]scale=${portraitSize}:${portraitSize}:force_original_aspect_ratio=increase,crop=${portraitSize}:${portraitSize}:(in_w-out_w)/2:if(gt(in_h\\,out_h)\\,(in_h-out_h)*0.12\\,(in_h-out_h)/2),format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(${portraitSize}/2)*(${portraitSize}/2)),255,0)'[p${idx}]`,
       `[${prevLabel}][p${idx}]overlay=${posX}:${posY}:enable='between(t,${start},${end})'[${outLabel}]`
     );
     prevLabel = outLabel;
@@ -1067,28 +1119,82 @@ export async function makeVideoSegment({ videoPath, outputPath, duration, resolu
   ]);
 }
 
-async function makeImageSegment({ imagePath, outputPath, duration, zoomDirection, resolution = "720p" }) {
-  const frames = Math.max(1, Math.round(duration * fps));
+export async function makeImageSegment({
+  imagePath,
+  outputPath,
+  duration,
+  zoomDirection = "in",
+  resolution = "720p",
+  backgroundVideoPath = null
+}) {
+  const targetDuration = Math.max(0.5, Number(duration || 4));
+  const frames = Math.max(1, Math.round(targetDuration * fps));
   const width = resolution === "1080p" ? 1920 : 1280;
   const height = resolution === "1080p" ? 1080 : 720;
-  const zoomExpr = zoomDirection === "out"
-    ? `if(eq(on,0),1.055,max(1.0,zoom-0.00035))`
-    : `min(1.0+on*0.00035,1.055)`;
-  
-  const bgFilter = [
-    `scale=${width}:${height}:force_original_aspect_ratio=increase`,
-    `crop=${width}:${height}`,
-    `zoompan=z='${zoomExpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${width}x${height}:fps=${fps}`,
-    "eq=contrast=1.04:saturation=1.06:brightness=0.01"
-  ].join(",");
+  // Hero photo memenuhi ~90% kanvas (hampir penuh seukuran video latar)
+  const boxW = Math.round(width * 0.90);
+  const boxH = Math.round(height * 0.90);
+
+  // Efek bergerak Ken Burns: zoom in atau zoom out halus terdistribusi sepanjang durasi
+  const scaleZoom = zoomDirection === "out"
+    ? `scale=w='trunc(iw*(1.05-0.05*t/${targetDuration.toFixed(3)})/2)*2':h='trunc(ih*(1.05-0.05*t/${targetDuration.toFixed(3)})/2)*2':eval=frame`
+    : `scale=w='trunc(iw*(1.0+0.05*t/${targetDuration.toFixed(3)})/2)*2':h='trunc(ih*(1.0+0.05*t/${targetDuration.toFixed(3)})/2)*2':eval=frame`;
+
+  const hasBgVideo = backgroundVideoPath && (await fileExists(backgroundVideoPath));
+
+  if (hasBgVideo) {
+    const filterComplex = [
+      // 1. Background video latar: scale & crop ke canvas, dimmed & blurred
+      `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},eq=brightness=-0.18:contrast=0.95,gblur=sigma=12:steps=1,format=yuv420p[bg]`,
+      // 2. Foreground hero photo: fit ke box 90%, preserve aspect ratio, zoom Ken Burns, sleek border
+      `[1:v]scale=${boxW}:${boxH}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2[fitted]`,
+      `[fitted]${scaleZoom},drawbox=x=0:y=0:w=iw:h=ih:color=white@0.22:t=2,format=yuva420p[fg]`,
+      // 3. Overlay foreground di tengah video latar
+      `[bg][fg]overlay=x=(W-w)/2:y=(H-h)/2:shortest=1[outv]`
+    ].join(";");
+
+    try {
+      await runFfmpeg([
+        "-y",
+        "-stream_loop", "-1",
+        "-i", backgroundVideoPath,
+        "-loop", "1",
+        "-i", imagePath,
+        "-filter_complex", filterComplex,
+        "-map", "[outv]",
+        "-t", String(targetDuration),
+        "-r", String(fps),
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "22",
+        "-pix_fmt", "yuv420p",
+        outputPath
+      ]);
+      return;
+    } catch (err) {
+      console.warn(`[Render] Composite background video gagal (${err.message}), fallback ke blurred backdrop image.`);
+    }
+  }
+
+  // Fallback tanpa background video: Blurred backdrop image + sharp zooming hero card
+  const filterComplex = [
+    // 1. Latar blurred & darkened dari gambar itu sendiri
+    `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},gblur=sigma=24:steps=2,eq=brightness=-0.22:contrast=1.05,format=yuv420p[bg]`,
+    // 2. Kartu hero foto di depan: preserve aspect ratio, zoom eval=frame, sleek border
+    `[0:v]scale=${boxW}:${boxH}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2[fitted]`,
+    `[fitted]${scaleZoom},drawbox=x=0:y=0:w=iw:h=ih:color=white@0.22:t=2,format=yuva420p[fg]`,
+    // 3. Overlay di tengah kanvas
+    `[bg][fg]overlay=x=(W-w)/2:y=(H-h)/2:shortest=1[outv]`
+  ].join(";");
 
   try {
     await runFfmpeg([
       "-y",
       "-loop", "1",
       "-i", imagePath,
-      "-vf", bgFilter,
-      "-frames:v", String(frames),
+      "-filter_complex", filterComplex,
+      "-map", "[outv]",
+      "-t", String(targetDuration),
       "-r", String(fps),
       "-c:v", "libx264",
       "-preset", "veryfast",
@@ -1099,7 +1205,7 @@ async function makeImageSegment({ imagePath, outputPath, duration, zoomDirection
   } catch (error) {
     if (/loop.*not found|option not found/i.test(error.message)) {
       console.warn(`[Render] File ${imagePath} ditolak opsi loop gambar, mencoba render sebagai video: ${error.message}`);
-      return makeVideoSegment({ videoPath: imagePath, outputPath, duration, resolution });
+      return makeVideoSegment({ videoPath: imagePath, outputPath, duration: targetDuration, resolution });
     }
     throw error;
   }
