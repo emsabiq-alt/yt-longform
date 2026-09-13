@@ -31,7 +31,7 @@ test("pickFormatType: kembali ke semua kunci saat history menghabiskan pool", ()
   assert.ok(keys.includes(pickFormatType()));
 });
 
-test("sceneWordRange: semua format bisa mencapai ambang revisi durationSec*1.75", () => {
+test("sceneWordRange: semua format bisa mencapai target kata dan ambang revisi", () => {
   // Batas kata tetap "48-65" membuat mitos_vs_fakta & countdown selalu gagal di
   // durasi panjang, memicu satu tulis-ulang penuh yang gagal lagi.
   for (const formatType of Object.keys(FORMAT_TYPES)) {
@@ -39,13 +39,14 @@ test("sceneWordRange: semua format bisa mencapai ambang revisi durationSec*1.75"
       const sceneCount = Math.max(26, Math.min(28, Math.round(durationSec / 18)));
       const range = sceneWordRange(sceneCount, formatType, durationSec);
       const reachable = range.narratedScenes * range.imageMax;
-      const threshold = Math.round(durationSec * 1.75);
+      const threshold = Math.max(range.targetWords, range.minimumWords);
       assert.ok(
         reachable >= threshold,
         `${formatType} @${durationSec}s: maksimal ${reachable} kata < ambang ${threshold}`
       );
       assert.ok(range.imageMax > range.imageMin, `${formatType}: rentang harus punya lebar`);
       assert.ok(range.summaryMin > range.imageMin);
+      assert.ok(range.targetWords > range.minimumWords);
     }
   }
 });

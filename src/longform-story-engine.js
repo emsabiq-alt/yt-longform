@@ -20,7 +20,7 @@ export const MAX_DURATION_SEC = 1200;
 
 // Naskah lebih pendek dari porsi ini tidak akan pernah menghasilkan video
 // sepanjang target, jadi run dihentikan sebelum gambar/TTS/render dibayar.
-// 1.4 kata/detik = 80% dari ambang revisi (1.75).
+// Ambang ini tetap di bawah minimum revisi 1.6 kata/detik.
 const MIN_PUBLISHABLE_WORDS_PER_SEC = 1.4;
 
 const categories = [
@@ -227,8 +227,8 @@ export async function createLongformDraft(rawInput) {
   }
 
   const selectedTitle = normalized.title;
-  const minimumNarrationWords = Math.round(input.durationSec * 2.15);
   const words = sceneWordRange(input.sceneCount, input.formatType, input.durationSec);
+  const minimumNarrationWords = words.minimumWords;
   if (config.openai.apiKey && narrationWordCount(normalized) < minimumNarrationWords) {
     try {
       const expandedPlan = await requestKnowledgeJson([
@@ -236,7 +236,7 @@ export async function createLongformDraft(rawInput) {
         "",
         "REVISI WAJIB:",
         `Naskah sebelumnya terlalu pendek. Tulis ulang dengan minimal ${minimumNarrationWords} kata narasi yang benar-benar dibacakan TTS.`,
-        `Hitung hanya scene image dan summary — ada ${words.narratedScenes} scene seperti itu. Scene reaction tidak dibacakan TTS.`,
+        `Hitung minimum ini hanya dari ${words.narratedScenes} scene image dan summary. Scene reaction juga dibacakan TTS, tetapi tetap pendek dan tidak dihitung dalam minimum narasi utama ini.`,
         `Karena itu setiap scene image HARUS ${words.imageMin}-${words.imageMax} kata dan scene summary ${words.summaryMin}-${words.summaryMax} kata. Jangan menulis lebih pendek dari batas bawah itu.`,
         `Pertahankan tepat jumlah scene dan pola format ${input.formatType}, dengan scene terakhir summary.`
       ].join("\n"));
@@ -519,7 +519,7 @@ function buildPrompt(input, wiki = null) {
     `Tone Narasi: ${input.tone}`,
     `Durasi Total: ${input.durationSec} detik`,
     `Jumlah Scene: ${input.sceneCount}`,
-    `Target Jumlah Kata: sekitar ${Math.round(input.durationSec * 2.6)} kata bahasa Indonesia secara keseluruhan.`,
+    `Target Jumlah Kata: sekitar ${words.targetWords} kata bahasa Indonesia secara keseluruhan.`,
     wikiBlock,
     trendBlock,
     "",

@@ -43,7 +43,8 @@ Tab **Monitor** menampilkan daftar video dari state hosting.
 
 ## Sinkronisasi TTS (longform)
 Default pembuatan video memakai target 720 detik (12 menit), 26 scene, dan
-OpenAI TTS dengan `OPENAI_TTS_SPEED=1.08`. Naskah dipadatkan sesuai target durasi;
+OpenAI TTS dengan `OPENAI_TTS_SPEED=1.08`. Target naskah sekitar 1.300 kata
+untuk 12 menit, dengan anggaran kata dan ambang revisi yang mengikuti durasi;
 durasi video sebenarnya mengikuti hasil audio sehingga target 10–12 menit
 perlu dinilai dari hasil render. Target lain antara 300–1200 detik tetap tersedia.
 

@@ -13,6 +13,10 @@ diagrams with notes that should help the next coding session resume quickly.
   an existing environment setting overrides code defaults. Final video duration
   follows measured scene audio, not a mandatory 20-minute timeline. Preserve
   per-scene transcription timing when changing provider speed.
+  Real cedar samples measured about 114–122 words/minute at 1.08/1.10, so the
+  storyboard now targets 1.8 words/second of requested video (1296 at 720s),
+  with a 1.6 words/second rewrite threshold from `sceneWordRange()`. The former
+  2.6 target / 2.15 rewrite floor would lengthen the shorter documentary again.
 - Purpose: generate Indonesian YouTube longform educational videos with AI story
   planning, image/B-roll generation, per-scene TTS, subtitle alignment, FFmpeg
   rendering, remote hosting upload, and YouTube publishing.

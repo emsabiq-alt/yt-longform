@@ -267,28 +267,29 @@ export function buildScenePattern(sceneCount, formatType = "dokumenter_klasik") 
 /**
  * Rentang kata per scene yang BISA dicapai pola format ini.
  *
- * Angka tetap "48-65 kata" tidak pernah bisa memenuhi target durasi pada format
- * dengan banyak scene reaction (reaction tidak dibacakan TTS): mitos_vs_fakta dan
- * countdown di 600-900 detik mentok jauh di bawah ambang revisi durationSec*1.75,
- * jadi setiap naskah memicu satu panggilan tulis-ulang penuh lalu gagal lagi
- * karena batas kata yang sama diulang. Rentangnya karena itu diturunkan dari
- * jumlah scene yang benar-benar dibacakan.
+ * Anggaran narasi utama dibagi sesuai jumlah scene image/summary pada format
+ * terpilih agar format dengan banyak reaction tetap dapat mencapai target.
+ * Reaction juga dibacakan, tetapi memakai kalimat pendek di luar anggaran ini.
  *
  * @param {number} sceneCount
  * @param {string} formatType
  * @param {number} durationSec
- * @returns {{ narratedScenes: number, imageMin: number, imageMax: number, summaryMin: number, summaryMax: number }}
+ * @returns {{ narratedScenes: number, targetWords: number, minimumWords: number, imageMin: number, imageMax: number, summaryMin: number, summaryMax: number }}
  */
 export function sceneWordRange(sceneCount, formatType, durationSec) {
   const narratedScenes = buildScenePattern(sceneCount, formatType)
     .filter((type) => type !== "reaction").length || 1;
   const seconds = Math.max(60, Number(durationSec) || 300);
-  // Anggaran kata mengikuti durasi target. Pada default 720 detik, narasi
-  // lincah 1.08x diarahkan ke sekitar 10-12 menit; durasi akhir mengikuti audio.
-  const imageMin = Math.max(35, Math.ceil((seconds * 2.35) / narratedScenes));
-  const imageMax = Math.max(imageMin + 14, Math.ceil((seconds * 2.85) / narratedScenes));
+  // Sampel dokumenter cedar 1.08x sekitar 114 kata/menit. Target 108 kata
+  // per menit video memberi ruang untuk hook/reaction dan jeda antar scene.
+  const targetWords = Math.round(seconds * 1.8);
+  const minimumWords = Math.round(seconds * 1.6);
+  const imageMin = Math.max(35, Math.ceil(minimumWords / narratedScenes));
+  const imageMax = Math.max(imageMin + 8, Math.ceil((seconds * 1.9) / narratedScenes));
   return {
     narratedScenes,
+    targetWords,
+    minimumWords,
     imageMin,
     imageMax,
     summaryMin: imageMin + 7,

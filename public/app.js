@@ -763,7 +763,7 @@ function updateEstimate() {
   const provider = form.querySelector("[name='ttsProvider']")?.value || "openai";
   const scenes = +(form.querySelector("[name='sceneCount']")?.value || 26);
 
-  const words = Math.round(dur * 2.35);
+  const words = Math.round(dur * 1.8);
   const ttsCost = provider === "elevenlabs" ? words * 0.00003 : words * 0.000015;
   const imgPerScene = quality === "high" ? 3 : quality === "medium" ? 2 : 1;
   const imgCost = scenes * imgPerScene * 0.04;
