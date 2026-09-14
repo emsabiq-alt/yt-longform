@@ -23,6 +23,7 @@ export const MAX_DURATION_SEC = 1200;
 // sepanjang target, jadi run dihentikan sebelum gambar/TTS/render dibayar.
 // Ambang ini tetap di bawah minimum revisi 1.8 kata/detik.
 const MIN_PUBLISHABLE_WORDS_PER_SEC = 1.4;
+const MAX_NARRATION_REVISION_ATTEMPTS = 3;
 
 const categories = [
   "sains",
@@ -250,13 +251,17 @@ export async function createLongformDraft(rawInput) {
   const selectedTitle = normalized.title;
   const words = sceneWordRange(input.sceneCount, input.formatType, input.durationSec);
   const minimumNarrationWords = words.minimumWords;
-  if (config.openai.apiKey && narrationWordCount(normalized) < minimumNarrationWords) {
+  for (let attempt = 1;
+    config.openai.apiKey && narrationWordCount(normalized) < minimumNarrationWords && attempt <= MAX_NARRATION_REVISION_ATTEMPTS;
+    attempt++) {
+    const currentWords = narrationWordCount(normalized);
     try {
       const expandedPlan = await requestKnowledgeJson([
         promptText,
         "",
         "REVISI WAJIB:",
-        `Naskah sebelumnya terlalu pendek. Tulis ulang dengan minimal ${minimumNarrationWords} kata narasi yang benar-benar dibacakan TTS.`,
+        `Percobaan revisi ${attempt}/${MAX_NARRATION_REVISION_ATTEMPTS}. Naskah sebelumnya hanya ${currentWords} kata.`,
+        `Tulis ulang dengan minimal ${minimumNarrationWords} kata narasi yang benar-benar dibacakan TTS. Jangan mengembalikan naskah sebelum jumlah minimum tercapai.`,
         `Hitung minimum ini hanya dari ${words.narratedScenes} scene image dan summary. Scene reaction juga dibacakan TTS, tetapi tetap pendek dan tidak dihitung dalam minimum narasi utama ini.`,
         `Karena itu setiap scene image HARUS ${words.imageMin}-${words.imageMax} kata dan scene summary ${words.summaryMin}-${words.summaryMax} kata. Jangan menulis lebih pendek dari batas bawah itu.`,
         `Pertahankan tepat jumlah scene dan pola format ${input.formatType}, dengan scene terakhir summary.`
@@ -266,7 +271,7 @@ export async function createLongformDraft(rawInput) {
       // Title Engine saat respons revisi AI tidak menyertakan title.
       normalized.title = selectedTitle || normalized.title;
     } catch (error) {
-      console.warn(`[Story Longform] Revisi panjang naskah gagal: ${error.message}`);
+      console.warn(`[Story Longform] Revisi panjang naskah ${attempt}/${MAX_NARRATION_REVISION_ATTEMPTS} gagal: ${error.message}`);
     }
   }
 
