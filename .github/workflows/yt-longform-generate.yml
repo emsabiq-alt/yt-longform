@@ -42,7 +42,7 @@ on:
       force:
         description: Bypass daily generate limit
         required: false
-        default: "false"
+        default: "true"
   schedule:
     # Mulai 04:15 WIB (21:15 UTC); render ~2j45m membuat upload tiba sekitar
     # 20:00 US Eastern saat DST / 19:00 saat standard time (prime time malam US).
