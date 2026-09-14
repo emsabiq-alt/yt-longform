@@ -669,7 +669,7 @@ export async function applyNewsImageOverlays(inputVideoPath, outputVideoPath, it
     "-crf", "20",
     "-c:a", "copy",
     "-y", outputVideoPath
-  ]);
+  ], { timeoutMs: 1_800_000 });
 }
 
 /**
@@ -702,8 +702,8 @@ async function makeDeviceMockupClip({ newsImagePath, headerPath, templatePath, o
   const contentOffY = sY;
 
   const inputs = [
-    "-loop", "1", "-i", newsImagePath,
-    "-loop", "1", "-i", templatePath
+    "-loop", "1", "-r", "30", "-t", String(OVERLAY_DURATION), "-i", newsImagePath,
+    "-loop", "1", "-r", "30", "-t", String(OVERLAY_DURATION), "-i", templatePath
   ];
 
   let contentFilter = `[0:v]scale=${contentW}:${contentH}:force_original_aspect_ratio=decrease,` +
@@ -711,7 +711,7 @@ async function makeDeviceMockupClip({ newsImagePath, headerPath, templatePath, o
     `noise=alls=6:allf=t+u[content]`;
 
   if (headerPath) {
-    inputs.push("-loop", "1", "-i", headerPath);
+    inputs.push("-loop", "1", "-r", "30", "-t", String(OVERLAY_DURATION), "-i", headerPath);
     contentFilter = `[0:v]scale=${contentW}:${contentH}:force_original_aspect_ratio=decrease,` +
       `pad=${contentW}:${contentH}:(ow-iw)/2:(oh-ih)/2:black,` +
       `noise=alls=6:allf=t+u[content_raw];` +

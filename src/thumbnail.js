@@ -455,12 +455,15 @@ function optimizeImage(inputPath, outputPath, title = "", channelName = "", cate
 
   return new Promise((resolve, reject) => {
     const child = spawn("ffmpeg", ffmpegInputs, { windowsHide: true, cwd: paths.rootDir });
+    const MAX_BUFFER = 64 * 1024;
     let stderr = "";
-    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+    child.stderr.on("data", (chunk) => {
+      stderr = (stderr + chunk.toString()).slice(-MAX_BUFFER);
+    });
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(stderr || `Optimasi gambar thumbnail gagal (${code})`));
+      else reject(new Error(stderr.trim() || `Optimasi gambar thumbnail gagal (${code})`));
     });
   });
 }

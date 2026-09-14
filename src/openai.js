@@ -232,12 +232,15 @@ export function splitGridImage(inputPath, outDir, baseName) {
         "-q:v", "7",
         outputs[index]
       ], { windowsHide: true, cwd: paths.rootDir });
+      const MAX_BUFFER = 64 * 1024;
       let stderr = "";
-      child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+      child.stderr.on("data", (chunk) => {
+        stderr = (stderr + chunk.toString()).slice(-MAX_BUFFER);
+      });
       child.on("error", reject);
       child.on("close", (code) => {
         if (code === 0) resolve();
-        else reject(new Error(stderr || `Split grid panel ${index + 1} gagal (${code})`));
+        else reject(new Error(stderr.trim() || `Split grid panel ${index + 1} gagal (${code})`));
       });
     });
   });
@@ -261,12 +264,15 @@ function optimizeImage(inputPath, outputPath, size = "") {
       "-q:v", "7",
       outputPath
     ], { windowsHide: true, cwd: paths.rootDir });
+    const MAX_BUFFER = 64 * 1024;
     let stderr = "";
-    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+    child.stderr.on("data", (chunk) => {
+      stderr = (stderr + chunk.toString()).slice(-MAX_BUFFER);
+    });
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(stderr || `Optimasi gambar gagal (${code})`));
+      else reject(new Error(stderr.trim() || `Optimasi gambar gagal (${code})`));
     });
   });
 }

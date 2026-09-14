@@ -102,3 +102,40 @@ test("normalizeTtsText merapatkan spasi & menangani input kosong", () => {
   assert.equal(normalizeTtsText(""), "");
   assert.equal(normalizeTtsText("  halo    dunia  "), "halo dunia");
 });
+
+test("runCommand executes command and captures output within rolling buffer", async () => {
+  const { runCommand } = await import("../src/longform-render.js");
+  const out = await runCommand("node", ["-e", "console.log('antigravity_test_ok')"]);
+  assert.ok(out.includes("antigravity_test_ok"));
+});
+
+test("runCommand rolling buffer caps stderr and never throws RangeError on high volume", async () => {
+  const { runCommand } = await import("../src/longform-render.js");
+  // Emit ~10 MB of stderr in chunks to simulate verbose ffmpeg
+  const script = "for(let i=0;i<100;i++) process.stderr.write('x'.repeat(10000) + '\\n'); process.exit(1);";
+  await assert.rejects(
+    async () => {
+      await runCommand("node", ["-e", script]);
+    },
+    (err) => {
+      // Must not be RangeError: Invalid string length
+      assert.notEqual(err.name, "RangeError");
+      assert.ok(err.message.length <= 64 * 1024 + 100);
+      return true;
+    }
+  );
+});
+
+test("runCommand times out and terminates child process when timeoutMs exceeded", async () => {
+  const { runCommand } = await import("../src/longform-render.js");
+  await assert.rejects(
+    async () => {
+      await runCommand("node", ["-e", "setTimeout(() => {}, 10000)"], { timeoutMs: 150 });
+    },
+    (err) => {
+      assert.match(err.message, /timed out/i);
+      return true;
+    }
+  );
+});
+

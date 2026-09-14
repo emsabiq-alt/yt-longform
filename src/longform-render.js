@@ -238,6 +238,7 @@ async function makeContentAudio({ narrationPath, musicPath, outputPath, duration
     "-y",
     "-i", narrationPath,
     "-stream_loop", "-1",
+    "-t", String(duration),
     "-i", musicPath,
     "-filter_complex",
     [
@@ -252,7 +253,7 @@ async function makeContentAudio({ narrationPath, musicPath, outputPath, duration
     "-ar", "44100",
     "-ac", "2",
     outputPath
-  ]);
+  ], { timeoutMs: 600_000 });
 }
 
 /**
@@ -262,6 +263,7 @@ async function makeContentAudioOnlyMusic({ musicPath, outputPath, duration, musi
   await runFfmpeg([
     "-y",
     "-stream_loop", "-1",
+    "-t", String(duration),
     "-i", musicPath,
     "-filter_complex",
     `[0:a]volume=${backgroundMusicVolume}[music]`,
@@ -272,7 +274,7 @@ async function makeContentAudioOnlyMusic({ musicPath, outputPath, duration, musi
     "-ar", "44100",
     "-ac", "2",
     outputPath
-  ]);
+  ], { timeoutMs: 600_000 });
 }
 
 /**
@@ -400,6 +402,7 @@ export async function renderLongformVideo(item, options = {}) {
           const subPath = path.join(workDir, `content-segment-${String(index).padStart(2, "0")}-sub-${mi}.mp4`);
           const media = mediaList[mi];
           const subDuration = subDurations[mi] ?? scene.durationSec / mediaList.length;
+          console.log(`  -> Sub-segment ${mi + 1}/${mediaList.length} (${subDuration.toFixed(2)}s, ${media.type}${media.isRealEntity ? " [real]" : ""}): ${path.basename(media.path)}...`);
           if (media.type === "video") {
             await makeVideoSegment({ videoPath: media.path, outputPath: subPath, duration: subDuration, resolution });
           } else {
@@ -787,7 +790,7 @@ export async function makeContentAudioFromScenes({ scenes, musicPath, outputPath
   filters.push(`${partLabels.join("")}concat=n=${partLabels.length}:v=0:a=1[timeline]`);
 
   // Musik latar sebagai input terakhir (looping).
-  inputs.push("-stream_loop", "-1", "-i", musicPath);
+  inputs.push("-stream_loop", "-1", "-t", String(duration), "-i", musicPath);
   const musicInputIdx = inputIndex;
   filters.push(`[${musicInputIdx}:a]volume=${backgroundMusicVolume}[music]`);
   filters.push(`[timeline][music]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]`);
@@ -803,7 +806,7 @@ export async function makeContentAudioFromScenes({ scenes, musicPath, outputPath
     "-ar", "44100",
     "-ac", "2",
     outputPath
-  ]);
+  ], { timeoutMs: 600_000 });
 }
 
 // Instrumentasi sinkronisasi visual↔suara. Tanpa angka ini, tidak ada cara tahu
@@ -1079,7 +1082,7 @@ async function applyFigureImageOverlays(inputPath, outputPath, figurePlacements,
     "-crf", "21",
     "-pix_fmt", "yuv420p",
     outputPath
-  ]);
+  ], { timeoutMs: 1_800_000 });
 }
 
 export async function makeVideoSegment({ videoPath, outputPath, duration, resolution = "720p" }) {
@@ -1132,7 +1135,7 @@ export async function makeVideoSegment({ videoPath, outputPath, duration, resolu
   await runFfmpeg([
     "-y",
     "-i", videoPath,
-    ...(hasOverlay ? ["-stream_loop", "-1", "-i", overlayPath] : []),
+    ...(hasOverlay ? ["-stream_loop", "-1", "-t", targetDuration.toFixed(3), "-i", overlayPath] : []),
     "-t", targetDuration.toFixed(3),
     "-filter_complex", filterComplex,
     "-map", "[outv]",
@@ -1184,12 +1187,15 @@ export async function makeImageSegment({
       await runFfmpeg([
         "-y",
         "-stream_loop", "-1",
+        "-t", targetDuration.toFixed(3),
         "-i", backgroundVideoPath,
         "-loop", "1",
+        "-r", String(fps),
+        "-t", targetDuration.toFixed(3),
         "-i", imagePath,
         "-filter_complex", filterComplex,
         "-map", "[outv]",
-        "-t", String(targetDuration),
+        "-t", targetDuration.toFixed(3),
         "-r", String(fps),
         "-c:v", "libx264",
         "-preset", "veryfast",
@@ -1218,10 +1224,12 @@ export async function makeImageSegment({
     await runFfmpeg([
       "-y",
       "-loop", "1",
+      "-r", String(fps),
+      "-t", targetDuration.toFixed(3),
       "-i", imagePath,
       "-filter_complex", filterComplex,
       "-map", "[outv]",
-      "-t", String(targetDuration),
+      "-t", targetDuration.toFixed(3),
       "-r", String(fps),
       "-c:v", "libx264",
       "-preset", "veryfast",
@@ -1441,7 +1449,7 @@ async function burnSubtitles({ inputPath, assPath, outputPath }) {
     "-crf", "21",
     "-pix_fmt", "yuv420p",
     outputPath
-  ]);
+  ], { timeoutMs: 1_800_000 });
 }
 
 async function addLogoWatermark({ inputPath, outputPath, resolution = "720p" }) {
@@ -1471,7 +1479,7 @@ async function addLogoWatermark({ inputPath, outputPath, resolution = "720p" }) 
     "-crf", "21",
     "-pix_fmt", "yuv420p",
     outputPath
-  ]);
+  ], { timeoutMs: 1_800_000 });
 }
 
 async function findBackgroundMusic() {
@@ -1504,7 +1512,7 @@ async function muxVideoAudio({ videoPath, audioPath, outputPath }) {
     "-b:a", "192k",
     "-shortest",
     outputPath
-  ]);
+  ], { timeoutMs: 600_000 });
 }
 
 export async function writeContentCaptionAss({ outputPath, item, scenes, contentDuration }) {
@@ -2106,25 +2114,59 @@ export async function probeDuration(filePath) {
     "-show_entries", "format=duration",
     "-of", "default=noprint_wrappers=1:nokey=1",
     filePath
-  ]);
+  ], { timeoutMs: 30_000 });
   return Number.parseFloat(output.trim()) || 0;
 }
 
-async function runFfmpeg(args) {
-  await runCommand("ffmpeg", args);
+async function runFfmpeg(args, options = {}) {
+  await runCommand("ffmpeg", args, options);
 }
 
-function runCommand(command, args) {
+export function runCommand(command, args, options = {}) {
+  const timeoutMs = options.timeoutMs ?? 300_000;
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { windowsHide: true, cwd: paths.rootDir });
+    const MAX_BUFFER = 64 * 1024;
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
-    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) resolve(stdout || stderr);
-      else reject(new Error(stderr || `${command} gagal (${code})`));
+    let timer = null;
+    let settled = false;
+
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try {
+          child.kill("SIGKILL");
+        } catch {}
+        const lastErr = stderr.slice(-1000).trim();
+        reject(new Error(`${command} timed out after ${Math.round(timeoutMs / 1000)}s${lastErr ? `: ${lastErr}` : ""}`));
+      }, timeoutMs);
+    }
+
+    child.stdout.on("data", (chunk) => {
+      stdout = (stdout + chunk.toString()).slice(-MAX_BUFFER);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr = (stderr + chunk.toString()).slice(-MAX_BUFFER);
+    });
+    child.on("error", (err) => {
+      if (timer) clearTimeout(timer);
+      if (!settled) {
+        settled = true;
+        reject(err);
+      }
+    });
+    child.on("close", (code, signal) => {
+      if (timer) clearTimeout(timer);
+      if (!settled) {
+        settled = true;
+        if (code === 0) resolve(stdout || stderr);
+        else {
+          const detail = stderr.slice(-2000).trim() || signal || `${command} gagal (${code})`;
+          reject(new Error(detail));
+        }
+      }
     });
   });
 }

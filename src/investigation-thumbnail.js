@@ -477,11 +477,14 @@ export async function generateInvestigationThumbnail({
       targetOutput
     ], { windowsHide: true });
 
+    const MAX_BUFFER = 64 * 1024;
     let stderr = "";
-    child.stderr.on("data", (c) => { stderr += c; });
+    child.stderr.on("data", (c) => {
+      stderr = (stderr + c.toString()).slice(-MAX_BUFFER);
+    });
     child.on("close", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(stderr.slice(-600) || `FFmpeg code ${code}`));
+      else reject(new Error(stderr.slice(-600).trim() || `FFmpeg code ${code}`));
     });
   });
 
