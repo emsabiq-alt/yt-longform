@@ -188,7 +188,7 @@ export const config = {
     timeZone: clean(process.env.YT_TIME_ZONE || "Asia/Bangkok"),
     dailyGenerateLimit: Math.max(0, numberEnv("YT_DAILY_GENERATE_LIMIT", 1)),
     durationSec: Math.min(1200, Math.max(300, numberEnv("YT_DURATION_SEC", 1200))),
-    sceneCount: Math.min(36, Math.max(32, numberEnv("YT_SCENE_COUNT", 36))),
+    sceneCount: Math.min(48, Math.max(8, numberEnv("YT_SCENE_COUNT", 36))),
     workflowFile: clean(process.env.YT_WORKFLOW_FILE || "yt-longform-generate.yml"),
     strictRemote: bool(process.env.YT_STRICT_REMOTE),
     viralTitleEnabled: boolDefault(process.env.YT_VIRAL_TITLE_ENABLED, true),

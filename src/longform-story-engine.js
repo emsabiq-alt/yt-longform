@@ -420,17 +420,17 @@ export async function enrichLongformDraft(item, { missingSec, rawAudioSec, reque
 }
 
 function normalizeInput(input) {
-  let sceneCount, durationSec;
-
+  const durationSec = clamp(Number(input.durationSec || DEFAULT_DURATION_SEC), 300, MAX_DURATION_SEC);
+  const defaultScenes = Math.round(clamp(durationSec / 33, 8, 48));
+  let sceneCount;
   if (input.dynamicScenes) {
-    // Mode Ide: hitung dari volume konten artikel, min 18 scene (6 menit)
+    // Mode Ide: hitung dari volume konten artikel
     const totalWords = (input.trend?.newsItems || [])
       .reduce((sum, it) => sum + String(it.excerpt || it.headline || "").split(/\s+/).length, 0);
-    sceneCount = Math.max(32, Math.min(36, Math.ceil(totalWords / 80)));
-    durationSec = clamp(Number(input.durationSec || DEFAULT_DURATION_SEC), 300, MAX_DURATION_SEC);
+    const calculated = Math.ceil(totalWords / 80);
+    sceneCount = clamp(calculated || defaultScenes, 8, 48);
   } else {
-    sceneCount = clamp(Number(input.sceneCount || 36), 32, 36);
-    durationSec = clamp(Number(input.durationSec || DEFAULT_DURATION_SEC), 300, MAX_DURATION_SEC);
+    sceneCount = clamp(Number(input.sceneCount || defaultScenes), 8, 48);
   }
 
   return {

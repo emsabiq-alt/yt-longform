@@ -321,7 +321,7 @@ export function configSummary() {
     timezone: clean(process.env.YT_TIME_ZONE || "Asia/Bangkok"),
     uploadDriver: clean(process.env.UPLOAD_DRIVER || "sftp"),
     durationSec: clampNum(process.env.YT_DURATION_SEC || 1200, 300, 1200, 1200),
-    sceneCount: Math.min(36, Math.max(32, Number(process.env.YT_SCENE_COUNT || 36))),
+    sceneCount: Math.min(48, Math.max(8, Number(process.env.YT_SCENE_COUNT || 36))),
     dailyGenerateLimit: Number(process.env.YT_DAILY_GENERATE_LIMIT || 1),
     youtubeEnabled: boolEnv("YOUTUBE_UPLOAD_ENABLED", true),
     youtubeDailyUploadLimit: Number(process.env.YOUTUBE_DAILY_UPLOAD_LIMIT || 2),
@@ -412,7 +412,12 @@ export function buildQueueItem(input) {
     formatType: clampStr(input.formatType || input.format_type || "", 40),
     // Plafon 1200 detik mengikuti kontrak durasi di src/longform-story-engine.js.
     durationSec: clampNum(input.durationSec || process.env.YT_DURATION_SEC || 1200, 300, 1200, 1200),
-    sceneCount: clampNum(input.sceneCount || process.env.YT_SCENE_COUNT || 36, 32, 36, 36),
+    sceneCount: clampNum(
+      input.sceneCount || process.env.YT_SCENE_COUNT || Math.round(clampNum(input.durationSec || process.env.YT_DURATION_SEC || 1200, 300, 1200, 1200) / 33),
+      8,
+      48,
+      36
+    ),
     ttsProvider,
     ttsVoice: clampStr(input.ttsVoice || defaultTtsVoice, 80),
     imageQuality: clampStr(input.imageQuality || "low", 20),

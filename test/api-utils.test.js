@@ -95,11 +95,13 @@ test("durasi default dashboard dan antrean selaras, dengan override env dan pili
   }
 });
 
-test("buildQueueItem: sceneCount awal dibatasi ke 32-36", () => {
-  assert.equal(buildQueueItem({ sceneCount: 100 }).sceneCount, 36);
+test("buildQueueItem: sceneCount awal dibatasi ke 8-48 dan proporsional terhadap durasi", () => {
+  assert.equal(buildQueueItem({ sceneCount: 100 }).sceneCount, 48);
   assert.equal(buildQueueItem({ sceneCount: 34 }).sceneCount, 34);
-  assert.equal(buildQueueItem({ sceneCount: 1 }).sceneCount, 32);
+  assert.equal(buildQueueItem({ sceneCount: 18 }).sceneCount, 18);
+  assert.equal(buildQueueItem({ sceneCount: 1 }).sceneCount, 8);
   assert.equal(buildQueueItem({ sceneCount: 0 }).sceneCount, 36);
+  assert.equal(buildQueueItem({ durationSec: 600 }).sceneCount, 18);
 });
 
 test("buildQueueItem: ttsProvider hanya 'openai' atau 'elevenlabs'", () => {

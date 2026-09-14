@@ -648,6 +648,24 @@ function initCreateForm() {
   providerSel.addEventListener("change", updateVoices);
 
   // Estimate
+  const durSel = document.querySelector("#createForm select[name='durationSec']");
+  const sceneSel = $("sceneCountSelect") || document.querySelector("#createForm select[name='sceneCount']");
+  const DURATION_SCENE_MAP = {
+    300: "10",
+    480: "14",
+    600: "18",
+    720: "22",
+    900: "26",
+    1200: "36"
+  };
+  durSel?.addEventListener("change", () => {
+    const d = +(durSel.value || 1200);
+    if (sceneSel && DURATION_SCENE_MAP[d]) {
+      sceneSel.value = DURATION_SCENE_MAP[d];
+    }
+    updateEstimate();
+  });
+
   document.getElementById("createForm").querySelectorAll("select").forEach(s => s.addEventListener("change", updateEstimate));
   updateEstimate();
 

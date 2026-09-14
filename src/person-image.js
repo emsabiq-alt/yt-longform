@@ -8,13 +8,11 @@
  */
 
 import fs from "node:fs/promises";
-import { createWriteStream } from "node:fs";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { paths } from "./config.js";
 import { fetchGoogleImageUrl } from "./google-image.js";
+import { isValidImageBuffer, isValidImageFileSync } from "./util.js";
 
 const TIMEOUT_MS = 10_000;
 const DL_TIMEOUT_MS = 30_000;
@@ -73,13 +71,27 @@ export async function downloadPersonImage(imageUrl, outputPath) {
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   const tempPath = `${outputPath}.${process.pid}-${randomUUID()}.part`;
   try {
-    const res = await fetch(imageUrl, { signal: AbortSignal.timeout(DL_TIMEOUT_MS) });
+    const res = await fetch(imageUrl, {
+      signal: AbortSignal.timeout(DL_TIMEOUT_MS),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
+      }
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const nodeStream = Readable.fromWeb(res.body);
-    const writer = createWriteStream(tempPath, { flags: "wx" });
-    await pipeline(nodeStream, writer);
-    const stat = await fs.stat(tempPath);
-    if (!stat.isFile() || stat.size < 100) throw new Error("file hasil kosong");
+    const contentType = (res.headers.get("content-type") || "").toLowerCase();
+    if (contentType && !contentType.includes("image") && !contentType.includes("octet-stream")) {
+      throw new Error(`Invalid content-type: ${contentType}`);
+    }
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    if (!isValidImageBuffer(buffer)) {
+      throw new Error("Invalid image buffer (magic bytes check failed or size < 1000)");
+    }
+    await fs.writeFile(tempPath, buffer);
+    if (!isValidImageFileSync(tempPath)) {
+      throw new Error("Invalid image file on disk");
+    }
     await fs.rename(tempPath, outputPath);
     return outputPath;
   } catch (error) {
@@ -108,15 +120,24 @@ export async function ensureFigureImages(item) {
   await fs.mkdir(figureDir, { recursive: true });
 
   for (const { sceneIndex, name } of figureScenesIndexes) {
-    if (item.assets.figureImages[sceneIndex]) continue;
+    if (item.assets.figureImages[sceneIndex]) {
+      const existing = item.assets.figureImages[sceneIndex]?.imagePath;
+      if (existing && isValidImageFileSync(existing)) continue;
+      delete item.assets.figureImages[sceneIndex];
+    }
     try {
       const imageUrl = await fetchPersonImageUrl(name);
       if (!imageUrl) continue;
       const ext = imageUrl.match(/\.(jpe?g|png|webp)/i)?.[1]?.replace("jpeg", "jpg") || "jpg";
       const imagePath = path.join(figureDir, `figure-scene-${sceneIndex}.${ext}`);
       await downloadPersonImage(imageUrl, imagePath);
-      item.assets.figureImages[sceneIndex] = { name, imagePath };
-      console.log(`[PersonImage] Scene ${sceneIndex} ("${name}") → ${path.basename(imagePath)}`);
+      if (isValidImageFileSync(imagePath)) {
+        item.assets.figureImages[sceneIndex] = { name, imagePath };
+        console.log(`[PersonImage] Scene ${sceneIndex} ("${name}") → ${path.basename(imagePath)}`);
+      } else {
+        await fs.rm(imagePath, { force: true }).catch(() => {});
+        console.warn(`[PersonImage] Scene ${sceneIndex} "${name}" gambar tidak valid, dilewati.`);
+      }
     } catch (err) {
       console.warn(`[PersonImage] Scene ${sceneIndex} "${name}" gagal: ${err.message}`);
     }

@@ -22,12 +22,15 @@ export default async function handler(req, res) {
       if (dynamicScenes) envelope.dynamicScenes = true;
       topicInput = JSON.stringify(envelope);
     }
+    const durationNum = clampNum(body.durationSec || body.duration || process.env.YT_DURATION_SEC || 1200, 300, 1200, 1200);
+    const defaultScenes = Math.round(durationNum / 33);
+    const rawScenes = body.sceneCount || body.scenes || process.env.YT_SCENE_COUNT || defaultScenes;
     const inputs = {
       topic: topicInput,
       category: clampStr(body.category || "random", 80),
       format_type: clampStr(body.formatType || body.format_type || "", 40),
-      duration: String(clampNum(body.durationSec || body.duration || process.env.YT_DURATION_SEC || 1200, 300, 1200, 1200)),
-      scenes: dynamicScenes ? "" : String(clampNum(body.sceneCount || body.scenes || process.env.YT_SCENE_COUNT || 36, 32, 36, 36)),
+      duration: String(durationNum),
+      scenes: dynamicScenes ? "" : String(clampNum(rawScenes, 8, 48, defaultScenes)),
       tts_provider: ttsProvider,
       tts_voice: clampStr(body.ttsVoice || defaultTtsVoice, 80),
       image_quality: clampStr(body.imageQuality || "low", 20),

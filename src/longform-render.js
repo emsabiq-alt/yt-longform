@@ -1124,42 +1124,47 @@ async function applyFigureImageOverlays(inputPath, outputPath, figurePlacements,
   const posY = Math.round((230 + 14) * scale); // FIG_Y + 14px padding
 
   const overlays = figurePlacements
-    .filter((p) => figureImages[p.sceneIndex]?.imagePath)
+    .filter((p) => figureImages[p.sceneIndex]?.imagePath && isValidImageFileSync(figureImages[p.sceneIndex].imagePath))
     .map((p) => ({ ...p, imagePath: figureImages[p.sceneIndex].imagePath }));
 
   if (!overlays.length) {
-    // Tidak ada gambar tokoh → lewati (copy saja agar pipeline tidak putus)
+    // Tidak ada gambar tokoh valid → lewati (copy saja agar pipeline tidak putus)
     await fs.copyFile(inputPath, outputPath);
     return;
   }
 
-  const args = ["-y", "-i", inputPath];
-  overlays.forEach((o) => args.push("-i", o.imagePath));
+  try {
+    const args = ["-y", "-i", inputPath];
+    overlays.forEach((o) => args.push("-i", o.imagePath));
 
-  const filters = [];
-  let prevLabel = "0:v";
-  overlays.forEach((o, idx) => {
-    const inLabel = `${idx + 1}:v`;
-    const outLabel = idx === overlays.length - 1 ? "outv" : `tmp${idx}`;
-    const start = o.startSec.toFixed(3);
-    const end = o.endSec.toFixed(3);
-    filters.push(
-      `[${inLabel}]scale=${portraitSize}:${portraitSize}:force_original_aspect_ratio=increase,crop=${portraitSize}:${portraitSize}:(in_w-out_w)/2:if(gt(in_h\\,out_h)\\,(in_h-out_h)*0.12\\,(in_h-out_h)/2),format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(${portraitSize}/2)*(${portraitSize}/2)),255,0)'[p${idx}]`,
-      `[${prevLabel}][p${idx}]overlay=${posX}:${posY}:enable='between(t,${start},${end})'[${outLabel}]`
-    );
-    prevLabel = outLabel;
-  });
+    const filters = [];
+    let prevLabel = "0:v";
+    overlays.forEach((o, idx) => {
+      const inLabel = `${idx + 1}:v`;
+      const outLabel = idx === overlays.length - 1 ? "outv" : `tmp${idx}`;
+      const start = o.startSec.toFixed(3);
+      const end = o.endSec.toFixed(3);
+      filters.push(
+        `[${inLabel}]scale=${portraitSize}:${portraitSize}:force_original_aspect_ratio=increase,crop=${portraitSize}:${portraitSize}:(in_w-out_w)/2:if(gt(in_h\\,out_h)\\,(in_h-out_h)*0.12\\,(in_h-out_h)/2),format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(${portraitSize}/2)*(${portraitSize}/2)),255,0)'[p${idx}]`,
+        `[${prevLabel}][p${idx}]overlay=${posX}:${posY}:enable='between(t,${start},${end})'[${outLabel}]`
+      );
+      prevLabel = outLabel;
+    });
 
-  await runFfmpeg([
-    ...args,
-    "-filter_complex", filters.join(";"),
-    "-map", "[outv]",
-    "-c:v", "libx264",
-    "-preset", "veryfast",
-    "-crf", "21",
-    "-pix_fmt", "yuv420p",
-    outputPath
-  ], { timeoutMs: 1_800_000 });
+    await runFfmpeg([
+      ...args,
+      "-filter_complex", filters.join(";"),
+      "-map", "[outv]",
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-crf", "21",
+      "-pix_fmt", "yuv420p",
+      outputPath
+    ], { timeoutMs: 1_800_000 });
+  } catch (err) {
+    console.warn(`[FigureOverlay] Gagal menerapkan figure overlay: ${err.message}. Fallback menyalin input visual.`);
+    await fs.copyFile(inputPath, outputPath);
+  }
 }
 
 export async function makeVideoSegment({ videoPath, outputPath, duration, resolution = "720p" }) {

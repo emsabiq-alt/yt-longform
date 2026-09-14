@@ -16,7 +16,7 @@ on:
         required: false
         default: "1200"
       scenes:
-        description: Initial scene count (32-36; enriched automatically when needed)
+        description: Initial scene count (8-48; proportional to duration, enriched automatically when needed)
         required: false
         default: "36"
       tts_provider:
@@ -26,7 +26,7 @@ on:
       tts_voice:
         description: TTS voice
         required: false
-        default: cedar
+        default: fable
       image_quality:
         description: low, medium, high
         required: false

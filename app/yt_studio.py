@@ -648,9 +648,10 @@ class YTStudioApp(ctk.CTk):
         env_vars = parse_env()
         self.f_duration = self._labeled_combo(body, "Durasi (detik)", 1, 1,
                                               ["300", "360", "480", "600", "720", "900", "1200"],
-                                              default=env_vars.get("YT_DURATION_SEC", "1200"))
+                                              default=env_vars.get("YT_DURATION_SEC", "1200"),
+                                              command=self.on_duration_change)
         self.f_scenes = self._labeled_combo(body, "Jumlah scene", 1, 2,
-                                            ["32", "34", "36"], default="36")
+                                            ["10", "14", "18", "22", "26", "32", "36"], default="36")
         # Get defaults based on .env
         default_tts = env_vars.get("YT_TTS_PROVIDER", "openai")
         default_voice = env_vars.get("ELEVENLABS_VOICE_ID", "wUrGnU2Kx934kbDdOWDo") if default_tts == "elevenlabs" else env_vars.get("OPENAI_TTS_VOICE", "fable")
@@ -1117,6 +1118,19 @@ class YTStudioApp(ctk.CTk):
         self.btn_local.configure(state="disabled", text="Sedang berjalan...")
         self._start_spinner()
         threading.Thread(target=self._run_subprocess, args=(cmd, project_dir), daemon=True).start()
+
+    def on_duration_change(self, val):
+        mapping = {
+            "300": "10",
+            "360": "12",
+            "480": "14",
+            "600": "18",
+            "720": "22",
+            "900": "26",
+            "1200": "36"
+        }
+        if val in mapping and hasattr(self, "f_scenes"):
+            self.f_scenes.set(mapping[val])
 
     def on_tts_change(self, val):
         if val == "elevenlabs":
