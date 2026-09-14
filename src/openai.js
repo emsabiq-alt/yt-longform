@@ -58,11 +58,27 @@ export async function requestIdeaJson(promptText) {
   return JSON.parse(content);
 }
 
+export function normalizeImageQuality(quality, model = config.openai.imageModel) {
+  const q = String(quality || "").toLowerCase().trim();
+  const m = String(model || "").toLowerCase().trim();
+  if (m.startsWith("dall-e")) {
+    if (q === "high" || q === "hd") return "hd";
+    return "standard";
+  }
+  // gpt-image-1, gpt-image-1-mini, etc.
+  // OpenAI Image API supported values: 'low', 'medium', 'high', and 'auto'.
+  if (["low", "medium", "high", "auto"].includes(q)) return q;
+  if (q === "standard") return "medium";
+  if (q === "hd") return "high";
+  return "low";
+}
+
 export async function generateSceneImage({ itemId, scene, size, quality }) {
   assertOpenAi();
   await fs.mkdir(paths.imageDir, { recursive: true });
 
   const prompt = sanitizeImagePrompt(scene.imagePrompt, size);
+  const normalizedQuality = normalizeImageQuality(quality);
   const response = await openAiFetch(`${config.openai.baseUrl}/images/generations`, IMAGE_TIMEOUT_MS, {
     method: "POST",
     headers: headersJson(),
@@ -70,7 +86,7 @@ export async function generateSceneImage({ itemId, scene, size, quality }) {
       model: config.openai.imageModel,
       prompt,
       size,
-      quality,
+      quality: normalizedQuality,
       n: 1
     })
   });
@@ -128,6 +144,7 @@ export async function generateSceneGridImage({ itemId, scene, segments, size, qu
   await fs.mkdir(paths.workDir, { recursive: true });
 
   const prompt = buildGridPrompt(segments);
+  const normalizedQuality = normalizeImageQuality(quality);
   const response = await openAiFetch(`${config.openai.baseUrl}/images/generations`, IMAGE_TIMEOUT_MS, {
     method: "POST",
     headers: headersJson(),
@@ -135,7 +152,7 @@ export async function generateSceneGridImage({ itemId, scene, segments, size, qu
       model: config.openai.imageModel,
       prompt,
       size,
-      quality,
+      quality: normalizedQuality,
       n: 1
     })
   });

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { generateOpenAiSpeech, requestKnowledgeJson } from "../src/openai.js";
+import { generateOpenAiSpeech, normalizeImageQuality, requestKnowledgeJson } from "../src/openai.js";
 import { config, DOCUMENTARY_TTS_INSTRUCTIONS, paths } from "../src/config.js";
 
 const chatBody = (payload) => JSON.stringify({
@@ -172,4 +172,21 @@ test("OpenAI speech mempertahankan speed pada model lama tanpa instructions", as
       assert.equal(Object.hasOwn(body, "instructions"), false);
     });
   }
+});
+
+test("normalizeImageQuality: memetakan nilai lama dan memvalidasi gpt-image vs dall-e", () => {
+  // gpt-image-1 / gpt-image-1-mini
+  assert.equal(normalizeImageQuality("standard", "gpt-image-1-mini"), "medium");
+  assert.equal(normalizeImageQuality("hd", "gpt-image-1-mini"), "high");
+  assert.equal(normalizeImageQuality("low", "gpt-image-1-mini"), "low");
+  assert.equal(normalizeImageQuality("medium", "gpt-image-1-mini"), "medium");
+  assert.equal(normalizeImageQuality("high", "gpt-image-1-mini"), "high");
+  assert.equal(normalizeImageQuality("auto", "gpt-image-1-mini"), "auto");
+  assert.equal(normalizeImageQuality("unknown-val", "gpt-image-1-mini"), "low");
+
+  // DALL-E models
+  assert.equal(normalizeImageQuality("low", "dall-e-3"), "standard");
+  assert.equal(normalizeImageQuality("standard", "dall-e-3"), "standard");
+  assert.equal(normalizeImageQuality("high", "dall-e-3"), "hd");
+  assert.equal(normalizeImageQuality("hd", "dall-e-3"), "hd");
 });

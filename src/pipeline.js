@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
+import path from "node:path";
 import { config, paths } from "./config.js";
 import { estimateTtsUsd } from "./cost.js";
 import { generateElevenLabsSpeech } from "./elevenlabs.js";
-import { generateOpenAiSpeech, generateSceneGridImage, generateSceneImage, transcribeSpeechSegments } from "./openai.js";
+import { generateOpenAiSpeech, generateSceneGridImage, generateSceneImage, normalizeImageQuality, transcribeSpeechSegments } from "./openai.js";
 import {
   fetchPexelsClipForScene,
   PEXELS_SELECTOR_VERSION,
@@ -1195,7 +1196,7 @@ export async function ensureImages(item, options = {}) {
   }
 
   const size = item.input.imageSize || LANDSCAPE_SIZE;
-  const quality = item.input.imageQuality || config.openai.imageQuality;
+  const quality = normalizeImageQuality(item.input.imageQuality || config.openai.imageQuality);
 
   // Hanya generate gambar untuk scene yang BELUM punya klip Pexels
   const imageScenes = item.plan.scenes.filter((s) => {
@@ -1209,7 +1210,7 @@ export async function ensureImages(item, options = {}) {
   }
 
   const gridMode = options.gridMode ?? config.openai.imageGridMode;
-  const gridQuality = options.gridQuality || config.openai.imageGridQuality || quality;
+  const gridQuality = normalizeImageQuality(options.gridQuality || config.openai.imageGridQuality || quality);
   const generateGridImages = options.generateGridImages || generateGridImagesDefault;
 
   // Kelompokkan pekerjaan PER SCENE: kumpulkan segmen yang belum punya media

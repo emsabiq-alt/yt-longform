@@ -447,7 +447,7 @@ function normalizeInput(input) {
     sceneCount,
     ttsProvider: String(input.ttsProvider || "openai").toLowerCase() === "elevenlabs" ? "elevenlabs" : "openai",
     imageSize: "1536x1024", // Default landscape
-    imageQuality: cleanText(input.imageQuality || "standard", 20),
+    imageQuality: cleanText(input.imageQuality || config.openai.imageQuality || "low", 20),
     allowOfflineDraft: Boolean(input.allowOfflineDraft || input.allowOffline)
   };
 }
