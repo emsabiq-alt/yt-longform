@@ -405,18 +405,19 @@ export function buildQueueItem(input) {
   const defaultTtsVoice = ttsProvider === "elevenlabs"
     ? process.env.ELEVENLABS_VOICE_ID || "wUrGnU2Kx934kbDdOWDo"
     : process.env.OPENAI_TTS_VOICE || "fable";
+  const durSec = clampNum(input.durationSec || process.env.YT_DURATION_SEC || 1200, 300, 1200, 1200);
+  const defaultScenes = Math.round(durSec / 33);
   return {
     id: clampStr(input.id, 80) || makeId("q"),
     topic: clampStr(input.topic, 300),
     category: clampStr(input.category || "random", 80),
     formatType: clampStr(input.formatType || input.format_type || "", 40),
-    // Plafon 1200 detik mengikuti kontrak durasi di src/longform-story-engine.js.
-    durationSec: clampNum(input.durationSec || process.env.YT_DURATION_SEC || 1200, 300, 1200, 1200),
+    durationSec: durSec,
     sceneCount: clampNum(
-      input.sceneCount || process.env.YT_SCENE_COUNT || Math.round(clampNum(input.durationSec || process.env.YT_DURATION_SEC || 1200, 300, 1200, 1200) / 33),
+      input.sceneCount || (input.durationSec ? defaultScenes : (process.env.YT_SCENE_COUNT || defaultScenes)),
       8,
       48,
-      36
+      defaultScenes
     ),
     ttsProvider,
     ttsVoice: clampStr(input.ttsVoice || defaultTtsVoice, 80),
