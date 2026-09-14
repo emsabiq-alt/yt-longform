@@ -399,8 +399,12 @@ export async function enrichLongformDraft(item, { missingSec, rawAudioSec, reque
     `Storyboard yang harus dipertahankan: ${JSON.stringify(scenes.map(({ index, chapter, narration, beatPurpose }) => ({ index, chapter, narration, beatPurpose })))}`
   ].join("\n");
   const result = await request(prompt);
-  if (result?.scenes?.length !== count) throw new Error(`Pengayaan harus mengembalikan tepat ${count} scene lengkap.`);
-  insertEnrichmentScenes(item, result.scenes);
+  const additions = Array.isArray(result?.scenes) ? result.scenes.slice(0, count) : [];
+  if (!additions.length) throw new Error("Pengayaan harus mengembalikan setidaknya satu scene lengkap.");
+  if (additions.length !== count) {
+    console.warn(`[Duration] AI mengembalikan ${result.scenes.length} dari ${count} scene yang diminta; memakai ${additions.length} scene lalu mengukur ulang.`);
+  }
+  insertEnrichmentScenes(item, additions);
   item.assets.storyboard = await writeLongformStoryboard(item);
   item.updatedAt = nowIso();
   return item;

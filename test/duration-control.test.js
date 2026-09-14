@@ -168,6 +168,27 @@ test("enrichment receives research evidence and saves full original plus new nar
   assert.ok(saved.storyboard[1].narration.includes("Kapal penelitian"));
 });
 
+test("enrichment accepts fewer scenes than requested and leaves remeasurement to the pipeline", async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "longform-partial-enrichment-"));
+  const previousDir = paths.generatedDir;
+  paths.generatedDir = dir;
+  t.after(async () => { paths.generatedDir = previousDir; await fs.rm(dir, { recursive: true, force: true }); });
+  const item = originalItem();
+  item.id = "partial-enrichment-test";
+
+  await enrichLongformDraft(item, {
+    missingSec: 4000,
+    rawAudioSec: 100,
+    request: async (prompt) => {
+      assert.ok(prompt.includes("Tambahkan tepat 6 scene"));
+      return { scenes: [newScene()] };
+    }
+  });
+
+  assert.equal(item.plan.scenes.length, 4);
+  assert.equal(item.plan.scenes[1].narration, newScene().narration);
+});
+
 test("long detailed narration survives polishing and storyboard export in full", () => {
   const narration = Array.from({ length: 220 }, (_, i) => `penjelasan${i}`).join(" ") + ".";
   assert.ok(narration.length > 1600 && narration.length < 4000);
