@@ -19,7 +19,7 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL || 'https://api.openai.com/v1' }}
       OPENAI_TTS_MODEL: ${{ secrets.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts' }}
-      OPENAI_TTS_VOICE: ${{ inputs.tts_voice || secrets.OPENAI_TTS_VOICE || 'cedar' }}
+      OPENAI_TTS_VOICE: ${{ inputs.tts_voice || secrets.OPENAI_TTS_VOICE || 'fable' }}
       OPENAI_TTS_INSTRUCTIONS: ${{ secrets.OPENAI_TTS_INSTRUCTIONS || '' }}
     steps:
       - uses: actions/checkout@v5

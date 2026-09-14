@@ -111,7 +111,7 @@ export const config = {
     imageGridMode: clean(process.env.IMAGE_GRID_MODE || "on").toLowerCase() !== "off",
     imageGridQuality: clean(process.env.IMAGE_GRID_QUALITY || "medium"),
     ttsModel: clean(process.env.OPENAI_TTS_MODEL || process.env.TTS_MODEL || "gpt-4o-mini-tts"),
-    ttsVoice: clean(process.env.OPENAI_TTS_VOICE || process.env.TTS_VOICE || "cedar"),
+    ttsVoice: clean(process.env.OPENAI_TTS_VOICE || process.env.TTS_VOICE || "fable"),
     ttsSpeed: Math.min(4, Math.max(0.25, numberEnv("OPENAI_TTS_SPEED", 1.08))),
     ttsInstructions: clean(process.env.OPENAI_TTS_INSTRUCTIONS) || DOCUMENTARY_TTS_INSTRUCTIONS,
     transcribeModel: clean(process.env.OPENAI_TRANSCRIBE_MODEL || "whisper-1")

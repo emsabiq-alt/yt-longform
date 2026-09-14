@@ -374,6 +374,7 @@ export async function renderLongformVideo(item, options = {}) {
       });
     } else {
       const mediaList = resolveSceneMediaList(item, scene);
+      scene.mediaList = mediaList;
       reportProgress("render", "Merender segmen video", Math.round(5 + (index / renderScenes.length) * 70), `scene ${index + 1}/${renderScenes.length} (${mediaList.length} sub)`);
       console.log(`Rendering ${scene.sceneType || "image"} scene ${index + 1}/${renderScenes.length} (${scene.durationSec}s, ${mediaList.length} sub-segments)...`);
 
@@ -919,13 +920,29 @@ export function computeSegmentDurations(scene, segmentCount) {
 function resolveSceneMedia(item, scene) {
   const sourceIndex = scene.imageSourceSceneIndex || scene.index;
 
+  // Jika scene memiliki overlay device mockup, background WAJIB video (B-roll),
+  // BUKAN foto/gambar di atas layar, agar mockup tidak muncul bersamaan dengan gambar di layar.
+  const hasMockup = (item.assets?.newsImages || []).some(
+    (n) => Number(n.sceneIndex) === Number(sourceIndex) && n.imagePath
+  );
+  const clip = item.assets?.clips?.find((entry) => Number(entry.sceneIndex) === Number(sourceIndex));
+
+  if (hasMockup) {
+    if (clip?.path) {
+      return { type: "video", path: clip.path };
+    }
+    const anyClip = (item.assets?.clips || []).find((c) => c.path);
+    if (anyClip?.path) {
+      return { type: "video", path: anyClip.path };
+    }
+  }
+
   // Aturan Entitas Spesifik: Cek foto riil (Serper / Google Images)
   const realImg = item.assets?.images?.find(
     (entry) => Number(entry.sceneIndex) === Number(sourceIndex)
       && (entry.provider === "google-images" || entry.isRealEntity)
       && isValidImageFileSync(entry.path, { allowMissing: true })
   );
-  const clip = item.assets?.clips?.find((entry) => Number(entry.sceneIndex) === Number(sourceIndex));
 
   if (realImg?.path) {
     return {
@@ -969,7 +986,25 @@ export function resolveSceneMediaList(item, scene) {
   const mediaList = [];
   const usedPaths = new Set();
 
+  const hasMockup = (item.assets?.newsImages || []).some(
+    (n) => Number(n.sceneIndex) === Number(sourceIndex) && n.imagePath
+  );
+
   for (let i = 0; i < targetCount; i++) {
+    // Jika scene memiliki overlay device mockup, segmen awal (di mana mockup slide masuk)
+    // WAJIB menggunakan latar video (B-roll), BUKAN foto/gambar di atas layar,
+    // agar mockup dan gambar layar TIDAK PERNAH muncul bersamaan!
+    if (hasMockup && i === 0) {
+      const mockupClip = clips.find((c) =>
+        Number(c.sceneIndex) === Number(sourceIndex) && c.path && !usedPaths.has(c.path)
+      ) || clips.find((c) => c.path && !usedPaths.has(c.path)) || clips.find((c) => c.path);
+      if (mockupClip?.path) {
+        mediaList.push({ type: "video", path: mockupClip.path });
+        usedPaths.add(mockupClip.path);
+        continue;
+      }
+    }
+
     // 0. ATURAN ENTITAS SPESIFIK: Cek apakah ada foto riil (Serper / Google Images) untuk scene/segmen ini
     const realImg = images.find((img) =>
       Number(img.sceneIndex) === Number(sourceIndex)

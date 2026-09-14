@@ -84,7 +84,7 @@ jobs:
       IMAGE_SIZE: ${{ secrets.IMAGE_SIZE || '1536x1024' }}
       IMAGE_QUALITY: ${{ github.event.inputs.image_quality || secrets.IMAGE_QUALITY || 'low' }}
       OPENAI_TTS_MODEL: ${{ secrets.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts' }}
-      OPENAI_TTS_VOICE: ${{ github.event.inputs.tts_voice || secrets.OPENAI_TTS_VOICE || 'cedar' }}
+      OPENAI_TTS_VOICE: ${{ github.event.inputs.tts_voice || secrets.OPENAI_TTS_VOICE || 'fable' }}
       OPENAI_TTS_SPEED: ${{ secrets.OPENAI_TTS_SPEED || '1.08' }}
       OPENAI_TTS_INSTRUCTIONS: ${{ secrets.OPENAI_TTS_INSTRUCTIONS || '' }}
       OPENAI_TRANSCRIBE_MODEL: ${{ secrets.OPENAI_TRANSCRIBE_MODEL || 'whisper-1' }}
@@ -105,7 +105,7 @@ jobs:
       RENDER_BODY_FONT: Noto Sans
       RENDER_MONO_FONT: JetBrains Mono
       YT_TTS_PROVIDER: ${{ secrets.YT_TTS_PROVIDER || 'openai' }}
-      YT_TTS_VOICE: ${{ secrets.YT_TTS_VOICE || secrets.OPENAI_TTS_VOICE || 'cedar' }}
+      YT_TTS_VOICE: ${{ secrets.YT_TTS_VOICE || secrets.OPENAI_TTS_VOICE || 'fable' }}
       YT_TIME_ZONE: America/New_York
       YT_DAILY_GENERATE_LIMIT: ${{ secrets.YT_DAILY_GENERATE_LIMIT || '1' }}
       YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '1200' }}

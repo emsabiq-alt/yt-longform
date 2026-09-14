@@ -11,7 +11,8 @@
  */
 
 import fs from "node:fs/promises";
-import { createWriteStream, existsSync } from "node:fs";
+import { createWriteStream, existsSync, readFileSync } from "node:fs";
+import crypto from "node:crypto";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,7 @@ import PImage from "pureimage";
 import { paths } from "./config.js";
 import { resolveGoogleNewsUrl, isGoogleLogo, extractArticleImage } from "./news-research.js";
 import { isGoogleImageApiAvailable, searchGoogleImages, downloadImageWithCandidates, isGenericPlaceholderQuery } from "./google-image.js";
+import { isValidImageFileSync } from "./util.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = path.join(__dirname, "..", "assets");
@@ -408,10 +410,18 @@ export async function ensureNewsImages(item) {
     }
   }
 
-  // 2. Tambahkan scene bertipe image sebagai kandidat device mockup
-  // agar mockup tersebar di seluruh bab (sekitar 6-8 pada dokumenter 20 menit).
-  // KRITIS: Konten mockup HARUS 100% inline dengan narasi scene!
-  const candidateScenes = scenes.filter((s) => s.sceneType === "image" || !s.sceneType);
+  // 2. Tambahkan scene sebagai kandidat device mockup agar tersebar di seluruh bab (sekitar 6-8 pada dokumenter 20 menit).
+  // Mockup harus muncul di atas latar video B-roll (jangan tampil bersamaan dengan hero real image di layar).
+  const candidateScenes = scenes.filter((s) => {
+    if (s.sceneType === "reaction" || s.sceneType === "summary") return false;
+    // Hindari scene yang memiliki foto entitas nyata (hero real image) di layar
+    const hasHeroRealImg = (item.assets?.images || []).some(
+      (img) => Number(img.sceneIndex) === Number(s.index) && (img.isRealEntity || img.provider === "google-images")
+    );
+    if (hasHeroRealImg) return false;
+    return true;
+  });
+
   if (candidateScenes.length >= 2) {
     const count = Math.min(8, Math.ceil(candidateScenes.length / 4));
     const targetScenes = Array.from({ length: count }, (_, i) =>
@@ -464,6 +474,22 @@ export async function ensureNewsImages(item) {
   const newsDir = path.join(paths.generatedDir, "news-photos");
   await fs.mkdir(newsDir, { recursive: true });
 
+  const usedMockupUrls = new Set();
+  const usedMockupHashes = new Set();
+  const usedMockupPaths = new Set();
+
+  const getFileMd5 = (filePath) => {
+    try {
+      if (filePath && existsSync(filePath)) {
+        const buf = readFileSync(filePath);
+        if (buf.length > 0) return crypto.createHash("md5").update(buf).digest("hex");
+      }
+    } catch {}
+    return null;
+  };
+
+
+
   await Promise.allSettled(newsImages.map(async (entry) => {
     // 0. Bersihkan imageUrl jika terisi logo Google News
     if (entry.imageUrl && isGoogleLogo(entry.imageUrl)) {
@@ -483,14 +509,27 @@ export async function ensureNewsImages(item) {
             !isGenericPlaceholderQuery(item.input?.topic) ? `${item.input.topic} ${q}` : null
           ].filter(Boolean);
           const candidates = await searchGoogleImages(q, { fallbackQueries });
-          if (candidates.length) {
+          const uniqueCandidates = candidates.filter((c) => {
+            const u = String(c.imageUrl || "").toLowerCase();
+            const t = String(c.thumbnail || "").toLowerCase();
+            return (!u || !usedMockupUrls.has(u)) && (!t || !usedMockupUrls.has(t));
+          });
+          if (uniqueCandidates.length) {
             const dest = path.join(newsDir, `news-scene-${entry.sceneIndex}.jpg`);
-            const dl = await downloadImageWithCandidates(candidates, dest);
-            if (dl.success) {
-              entry.imagePath = dest;
-              entry.imageUrl = dl.url;
-              if (dl.source) entry.outlet = dl.source;
-              console.log(`[NewsImage] Scene ${entry.sceneIndex}: Berhasil ambil dari Serper/Google Images ("${q}") → ${path.basename(dest)}`);
+            const dl = await downloadImageWithCandidates(uniqueCandidates, dest);
+            if (dl.success && isValidImageFileSync(dest)) {
+              const h = getFileMd5(dest);
+              if (h && usedMockupHashes.has(h)) {
+                await fs.unlink(dest).catch(() => {});
+              } else {
+                if (h) usedMockupHashes.add(h);
+                entry.imagePath = dest;
+                entry.imageUrl = dl.url;
+                if (dl.url) usedMockupUrls.add(String(dl.url).toLowerCase());
+                usedMockupPaths.add(path.resolve(dest));
+                if (dl.source) entry.outlet = dl.source;
+                console.log(`[NewsImage] Scene ${entry.sceneIndex}: Berhasil ambil foto unik Serper/Google Images ("${q}") → ${path.basename(dest)}`);
+              }
             }
           }
         } catch (err) {
@@ -503,14 +542,24 @@ export async function ensureNewsImages(item) {
     if (!entry.imagePath && entityQ && !isGenericPlaceholderQuery(entityQ)) {
       try {
         const wiki = await fetchWikipediaImage(entityQ);
-        if (wiki?.imageUrl) {
+        if (wiki?.imageUrl && !usedMockupUrls.has(String(wiki.imageUrl).toLowerCase())) {
           const ext = wiki.imageUrl.match(/\.(jpe?g|png|webp)/i)?.[1]?.replace("jpeg", "jpg") || "jpg";
           const dest = path.join(newsDir, `news-scene-${entry.sceneIndex}-wiki.${ext}`);
           await downloadImage(wiki.imageUrl, dest);
-          entry.imagePath = dest;
-          entry.imageUrl = wiki.imageUrl;
-          entry.outlet = wiki.outlet;
-          console.log(`[NewsImage] Scene ${entry.sceneIndex}: Berhasil ambil dari Wikipedia ("${entityQ}") → ${path.basename(dest)}`);
+          if (isValidImageFileSync(dest)) {
+            const h = getFileMd5(dest);
+            if (h && usedMockupHashes.has(h)) {
+              await fs.unlink(dest).catch(() => {});
+            } else {
+              if (h) usedMockupHashes.add(h);
+              entry.imagePath = dest;
+              entry.imageUrl = wiki.imageUrl;
+              usedMockupUrls.add(String(wiki.imageUrl).toLowerCase());
+              usedMockupPaths.add(path.resolve(dest));
+              entry.outlet = wiki.outlet;
+              console.log(`[NewsImage] Scene ${entry.sceneIndex}: Berhasil ambil foto unik Wikipedia ("${entityQ}") → ${path.basename(dest)}`);
+            }
+          }
         }
       } catch (err) {
         console.warn(`[NewsImage] Scene ${entry.sceneIndex} Wikipedia error: ${err.message}`);
@@ -520,38 +569,72 @@ export async function ensureNewsImages(item) {
     // 3. Fallback Scraper jika ada URL artikel relevan
     if (!entry.imagePath && !entry.imageUrl && entry.url) {
       const scraped = await scrapeOgImage(entry.url);
-      if (scraped) {
+      if (scraped && !usedMockupUrls.has(String(scraped).toLowerCase())) {
         entry.imageUrl = scraped;
         console.log(`[NewsImage] Scene ${entry.sceneIndex}: og:image berhasil di-scrape → ${scraped}`);
       }
     }
 
     // 4. Download gambar jika imageUrl ada (misal dari mediaSource atau relevantNews)
-    if (!entry.imagePath && entry.imageUrl) {
+    if (!entry.imagePath && entry.imageUrl && !usedMockupUrls.has(String(entry.imageUrl).toLowerCase())) {
       try {
         const ext = entry.imageUrl.match(/\.(jpe?g|png|webp)/i)?.[1]?.replace("jpeg", "jpg") || "jpg";
         const dest = path.join(newsDir, `news-scene-${entry.sceneIndex}.${ext}`);
         await downloadImage(entry.imageUrl, dest);
-        entry.imagePath = dest;
-        console.log(`[NewsImage] Scene ${entry.sceneIndex} (${entry.outlet}) → ${path.basename(dest)}`);
+        if (isValidImageFileSync(dest)) {
+          const h = getFileMd5(dest);
+          if (h && usedMockupHashes.has(h)) {
+            await fs.unlink(dest).catch(() => {});
+          } else {
+            if (h) usedMockupHashes.add(h);
+            entry.imagePath = dest;
+            usedMockupUrls.add(String(entry.imageUrl).toLowerCase());
+            usedMockupPaths.add(path.resolve(dest));
+            console.log(`[NewsImage] Scene ${entry.sceneIndex} (${entry.outlet}) → ${path.basename(dest)}`);
+          }
+        }
       } catch (err) {
         console.warn(`[NewsImage] Scene ${entry.sceneIndex} download gambar berita gagal: ${err.message}`);
       }
     }
 
-    // 5. Fallback gambar scene milik scene INI SENDIRI (Tab Buat)
+    // 5. Fallback gambar scene milik scene INI SENDIRI (hanya jika unik dan BELUM PERNAH dipakai mockup lain!)
     if (!entry.imagePath) {
-      const sceneImg = (item.assets?.images || []).find((img) => Number(img.sceneIndex) === entry.sceneIndex);
+      const sceneImg = (item.assets?.images || []).find((img) =>
+        Number(img.sceneIndex) === entry.sceneIndex
+        && img.path
+        && !usedMockupPaths.has(path.resolve(img.path))
+      );
       if (sceneImg?.path) {
-        entry.imagePath = sceneImg.path;
-        console.log(`[NewsImage] Scene ${entry.sceneIndex} memakai fallback gambar scene asli: ${path.basename(sceneImg.path)}`);
+        const h = getFileMd5(sceneImg.path);
+        if (!h || !usedMockupHashes.has(h)) {
+          if (h) usedMockupHashes.add(h);
+          entry.imagePath = sceneImg.path;
+          usedMockupPaths.add(path.resolve(sceneImg.path));
+          console.log(`[NewsImage] Scene ${entry.sceneIndex} memakai fallback gambar unik: ${path.basename(sceneImg.path)}`);
+        }
       }
     }
   }));
 
-  // PENTING: Hanya simpan entry yang memiliki imagePath yang valid & inline!
-  // JANGAN PERNAH memakai fallback gambar scene 0 / gambar acak yang tidak nyambung!
-  item.assets.newsImages = newsImages.filter((n) => n.imagePath);
+  // PENTING: Hanya simpan entry yang memiliki imagePath unik dan tidak menduplikasi mockup lain!
+  const seenPaths = new Set();
+  const seenHashes = new Set();
+  const finalNewsImages = [];
+  for (const n of newsImages) {
+    if (!n.imagePath) continue;
+    const resolved = path.resolve(n.imagePath);
+    if (seenPaths.has(resolved)) continue;
+    seenPaths.add(resolved);
+
+    const h = getFileMd5(n.imagePath);
+    if (h) {
+      if (seenHashes.has(h)) continue;
+      seenHashes.add(h);
+    }
+    finalNewsImages.push(n);
+  }
+  item.assets.newsImages = finalNewsImages;
 }
 
 /**
@@ -584,6 +667,15 @@ export async function applyNewsImageOverlays(inputVideoPath, outputVideoPath, it
     const entry = newsImages[i];
     const scene = renderScenes.find((s) => Number(s.index) === entry.sceneIndex);
     if (!scene) continue;
+
+    // Pastikan mockup TIDAK PERNAH muncul ketika ada gambar di atas layar!
+    if (scene.mediaList && scene.mediaList.length > 0) {
+      const activeMedia = scene.mediaList[0];
+      if (activeMedia?.type === "image") {
+        console.warn(`[NewsImage] Scene ${scene.index} sedang menampilkan gambar di layar. Melewati overlay mockup agar tidak muncul bersamaan dengan gambar.`);
+        continue;
+      }
+    }
 
     // Paling sering tablet (70% tablet, 30% phone sesuai preferensi penonton)
     const deviceType = (i % 3 === 2) ? "phone" : "tablet";

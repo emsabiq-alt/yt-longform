@@ -140,3 +140,40 @@ test("resolveSceneMediaList: tetap memakai video biasa jika scene bukan entitas 
   assert.equal(mediaList[0].type, "video", "Klip Pexels tetap diutamakan untuk scene umum non-entitas");
   assert.equal(mediaList[0].path, "/tmp/pexels-timelapse.mp4");
 });
+
+test("resolveSceneMediaList: scene dengan mockup beralih ke video background agar tidak tampil bersamaan dengan gambar", () => {
+  const item = {
+    assets: {
+      clips: [
+        { sceneIndex: 3, segmentIndex: 0, path: "/tmp/pexels-broll-bg.mp4" }
+      ],
+      images: [
+        {
+          sceneIndex: 3,
+          segmentIndex: 0,
+          path: "/tmp/real-photo.jpg",
+          provider: "google-images",
+          isRealEntity: true
+        }
+      ],
+      newsImages: [
+        {
+          sceneIndex: 3,
+          imagePath: "/tmp/unique-mockup-doc.jpg"
+        }
+      ]
+    }
+  };
+
+  const scene = {
+    index: 3,
+    durationSec: 8,
+    narration: "Dokumen ini menunjukkan bukti kuat.",
+    visualSegments: [{}]
+  };
+
+  const mediaList = resolveSceneMediaList(item, scene);
+  assert.ok(mediaList.length >= 1);
+  assert.equal(mediaList[0].type, "video", "Scene dengan mockup harus memakai latar video, bukan foto");
+  assert.equal(mediaList[0].path, "/tmp/pexels-broll-bg.mp4");
+});

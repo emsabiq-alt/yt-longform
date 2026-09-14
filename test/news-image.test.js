@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -324,6 +326,99 @@ test("createHeaderCardImage: berhasil membuat kartu header PNG", async () => {
     });
     const stat = await fs.stat(cardPath);
     assert.ok(stat.size > 1000, "Ukuran kartu header harus lebih besar dari 1KB");
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("ensureNewsImages: menolak gambar duplikat sehingga setiap mockup memiliki gambar unik", async (t) => {
+  const names = ["SERPER_API_KEY", "SERPER_API_KEYS", "GOOGLE_CSE_KEY", "GOOGLE_CSE_CX", "SERPAPI_API_KEY"];
+  const previous = names.map((name) => process.env[name]);
+  names.forEach((name) => { delete process.env[name]; });
+  t.after(() => names.forEach((name, i) => {
+    if (previous[i] === undefined) delete process.env[name]; else process.env[name] = previous[i];
+  }));
+  t.mock.method(globalThis, "fetch", async () => new Response("{}", { status: 404 }));
+
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "news-dedup-img-"));
+  const imgA = path.join(tmpDir, "img-a.jpg");
+  const imgB = path.join(tmpDir, "img-b.jpg");
+  const imgDupA = path.join(tmpDir, "img-dup-a.jpg"); // Same content as imgA
+  await fs.writeFile(imgA, "identical image content A");
+  await fs.writeFile(imgDupA, "identical image content A");
+  await fs.writeFile(imgB, "different image content B");
+
+  try {
+    const scenes = [
+      { index: 1, sceneType: "image", screenText: "Bagian 1", mediaSource: { outlet: "Media 1", headline: "Berita 1" } },
+      { index: 2, sceneType: "image", screenText: "Bagian 2", mediaSource: { outlet: "Media 2", headline: "Berita 2" } },
+      { index: 3, sceneType: "image", screenText: "Bagian 3", mediaSource: { outlet: "Media 3", headline: "Berita 3" } }
+    ];
+    const item = {
+      plan: { scenes },
+      input: { topic: "Uji Duplikasi" },
+      assets: {
+        images: [
+          { sceneIndex: 1, path: imgA },
+          { sceneIndex: 2, path: imgDupA }, // duplikat dari imgA
+          { sceneIndex: 3, path: imgB }
+        ]
+      }
+    };
+
+    await ensureNewsImages(item);
+    const usedPaths = item.assets.newsImages.map((n) => n.imagePath);
+    const uniquePaths = new Set(usedPaths);
+    assert.equal(usedPaths.length, uniquePaths.size, "Setiap mockup harus memiliki file path unik");
+
+    // Pastikan tidak ada 2 mockup dengan konten hash yang sama
+    const hashes = usedPaths.map((p) => crypto.createHash("md5").update(readFileSync(p)).digest("hex"));
+    const uniqueHashes = new Set(hashes);
+    assert.equal(hashes.length, uniqueHashes.size, "Setiap mockup harus memiliki konten gambar unik (tidak ada duplikat hash)");
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("applyNewsImageOverlays: melewati scene yang sedang menampilkan gambar di layar", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "news-skip-image-"));
+  const inVideo = path.join(tmpDir, "in.mp4");
+  const outVideo = path.join(tmpDir, "out.mp4");
+  const fakeImg = path.join(tmpDir, "mockup.jpg");
+  await fs.writeFile(fakeImg, "fake image");
+  await fs.writeFile(inVideo, "dummy video");
+
+  const item = {
+    assets: {
+      newsImages: [
+        { sceneIndex: 1, outlet: "CNN", headline: "Berita", imagePath: fakeImg }
+      ]
+    }
+  };
+
+  // Scene 1 sedang menampilkan media bertipe "image" di layar
+  const renderScenes = [
+    {
+      index: 1,
+      startSec: 0,
+      endSec: 10,
+      mediaList: [
+        { type: "image", path: "/tmp/screen-photo.jpg" }
+      ]
+    }
+  ];
+
+  const capturedCalls = [];
+  const mockRunFfmpeg = async (args) => {
+    capturedCalls.push(args);
+  };
+
+  try {
+    await applyNewsImageOverlays(inVideo, outVideo, item, renderScenes, "1080p", mockRunFfmpeg);
+    // Karena scene 1 menampilkan gambar di layar, mockup dilewati sehingga runFfmpeg TIDAK dipanggil untuk overlay
+    assert.equal(capturedCalls.length, 0, "Mockup tidak boleh di-overlay ketika scene menampilkan gambar di layar");
+    const outStat = await fs.stat(outVideo);
+    assert.ok(outStat.size > 0, "Video keluaran tetap tersalin dengan aman");
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
   }

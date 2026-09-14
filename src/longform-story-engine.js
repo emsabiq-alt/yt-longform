@@ -505,7 +505,7 @@ function trendPromptBlock(trend) {
     headlines,
     "",
     "ATURAN SUMBER MEDIA DAN KUTIPAN (DEVICE MOCKUP OVERLAY):",
-    "- Sebarkan 6-8 scene image yang membahas berita atau referensi penting ke seluruh bab; sertakan field mediaSource: { outlet, headline, url, publishedAt } yang disalin dari item di atas agar tampil di mockup smartphone/tablet. Pilih hanya sumber yang relevan.",
+    "- Sebarkan 6-8 scene dengan referensi relevan di seluruh bab; sertakan field mediaSource: { outlet, headline, url, publishedAt } yang disalin dari item di atas agar tampil di mockup smartphone/tablet. Mockup akan muncul di atas latar video B-roll (tidak tampil bersamaan dengan foto lain di layar). Foto di dalam mockup wajib unik dan sesuai dengan narasi saat itu. Pilih hanya sumber yang relevan.",
     "- Narasi boleh menyebut nama outlet secara alami atau langsung memaparkan faktanya secara mendalam.",
     ...(hasExcerpts ? [
       "KUTIPAN LANGSUNG (WAJIB jika ISI ARTIKEL tersedia):",
@@ -603,7 +603,7 @@ function buildPrompt(input, wiki = null) {
     "- Jangan memberi spotlight pada scene reaction atau summary.",
     "",
     "MOCKUP GADGET (SMARTPHONE / TABLET OVERLAY):",
-    "- Sebarkan 6-8 scene bertipe image dengan referensi relevan di seluruh bab. Sertakan mediaSource dari sumber yang tersedia agar tampil memakai template mockup smartphone/tablet milik pengguna. Foto tokoh, benda, atau dokumen di dalam mockup wajib sesuai dengan narasi saat itu. Jangan mengarang sumber atau menempelkan artikel yang tidak relevan.",
+    "- Sebarkan 6-8 scene dengan referensi relevan di seluruh bab. Sertakan mediaSource dari sumber yang tersedia agar tampil memakai template mockup smartphone/tablet milik pengguna. Mockup akan muncul di atas latar video B-roll (tidak tampil bersamaan dengan gambar lain di layar). Foto tokoh, benda, atau dokumen di dalam mockup wajib unik dan sesuai dengan narasi saat itu. Jangan mengarang sumber atau menempelkan artikel yang tidak relevan.",
     `CATATAN KATEGORI (${input.category}): ${categoryNote}`,
     `VARIASI CERITA UNTUK NASKAH INI: ${variation}`,
     `KEMASAN VIRAL UTAMA:\n${viralBlock}`,

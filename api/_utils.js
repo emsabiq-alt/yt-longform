@@ -327,7 +327,7 @@ export function configSummary() {
     youtubeDailyUploadLimit: Number(process.env.YOUTUBE_DAILY_UPLOAD_LIMIT || 2),
     youtubePrivacy: clean(process.env.YOUTUBE_PRIVACY_STATUS || "public"),
     ttsModel: clean(process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts"),
-    ttsVoice: clean(process.env.OPENAI_TTS_VOICE || "cedar"),
+    ttsVoice: clean(process.env.OPENAI_TTS_VOICE || "fable"),
     openaiTtsSpeed: Math.min(4, Math.max(0.25, numberEnv("OPENAI_TTS_SPEED", 1.08))),
     ttsProvider: clean(process.env.YT_TTS_PROVIDER || "openai"),
     resolution: clean(process.env.YT_RESOLUTION || "1080p"),
@@ -404,7 +404,7 @@ export function buildQueueItem(input) {
     : "openai";
   const defaultTtsVoice = ttsProvider === "elevenlabs"
     ? process.env.ELEVENLABS_VOICE_ID || "wUrGnU2Kx934kbDdOWDo"
-    : process.env.OPENAI_TTS_VOICE || "cedar";
+    : process.env.OPENAI_TTS_VOICE || "fable";
   return {
     id: clampStr(input.id, 80) || makeId("q"),
     topic: clampStr(input.topic, 300),

@@ -653,11 +653,11 @@ class YTStudioApp(ctk.CTk):
                                             ["32", "34", "36"], default="36")
         # Get defaults based on .env
         default_tts = env_vars.get("YT_TTS_PROVIDER", "openai")
-        default_voice = env_vars.get("ELEVENLABS_VOICE_ID", "wUrGnU2Kx934kbDdOWDo") if default_tts == "elevenlabs" else env_vars.get("OPENAI_TTS_VOICE", "cedar")
+        default_voice = env_vars.get("ELEVENLABS_VOICE_ID", "wUrGnU2Kx934kbDdOWDo") if default_tts == "elevenlabs" else env_vars.get("OPENAI_TTS_VOICE", "fable")
 
         self.f_tts = self._labeled_combo(body, "TTS provider", 2, 0, ["openai", "elevenlabs"], default=default_tts, command=self.on_tts_change)
         
-        voice_choices = [default_voice] if default_tts == "elevenlabs" else ["cedar", "ash", "ballad", "shimmer", "verse"]
+        voice_choices = [default_voice] if default_tts == "elevenlabs" else ["fable", "ash", "ballad", "cedar", "shimmer", "verse"]
         self.f_voice = self._labeled_combo(body, "TTS voice", 2, 1, voice_choices, default=default_voice)
         self.f_quality = self._labeled_combo(body, "Kualitas gambar", 2, 2,
                                             ["low", "medium", "high"])
@@ -1124,8 +1124,8 @@ class YTStudioApp(ctk.CTk):
             self.f_voice.configure(values=[env_voice])
             self.f_voice.set(env_voice)
         else:
-            self.f_voice.configure(values=["cedar", "ash", "ballad", "shimmer", "verse"])
-            self.f_voice.set("cedar")
+            self.f_voice.configure(values=["fable", "ash", "ballad", "cedar", "shimmer", "verse"])
+            self.f_voice.set("fable")
 
     def upload_to_youtube(self, item_id):
         project_dir = self.cfg["local"].get("projectDir") or str(PROJECT_DIR)
