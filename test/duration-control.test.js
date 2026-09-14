@@ -115,6 +115,36 @@ test("invalid additions are rejected before changing the existing storyboard", (
   }
 });
 
+test("a 48-scene storyboard can still be enriched when measured audio is short", () => {
+  const item = originalItem();
+  const first = item.plan.scenes[0];
+  const closing = item.plan.scenes.at(-1);
+  item.plan.scenes = [
+    ...Array.from({ length: 47 }, (_, index) => ({
+      ...first,
+      index: index + 1,
+      narration: `Narasi asli scene ${index + 1} tetap dipertahankan lengkap.`
+    })),
+    { ...closing, index: 48 }
+  ];
+  item.input.sceneCount = 48;
+  item.assets.sceneAudio = item.plan.scenes.map((scene) => ({
+    sceneIndex: scene.index,
+    path: `original-${scene.index}.mp3`,
+    textHash: `hash-${scene.index}`
+  }));
+
+  insertEnrichmentScenes(item, [newScene()]);
+
+  assert.equal(item.plan.scenes.length, 49);
+  assert.equal(item.plan.scenes[1].narration, newScene().narration);
+  assert.equal(item.plan.scenes.at(-1).narration, closing.narration);
+  assert.deepEqual(item.assets.sceneAudio.map((audio) => audio.sceneIndex), [
+    1,
+    ...Array.from({ length: 47 }, (_, index) => index + 3)
+  ]);
+});
+
 test("enrichment receives research evidence and saves full original plus new narration", async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "longform-enrichment-"));
   const previousDir = paths.generatedDir;

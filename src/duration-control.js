@@ -2,7 +2,8 @@
 export const MIN_FIT_TEMPO = 0.98;
 export const MAX_FIT_TEMPO = 1.12;
 export const DURATION_TOLERANCE_SEC = 1;
-export const MAX_ENRICHED_SCENES = 48;
+export const MAX_ENRICHED_SCENES = 60;
+export const MAX_ENRICHMENT_ATTEMPTS = 4;
 
 export function sceneTailPad(type) {
   return ({ reaction: 0.05, summary: 0.10, image: 0.08 })[type] ?? 0.08;

@@ -330,7 +330,7 @@ export async function createLongformDraft(rawInput) {
 export function insertEnrichmentScenes(item, additions) {
   const original = item.plan.scenes;
   if (!Array.isArray(additions) || !additions.length || original.length + additions.length > MAX_ENRICHED_SCENES) {
-    throw new Error("Jumlah scene pengayaan kosong atau melebihi batas 48 scene.");
+    throw new Error(`Jumlah scene pengayaan kosong atau melebihi batas ${MAX_ENRICHED_SCENES} scene.`);
   }
   const anchors = new Map(original.slice(0, -1).map((scene) => [scene.index, scene]));
   const usedNarrations = new Set(original.map((scene) => String(scene.narration).toLowerCase().replace(/\s+/g, " ").trim()));
@@ -383,7 +383,7 @@ export async function enrichLongformDraft(item, { missingSec, rawAudioSec, reque
   const wordCount = scenes.reduce((sum, scene) => sum + String(scene.narration).split(/\s+/).length, 0);
   const wordsToAdd = Math.max(45, Math.ceil(missingSec * wordCount / rawAudioSec));
   const count = Math.min(6, MAX_ENRICHED_SCENES - scenes.length, Math.max(1, Math.ceil(wordsToAdd / 80)));
-  if (count <= 0) throw new Error("Durasi belum terpenuhi setelah 48 scene. Storyboard dipertahankan; publikasi dihentikan.");
+  if (count <= 0) throw new Error(`Durasi belum terpenuhi setelah ${MAX_ENRICHED_SCENES} scene. Storyboard dipertahankan; publikasi dihentikan.`);
   const prompt = [
     "Perkaya dokumenter Bahasa Indonesia berikut dengan scene TAMBAHAN. Jangan menulis ulang, memendekkan, atau menghapus scene lama.",
     `Topik: ${item.input.topic}. Tambahkan tepat ${count} scene image, sekitar ${Math.min(wordsToAdd, count * 110)} kata baru total.`,

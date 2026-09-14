@@ -23,6 +23,7 @@ import { renderLongformVideo, prepareRenderLayout, measureNarrationFit } from ".
 import { generateThumbnail } from "./thumbnail.js";
 import { saveItem, listContextItems } from "./storage.js";
 import { createLongformDraft, enrichLongformDraft, buildLongformStoryboard, writeLongformStoryboard } from "./longform-story-engine.js";
+import { MAX_ENRICHMENT_ATTEMPTS } from "./duration-control.js";
 import { nowIso, normalizeTtsText, alignCaptionsToSource } from "./util.js";
 import { reportProgress } from "./progress.js";
 
@@ -131,7 +132,9 @@ export async function generateFullItem(input = {}, options = {}) {
         console.log(`[Duration] Target ${item.input.durationSec}s, ${item.plan.scenes.length} scene, koreksi tempo ${fit.tempo.toFixed(4)}x.`);
         break;
       }
-      if (attempt >= 3) throw new Error("Durasi belum terpenuhi setelah tiga tahap pengayaan. Storyboard tetap utuh; render dihentikan.");
+      if (attempt >= MAX_ENRICHMENT_ATTEMPTS) {
+        throw new Error(`Durasi belum terpenuhi setelah ${MAX_ENRICHMENT_ATTEMPTS} tahap pengayaan. Storyboard tetap utuh; render dihentikan.`);
+      }
       reportProgress("script", "Memperkaya storyboard sesuai durasi audio", 70, `tambahan sekitar ${Math.round(fit.missingSec)} detik`);
       await enrichLongformDraft(item, fit);
       await ensureLongformSceneAudio(item, {

@@ -47,7 +47,7 @@ dan OpenAI TTS dengan `OPENAI_TTS_SPEED=1.08`. Storyboard awal menargetkan sekit
 2.280 kata dalam enam bab dengan bukti, contoh, sebab-akibat, dan perspektif berbeda.
 Sesudah TTS, sistem mengukur durasi audio termasuk hook, intro, dan outro.
 Jika masih kurang, sistem menyisipkan scene baru berdasarkan sumber dan laju bicara
-terukur, maksimal tiga tahap pengayaan dan 48 scene. Narasi scene lama tetap utuh
+terukur, maksimal empat tahap pengayaan dan 60 scene. Narasi scene lama tetap utuh
 dan audionya digunakan kembali. File storyboard JSON menyimpan narasi lengkap.
 
 Penyesuaian akhir memakai tempo render 0.98–1.12x dengan timestamp subtitle,
