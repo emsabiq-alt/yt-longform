@@ -128,10 +128,15 @@ export function planSceneSpotlights(scenes, options = {}) {
   const maxPerVideo = Math.max(0, Math.floor(Number(options.maxPerVideo ?? MAX_PER_VIDEO)));
   const minGap = Number(options.minGapSec ?? MIN_GAP_SEC);
   const minScore = Number(options.minScore ?? MIN_SCORE);
+  const excludedScenes = options.excludedSceneIndexes instanceof Set
+    ? options.excludedSceneIndexes
+    : new Set(Array.isArray(options.excludedSceneIndexes) ? options.excludedSceneIndexes : []);
   const placed = [];
 
   for (const scene of scenes || []) {
     if (scene?.sceneType === "reaction" || scene?.sceneType === "summary") continue;
+    const sIdx = Number(scene.index || 0);
+    if (excludedScenes.has(sIdx) || scene.hasMockup) continue;
     const spotlight = normalizeSpotlight(scene?.spotlight) || extractAutoSpotlight(scene);
     if (!spotlight) continue;
     stats.candidates += 1;

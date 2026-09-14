@@ -481,7 +481,7 @@ export async function renderLongformVideo(item, options = {}) {
 
   // Overlay device mockup (phone/tablet) dengan foto berita asli via chroma key
   const contentDevicePath = path.join(workDir, "content-device-overlay.mp4");
-  await applyNewsImageOverlays(contentFigurePath, contentDevicePath, item, renderScenes, resolution, runFfmpeg);
+  await applyNewsImageOverlays(contentFigurePath, contentDevicePath, item, renderScenes, resolution, runFfmpeg, { spotlightPlacements });
 
   // Add watermark logo to content
   const contentBrandedPath = path.join(workDir, "content-branded.mp4");
@@ -990,21 +990,28 @@ export function resolveSceneMediaList(item, scene) {
     (n) => Number(n.sceneIndex) === Number(sourceIndex) && n.imagePath
   );
 
-  for (let i = 0; i < targetCount; i++) {
-    // Jika scene memiliki overlay device mockup, segmen awal (di mana mockup slide masuk)
-    // WAJIB menggunakan latar video (B-roll), BUKAN foto/gambar di atas layar,
-    // agar mockup dan gambar layar TIDAK PERNAH muncul bersamaan!
-    if (hasMockup && i === 0) {
+  // Jika scene memiliki overlay device mockup (phone/tablet), SELURUH segmen scene ini
+  // WAJIB menggunakan latar video B-roll (BUKAN foto/gambar), agar mockup tidak pernah
+  // saling menimpa dengan gambar latar / hero image card di layar!
+  if (hasMockup) {
+    for (let i = 0; i < targetCount; i++) {
       const mockupClip = clips.find((c) =>
         Number(c.sceneIndex) === Number(sourceIndex) && c.path && !usedPaths.has(c.path)
-      ) || clips.find((c) => c.path && !usedPaths.has(c.path)) || clips.find((c) => c.path);
+      ) || clips.find((c) =>
+        Number(c.sceneIndex) === Number(sourceIndex) && c.path
+      ) || clips.find((c) =>
+        c.path && !usedPaths.has(c.path)
+      ) || clips.find((c) => c.path);
+
       if (mockupClip?.path) {
         mediaList.push({ type: "video", path: mockupClip.path });
         usedPaths.add(mockupClip.path);
-        continue;
       }
     }
+    if (mediaList.length > 0) return mediaList;
+  }
 
+  for (let i = 0; i < targetCount; i++) {
     // 0. ATURAN ENTITAS SPESIFIK: Cek apakah ada foto riil (Serper / Google Images) untuk scene/segmen ini
     const realImg = images.find((img) =>
       Number(img.sceneIndex) === Number(sourceIndex)
@@ -1711,7 +1718,15 @@ export async function writeContentCaptionAss({ outputPath, item, scenes, content
   }
 
   // Kartu Spotlight: hanya muncul di titik yang lolos pencocokan frasa.
-  const spotlightPlacements = planSceneSpotlights(scenes);
+  // Kecualikan scene yang memiliki mockup perangkat agar kartu spotlight tidak saling menimpa mockup di tengah layar.
+  const mockupSceneIndexes = new Set(
+    (item?.assets?.newsImages || [])
+      .filter((n) => n.imagePath)
+      .map((n) => Number(n.sceneIndex))
+  );
+  const spotlightPlacements = planSceneSpotlights(scenes, {
+    excludedSceneIndexes: mockupSceneIndexes
+  });
   events.push(...spotlightDialogueLines(spotlightPlacements, dialogue, assEscape));
   logSpotlightStats();
 

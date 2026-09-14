@@ -75,6 +75,23 @@ test("scene reaction dan summary tidak pernah dapat kartu", () => {
   assert.deepEqual(planSceneSpotlights([scene({ sceneType: "reaction" }), scene({ sceneType: "summary" })]), []);
 });
 
+test("scene yang memiliki mockup atau masuk excludedSceneIndexes tidak pernah dapat kartu spotlight", () => {
+  const sc1 = scene({ index: 1 });
+  const sc2 = scene({ index: 2, hasMockup: true });
+  const sc3 = scene({ index: 3 });
+
+  // sc2 punya hasMockup -> harus dilewati
+  const placed1 = planSceneSpotlights([sc1, sc2]);
+  assert.equal(placed1.some((p) => p.sceneIndex === 2), false);
+
+  // sc3 diexclude lewat excludedSceneIndexes (Set atau Array)
+  const placed2 = planSceneSpotlights([sc1, sc3], { excludedSceneIndexes: new Set([3]) });
+  assert.equal(placed2.some((p) => p.sceneIndex === 3), false);
+
+  const placed3 = planSceneSpotlights([sc1, sc3], { excludedSceneIndexes: [3] });
+  assert.equal(placed3.some((p) => p.sceneIndex === 3), false);
+});
+
 test("kuota spotlight tersebar sampai bab terakhir dari 48 scene", () => {
   const scenes = Array.from({ length: 48 }, (_, i) => scene({ index: i + 1, startSec: i * 25, durationSec: 25 }));
   const cards = planSceneSpotlights(scenes);

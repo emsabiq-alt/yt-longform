@@ -414,6 +414,8 @@ export async function ensureNewsImages(item) {
   // Mockup harus muncul di atas latar video B-roll (jangan tampil bersamaan dengan hero real image di layar).
   const candidateScenes = scenes.filter((s) => {
     if (s.sceneType === "reaction" || s.sceneType === "summary") return false;
+    // Hindari scene yang memiliki spotlight di naskah
+    if (s.spotlight) return false;
     // Hindari scene yang memiliki foto entitas nyata (hero real image) di layar
     const hasHeroRealImg = (item.assets?.images || []).some(
       (img) => Number(img.sceneIndex) === Number(s.index) && (img.isRealEntity || img.provider === "google-images")
@@ -648,12 +650,15 @@ export async function ensureNewsImages(item) {
  * @param {string} resolution
  * @param {Function} runFfmpeg
  */
-export async function applyNewsImageOverlays(inputVideoPath, outputVideoPath, item, renderScenes, resolution, runFfmpeg) {
+export async function applyNewsImageOverlays(inputVideoPath, outputVideoPath, item, renderScenes, resolution, runFfmpeg, options = {}) {
   const newsImages = (item.assets?.newsImages || []).filter((n) => n.imagePath);
   if (!newsImages.length) {
     await copyFile(inputVideoPath, outputVideoPath);
     return;
   }
+
+  const spotlightPlacements = options.spotlightPlacements || [];
+  const spotlightSceneIndexes = new Set(spotlightPlacements.map((p) => Number(p.sceneIndex)));
 
   const is1080 = resolution === "1080p";
   const videoW = is1080 ? 1920 : 1280;
@@ -668,10 +673,16 @@ export async function applyNewsImageOverlays(inputVideoPath, outputVideoPath, it
     const scene = renderScenes.find((s) => Number(s.index) === entry.sceneIndex);
     if (!scene) continue;
 
-    // Pastikan mockup TIDAK PERNAH muncul ketika ada gambar di atas layar!
+    // 1. Pastikan mockup TIDAK PERNAH muncul di scene yang memiliki kartu spotlight di tengah layar!
+    if (scene.spotlight || spotlightSceneIndexes.has(Number(scene.index))) {
+      console.warn(`[NewsImage] Scene ${scene.index} memiliki kartu spotlight di tengah layar. Melewati overlay mockup agar tidak saling menimpa.`);
+      continue;
+    }
+
+    // 2. Pastikan mockup TIDAK PERNAH muncul ketika ada gambar/foto di atas layar!
     if (scene.mediaList && scene.mediaList.length > 0) {
-      const activeMedia = scene.mediaList[0];
-      if (activeMedia?.type === "image") {
+      const hasAnyImage = scene.mediaList.some((m) => m?.type === "image");
+      if (hasAnyImage) {
         console.warn(`[NewsImage] Scene ${scene.index} sedang menampilkan gambar di layar. Melewati overlay mockup agar tidak muncul bersamaan dengan gambar.`);
         continue;
       }

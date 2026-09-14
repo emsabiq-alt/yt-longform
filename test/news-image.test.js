@@ -424,4 +424,92 @@ test("applyNewsImageOverlays: melewati scene yang sedang menampilkan gambar di l
   }
 });
 
+test("applyNewsImageOverlays: melewati scene yang memiliki kartu spotlight atau terdaftar di spotlightPlacements", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "news-skip-spotlight-"));
+  const inVideo = path.join(tmpDir, "in.mp4");
+  const outVideo = path.join(tmpDir, "out.mp4");
+  const fakeImg = path.join(tmpDir, "mockup.jpg");
+  await fs.writeFile(fakeImg, "fake image");
+  await fs.writeFile(inVideo, "dummy video");
+
+  const item = {
+    assets: {
+      newsImages: [
+        { sceneIndex: 1, outlet: "CNN", headline: "Berita", imagePath: fakeImg }
+      ]
+    }
+  };
+
+  const renderScenes = [
+    {
+      index: 1,
+      startSec: 0,
+      endSec: 10,
+      mediaList: [{ type: "video", path: "/tmp/broll.mp4" }]
+    }
+  ];
+
+  const capturedCalls = [];
+  const mockRunFfmpeg = async (args) => {
+    capturedCalls.push(args);
+  };
+
+  try {
+    // 1. Lewat options.spotlightPlacements
+    await applyNewsImageOverlays(inVideo, outVideo, item, renderScenes, "1080p", mockRunFfmpeg, {
+      spotlightPlacements: [{ sceneIndex: 1, type: "figure" }]
+    });
+    assert.equal(capturedCalls.length, 0, "Mockup tidak boleh di-overlay ketika scene memiliki spotlightPlacements");
+
+    // 2. Lewat scene.spotlight langsung
+    renderScenes[0].spotlight = { type: "figure", label: "Tokoh", phrase: "kata kunci" };
+    await applyNewsImageOverlays(inVideo, outVideo, item, renderScenes, "1080p", mockRunFfmpeg);
+    assert.equal(capturedCalls.length, 0, "Mockup tidak boleh di-overlay ketika scene memiliki spotlight");
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("applyNewsImageOverlays: melewati scene jika salah satu segmennya (misal segmen 2) menampilkan gambar", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "news-skip-multiseg-"));
+  const inVideo = path.join(tmpDir, "in.mp4");
+  const outVideo = path.join(tmpDir, "out.mp4");
+  const fakeImg = path.join(tmpDir, "mockup.jpg");
+  await fs.writeFile(fakeImg, "fake image");
+  await fs.writeFile(inVideo, "dummy video");
+
+  const item = {
+    assets: {
+      newsImages: [
+        { sceneIndex: 1, outlet: "CNN", headline: "Berita", imagePath: fakeImg }
+      ]
+    }
+  };
+
+  // Segmen 1 video, tapi segmen 2 gambar
+  const renderScenes = [
+    {
+      index: 1,
+      startSec: 0,
+      endSec: 10,
+      mediaList: [
+        { type: "video", path: "/tmp/broll.mp4" },
+        { type: "image", path: "/tmp/photo.jpg" }
+      ]
+    }
+  ];
+
+  const capturedCalls = [];
+  const mockRunFfmpeg = async (args) => {
+    capturedCalls.push(args);
+  };
+
+  try {
+    await applyNewsImageOverlays(inVideo, outVideo, item, renderScenes, "1080p", mockRunFfmpeg);
+    assert.equal(capturedCalls.length, 0, "Mockup tidak boleh di-overlay jika salah satu segmen menampilkan gambar di layar");
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 
