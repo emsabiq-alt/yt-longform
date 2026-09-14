@@ -22,7 +22,11 @@ diagrams with notes that should help the next coding session resume quickly.
   FFprobe checks final MP4 against the target with a one-second tolerance.
   Impossible fits stop before publishing; never shorten the script or insert
   long silence to reach 20 minutes. Legacy drafts without `durationLocked` keep
-  their prior timing behavior. AI output quality still requires reviewing a real run.
+  their prior timing behavior. Initial draft gating (`assertNarrationLongEnough`
+  and `minimumNarrationWords`) accommodates initial 32-36 scene drafts when
+  `durationLocked` is active, leaving duration completion to `enrichLongformDraft()`
+  and tempo fitting instead of forcing single-call LLM prompt rewrites that hit output limits.
+  AI output quality still requires reviewing a real run.
 - Mockups use the existing `assets/phone-mockup.png` and `assets/tablet-mockup.png`.
   Spread ~6–8 relevant placements and up to 22 matched spotlights across the story.
   Prompt and normalizer both use four visual segments, including the end of each
@@ -373,6 +377,496 @@ sequenceDiagram
   end
 ```
 
+## 7. Story Engine Detail
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Pipeline as src/pipeline.js
+  participant Story as src/longform-story-engine.js
+  participant Topic as src/topic-engine.js
+  participant Format as src/format-engine.js
+  participant Viral as src/viral-angle-library.js
+  participant Continuity as src/continuity-engine.js
+  participant Trends as src/youtube-trends.js
+  participant Wiki as src/wikipedia.js
+  participant OpenAI as OpenAI API
+  participant Title as src/title-engine.js
+  participant Language as src/story-language.js
+  participant Storage as src/storage.js
+
+  Pipeline->>Story: createLongformDraft(rawInput)
+
+  alt topic is empty
+    Story->>Topic: pickFreshTopic(category)
+    Topic->>Format: pickFormatType()
+    Format-->>Topic: formatType (listicle/deep-dive/etc)
+    Topic->>Viral: pickViralAngle()
+    Viral-->>Topic: viralAngle (id + label)
+    Topic->>Continuity: loadHistory(80)
+    Continuity->>Storage: listContextItems()
+    Storage-->>Continuity: items + memory combined
+    Continuity-->>Topic: compact history string
+    Topic->>Trends: buildTrendingContext()
+    Trends-->>Topic: trending topics for prompt
+    Topic->>OpenAI: requestIdeaJson(prompt with history + trends)
+    OpenAI-->>Topic: batch of 5+ topic ideas
+    Topic->>Continuity: checkFreshness(each candidate)
+    Continuity-->>Topic: first fresh idea
+    Topic-->>Story: { topic, category, angle, formatType, viralAngle }
+  else topic provided
+    Story->>Format: pickFormatType()
+    Story->>Viral: pickViralAngle()
+  end
+
+  Story->>Story: normalizeInput(seed)
+  Story->>Wiki: fetchWikipediaFacts(topic)
+  Wiki-->>Story: wiki facts + sources (CC BY-SA)
+  Story->>Story: buildPrompt(input, wiki)
+  Story->>OpenAI: requestKnowledgeJson(prompt)
+  OpenAI-->>Story: raw plan JSON
+
+  Story->>Story: normalizePlan(plan, input)
+  Story->>Format: buildScenePattern(formatType, sceneCount)
+  Format-->>Story: scene type sequence
+  Story->>Format: resolveSceneType(scene, pattern)
+
+  alt viral title enabled
+    Story->>Title: generateViralTitle(plan, input)
+    Title->>OpenAI: requestKnowledgeJson(title prompt)
+    OpenAI-->>Title: viral title
+    Title-->>Story: viral title string
+  end
+
+  alt narration too short
+    Story->>OpenAI: requestKnowledgeJson(expansion prompt)
+    OpenAI-->>Story: expanded plan
+  end
+
+  Story->>Language: polishPlanForLayAudience(plan)
+  Language-->>Story: simplified narration
+  Story->>Storage: save storyboard JSON
+  Story-->>Pipeline: complete item draft
+```
+
+## 8. Media Pipeline Detail
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Pipeline as src/pipeline.js
+  participant Pexels as src/pexels.js
+  participant PexelsAPI as Pexels API
+  participant OpenAI as src/openai.js
+  participant DALLE as OpenAI Images API
+  participant Storage as src/storage.js
+  participant Config as src/config.js
+
+  Note over Pipeline: Phase 1 — Pexels B-roll (priority)
+  Pipeline->>Config: check pexels.apiKey and pexels.preferVideo
+  alt Pexels enabled
+    Pipeline->>Pipeline: filter non-reaction scenes
+
+    alt semantic selection enabled
+      Pipeline->>Pexels: scoreSceneVisualConcreteness(each scene)
+      Pexels-->>Pipeline: concreteness scores
+      Pipeline->>Pipeline: rank scenes by score, pick top 50%
+    else alternating mode
+      Pipeline->>Pipeline: pick even-indexed scenes
+    end
+
+    loop each pexels scene × each visualSegment
+      Pipeline->>Pipeline: check existing clips (skip if found)
+      Pipeline->>Pexels: fetchPexelsClipForScene(scene)
+      Pexels->>PexelsAPI: GET /videos/search?query=keywords
+      PexelsAPI-->>Pexels: video results
+      Pexels->>Pexels: filter by duration, relevance
+      Pexels->>Pexels: download best clip to generated/clips/
+      Pexels-->>Pipeline: clip metadata (path, pexelsId, segmentIndex)
+      Pipeline->>Storage: saveItem(item) with new clip
+      Note over Pipeline: rate limit 200ms
+    end
+  end
+
+  Note over Pipeline: Phase 2 — DALL-E Images (fallback)
+  Pipeline->>Pipeline: filter scenes without clips
+
+  loop each image scene × each visualSegment
+    Pipeline->>Pipeline: check existing clips OR images (skip if found)
+    Pipeline->>OpenAI: generateSceneImage(scene, size, quality)
+    OpenAI->>DALLE: POST /images/generations
+    DALLE-->>OpenAI: base64 image data
+    OpenAI->>OpenAI: save to generated/images/
+    OpenAI-->>Pipeline: image metadata (path, segmentIndex)
+
+    alt policy violation error
+      Pipeline->>Pipeline: build safe fallback prompt
+      Pipeline->>OpenAI: generateSceneImage(safeScene)
+      OpenAI-->>Pipeline: safe image + recoveredFrom flag
+    end
+
+    Pipeline->>Storage: saveItem(item) with new image
+  end
+```
+
+## 9. TTS and Subtitle Pipeline
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Pipeline as src/pipeline.js
+  participant ElevenLabs as src/elevenlabs.js
+  participant ELAPI as ElevenLabs API
+  participant OpenAITTS as src/openai.js
+  participant OAIAPI as OpenAI TTS/Whisper API
+  participant Util as src/util.js
+  participant Cost as src/cost.js
+  participant Storage as src/storage.js
+
+  Note over Pipeline: Per-scene TTS generation
+  Pipeline->>Pipeline: determine provider (elevenlabs or openai)
+
+  loop each scene in plan.scenes
+    Pipeline->>Util: normalizeTtsText(narration)
+    Util-->>Pipeline: cleaned text
+
+    alt provider is elevenlabs
+      Pipeline->>ElevenLabs: generateElevenLabsSpeech(text, voiceId)
+      ElevenLabs->>ELAPI: POST /text-to-speech/{voiceId}
+      alt ElevenLabs success
+        ELAPI-->>ElevenLabs: audio stream
+        ElevenLabs-->>Pipeline: { path, url }
+      else ElevenLabs fails
+        ElevenLabs-->>Pipeline: error
+        Note over Pipeline: fallback to OpenAI
+        Pipeline->>OpenAITTS: generateOpenAiSpeech(text, voice, instructions)
+        OpenAITTS->>OAIAPI: POST /audio/speech
+        OAIAPI-->>OpenAITTS: audio data
+        OpenAITTS-->>Pipeline: { path, url }
+      end
+    else provider is openai
+      Pipeline->>OpenAITTS: generateOpenAiSpeech(text, voice, instructions)
+      OpenAITTS->>OAIAPI: POST /audio/speech
+      OAIAPI-->>OpenAITTS: audio data
+      OpenAITTS-->>Pipeline: { path, url }
+    end
+
+    Note over Pipeline: Whisper transcription for subtitles
+    Pipeline->>OpenAITTS: transcribeSpeechSegments(audioPath)
+    OpenAITTS->>OAIAPI: POST /audio/transcriptions (whisper-1)
+    OAIAPI-->>OpenAITTS: timestamped segments
+    OpenAITTS-->>Pipeline: whisper segments
+    Pipeline->>Util: alignCaptionsToSource(text, whisperSegments)
+    Util-->>Pipeline: aligned captions [{start, end, text}]
+
+    Pipeline->>Pipeline: accumulate sceneAudio entry
+  end
+
+  Pipeline->>Cost: estimateTtsUsd(totalChars, provider)
+  Cost-->>Pipeline: ttsUsd
+  Pipeline->>Storage: saveItem(item) with sceneAudio + cost
+
+  Note over Pipeline: Cold open hook TTS (optional)
+  alt cold open enabled AND plan.hook exists
+    Pipeline->>Util: normalizeTtsText(plan.hook)
+    Pipeline->>ElevenLabs: or OpenAITTS (same fallback logic)
+    Pipeline->>Pipeline: save hookAudio to item.assets
+    Pipeline->>Cost: update ttsUsd
+    Pipeline->>Storage: saveItem(item)
+  end
+```
+
+## 10. Thumbnail Generation Flow
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Pipeline as src/pipeline.js
+  participant Thumbnail as src/thumbnail.js
+  participant OpenAI as src/openai.js
+  participant OAIAPI as OpenAI API
+  participant PureImage as pureimage (canvas)
+  participant FFmpeg as ffmpeg
+  participant Storage as src/storage.js
+
+  Pipeline->>Thumbnail: generateThumbnail(item)
+  Thumbnail->>Thumbnail: determine style (cinematic or vector)
+
+  Note over Thumbnail: Step 1 — AI generates visual details
+  Thumbnail->>OpenAI: requestKnowledgeJson(thumbnail prompt)
+  OpenAI->>OAIAPI: POST /chat/completions
+  OAIAPI-->>OpenAI: JSON { judul, temaUtama, elemenVisual }
+  OpenAI-->>Thumbnail: visualDetails
+
+  Note over Thumbnail: Step 2 — DALL-E generates thumbnail image
+  Thumbnail->>Thumbnail: build DALL-E prompt from visualDetails
+  Thumbnail->>OpenAI: generateSceneImage(thumbnailPrompt, 1536x1024)
+  OpenAI->>OAIAPI: POST /images/generations
+  OAIAPI-->>OpenAI: base64 PNG
+  OpenAI-->>Thumbnail: raw image path
+
+  Note over Thumbnail: Step 3 — FFmpeg optimization
+  Thumbnail->>FFmpeg: convert PNG to optimized JPEG (quality 92)
+  FFmpeg-->>Thumbnail: optimized JPEG path
+
+  Note over Thumbnail: Step 4 — Text overlay with pureimage
+  Thumbnail->>PureImage: registerFont("Bebas Neue")
+  Thumbnail->>PureImage: decodeJPEGFromStream(image)
+  Thumbnail->>PureImage: draw text with black outline + white fill
+  Thumbnail->>PureImage: encodeJPEGToStream(output, quality 95)
+  PureImage-->>Thumbnail: final thumbnail JPEG
+
+  Thumbnail-->>Pipeline: { path, url, style }
+  Pipeline->>Storage: saveItem(item) with thumbnail
+```
+
+## 11. SFTP Upload and State Sync
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Runner as src/run-once.js
+  participant Remote as src/remote.js
+  participant Config as remoteConfig()
+  participant SFTP as ssh2-sftp-client
+  participant FTP as basic-ftp
+  participant Storage as src/storage.js
+  participant FS as filesystem
+
+  Runner->>Remote: uploadGeneratedStateAndAssets({ item })
+  Remote->>Config: assertRemoteConfig()
+  Config-->>Remote: { driver, host, port, user, pass, remoteDir }
+
+  Remote->>Remote: retryRemote(fn, 3 attempts)
+
+  alt driver is sftp
+    Remote->>SFTP: connect({ host, port, username, password/privateKey })
+    SFTP-->>Remote: connected
+    Remote->>SFTP: mkdir(remoteDir, recursive)
+  else driver is ftp
+    Remote->>FTP: access({ host, port, user, password })
+    FTP-->>Remote: connected
+    Remote->>FTP: ensureDir(remoteDir)
+  end
+
+  Note over Remote: Upload item-specific assets
+  loop each asset (video, thumbnail, images)
+    Remote->>FS: check fileExists(asset.path)
+    Remote->>Remote: remotePathFromAssetUrl(asset.url)
+    Remote->>SFTP: mkdir parent dir
+    Remote->>SFTP: put(localPath, remotePath)
+  end
+
+  Note over Remote: Upload state files
+  Remote->>FS: readFile(data/items.json)
+  Remote->>SFTP: upload stream to state/items.json
+  Remote->>FS: readFile(data/memory.json)
+  Remote->>SFTP: upload stream to state/memory.json
+
+  alt upload fails
+    Remote->>Remote: wait (attempt × 3000ms)
+    Remote->>Remote: retry (up to 3 attempts)
+  end
+
+  SFTP-->>Remote: all uploads complete
+  Remote->>SFTP: end()
+  Remote-->>Runner: success
+```
+
+## 12. YouTube Publish and Playlist
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Runner as src/run-once.js
+  participant Publisher as src/youtube-publisher.js
+  participant Playlist as src/youtube-playlist.js
+  participant Meta as src/youtube-meta.js
+  participant Google as Google OAuth2
+  participant YT as YouTube Data API v3
+  participant Storage as src/storage.js
+  participant Remote as src/remote.js
+
+  Runner->>Runner: check dailyUploadLimit
+  Runner->>Meta: buildTitle(item)
+  Meta-->>Runner: normalized title (≤65 chars)
+  Runner->>Meta: buildDescription(item)
+  Meta-->>Runner: description with wiki attribution
+
+  Runner->>Publisher: publishToYoutube({ videoPath, title, description, tags, thumbnailPath })
+
+  Note over Publisher: Step 1 — Get access token
+  Publisher->>Google: POST /token (refresh_token grant)
+  Google-->>Publisher: access_token
+
+  Note over Publisher: Step 2 — Resumable video upload
+  Publisher->>YT: POST /upload/youtube/v3/videos (resumable, metadata)
+  YT-->>Publisher: session URL (Location header)
+  Publisher->>YT: PUT session URL (video file stream)
+  YT-->>Publisher: { id: videoId, ... }
+
+  Note over Publisher: Step 3 — Custom thumbnail upload
+  alt custom thumbnail enabled
+    Publisher->>Publisher: check file size (≤2MB)
+    loop up to thumbnailUploadAttempts
+      Publisher->>YT: POST /upload/youtube/v3/thumbnails/set (JPEG stream)
+      alt success
+        YT-->>Publisher: ok
+      else failure
+        Publisher->>Publisher: wait (attempt × 3000ms), retry
+      end
+    end
+  end
+
+  Publisher-->>Runner: { videoId, url, thumbnailStatus }
+
+  Note over Runner: Step 4 — Auto-playlist
+  Runner->>Publisher: getYoutubeAccessToken()
+  Publisher-->>Runner: accessToken
+  Runner->>Playlist: addToPlaylistByCategory({ videoId, category, accessToken })
+  Playlist->>Playlist: resolve playlistId from config map
+  alt playlist found for category
+    Playlist->>YT: POST /youtube/v3/playlistItems
+    YT-->>Playlist: inserted
+  else no playlist mapping
+    alt default playlist configured
+      Playlist->>YT: POST /youtube/v3/playlistItems (default)
+      YT-->>Playlist: inserted
+    else skip
+      Playlist-->>Runner: skipped
+    end
+  end
+
+  Runner->>Storage: saveItem(item) with publish data
+  Runner->>Storage: mergeMemoryItems([item])
+  opt remote enabled
+    Runner->>Remote: uploadGeneratedStateAndAssets({ item })
+  end
+```
+
+## 13. Module Dependency Graph
+
+```mermaid
+graph TD
+  subgraph "Entrypoints"
+    RunOnce["src/run-once.js"]
+    Server["src/server.js"]
+    Preflight["src/preflight.js"]
+    Rerender["src/rerender.js"]
+    UploadOnly["src/upload-only.js"]
+    SftpCleanup["src/sftp-cleanup.js"]
+  end
+
+  subgraph "Pipeline Core"
+    Pipeline["src/pipeline.js"]
+    StoryEngine["src/longform-story-engine.js"]
+    TopicEngine["src/topic-engine.js"]
+    FormatEngine["src/format-engine.js"]
+    ViralAngle["src/viral-angle-library.js"]
+    TitleEngine["src/title-engine.js"]
+    ContinuityEngine["src/continuity-engine.js"]
+    StoryLanguage["src/story-language.js"]
+    Render["src/longform-render.js"]
+  end
+
+  subgraph "External APIs"
+    OpenAI["src/openai.js"]
+    ElevenLabs["src/elevenlabs.js"]
+    PexelsModule["src/pexels.js"]
+    Wikipedia["src/wikipedia.js"]
+    YTPublisher["src/youtube-publisher.js"]
+    YTPlaylist["src/youtube-playlist.js"]
+    YTTrends["src/youtube-trends.js"]
+    YTMeta["src/youtube-meta.js"]
+  end
+
+  subgraph "Infrastructure"
+    Config["src/config.js"]
+    Storage["src/storage.js"]
+    Remote["src/remote.js"]
+    Progress["src/progress.js"]
+    Cost["src/cost.js"]
+    Util["src/util.js"]
+    Thumbnail["src/thumbnail.js"]
+  end
+
+  subgraph "Vercel API"
+    ApiUtils["api/_utils.js"]
+    ApiAuth["api/auth.js"]
+    ApiState["api/state.js"]
+    ApiRun["api/run.js"]
+    ApiQueue["api/queue.js"]
+    ApiPreflight["api/preflight.js"]
+  end
+
+  subgraph "Desktop App"
+    YTStudio["app/yt_studio.py"]
+  end
+
+  RunOnce --> Pipeline
+  RunOnce --> Remote
+  RunOnce --> Storage
+  RunOnce --> YTPublisher
+  RunOnce --> YTPlaylist
+  RunOnce --> YTMeta
+  RunOnce --> Config
+  RunOnce --> Progress
+
+  Server --> Pipeline
+  Server --> Storage
+  Server --> StoryEngine
+  Server --> Config
+
+  Pipeline --> StoryEngine
+  Pipeline --> OpenAI
+  Pipeline --> PexelsModule
+  Pipeline --> ElevenLabs
+  Pipeline --> Render
+  Pipeline --> Thumbnail
+  Pipeline --> Storage
+  Pipeline --> Cost
+  Pipeline --> Progress
+  Pipeline --> Util
+
+  StoryEngine --> TopicEngine
+  StoryEngine --> FormatEngine
+  StoryEngine --> ViralAngle
+  StoryEngine --> TitleEngine
+  StoryEngine --> StoryLanguage
+  StoryEngine --> Wikipedia
+  StoryEngine --> OpenAI
+  StoryEngine --> Config
+  StoryEngine --> Cost
+  StoryEngine --> Util
+
+  TopicEngine --> ContinuityEngine
+  TopicEngine --> FormatEngine
+  TopicEngine --> ViralAngle
+  TopicEngine --> StoryLanguage
+  TopicEngine --> YTTrends
+  TopicEngine --> OpenAI
+  TopicEngine --> Util
+
+  Render --> Config
+  Render --> Util
+  Render --> Progress
+
+  Thumbnail --> OpenAI
+  Thumbnail --> Config
+  Thumbnail --> Util
+
+  Remote --> Config
+
+  ApiAuth --> ApiUtils
+  ApiState --> ApiUtils
+  ApiRun --> ApiUtils
+  ApiQueue --> ApiUtils
+  ApiPreflight --> ApiUtils
+
+  YTStudio -.->|npm scripts| RunOnce
+  YTStudio -.->|npm scripts| UploadOnly
+```
+
 ## Things To Remember Next Time
 
 - Do not treat `data/items.json` as code. It can be very large and is runtime
@@ -433,4 +927,8 @@ sequenceDiagram
   optional playlist insert.
 - SFTP cleanup intentionally avoids `state/` and `thumbnails/`; it sweeps media
   directories only.
-
+- **Graphify knowledge graph** is available at `graphify-out/`. Run
+  `graphify extract . --code-only --no-cluster` to refresh after code changes.
+  Use `graphify god-nodes` to identify architectural hubs.
+- **PRD** is at `docs/PRD.md` — comprehensive product requirements document.
+- **AGENTS.md** at project root provides AI agent instructions and conventions.

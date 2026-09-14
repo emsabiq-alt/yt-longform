@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { config, paths } from "../src/config.js";
 import {
+  assertNarrationLongEnough,
   buildLongformStoryboard,
   createLongformDraft,
   normalizeVisualSegments
@@ -641,5 +642,50 @@ test("scene reaction selalu berupa pertanyaan penasaran berakhiran tanda tanya d
     assert.ok(!isGenericStoryboardText(scene.screenText), `screenText reaction "${scene.screenText}" tidak boleh generik`);
     assert.ok(!/^(fakta|hal yang berubah|babak|scene|bagian)\b/i.test(scene.screenText), `screenText reaction "${scene.screenText}" tidak boleh dimulai kata placeholder`);
   }
+});
+
+test("assertNarrationLongEnough: menerima draft awal yang sehat ketika durationLocked aktif", () => {
+  // Misal naskah 25 scene image x 55 kata = 1375 kata (seperti hasil AI Gunung Toba di durasi 1200s)
+  const narration = Array.from({ length: 55 }, (_, i) => `kata${i}`).join(" ");
+  const scenes = Array.from({ length: 25 }, (_, i) => ({ sceneType: "image", narration }));
+  const plan = { scenes };
+  const input = { durationSec: 1200, durationLocked: true };
+
+  assert.doesNotThrow(() => assertNarrationLongEnough(plan, input, "openai"));
+});
+
+test("assertNarrationLongEnough: menolak draft awal yang terlalu pendek meski durationLocked aktif", () => {
+  // Hanya 200 kata total untuk video 1200s -> tidak mungkin diperkaya
+  const narration = Array.from({ length: 10 }, (_, i) => `kata${i}`).join(" ");
+  const scenes = Array.from({ length: 20 }, (_, i) => ({ sceneType: "image", narration }));
+  const plan = { scenes };
+  const input = { durationSec: 1200, durationLocked: true };
+
+  assert.throws(() => assertNarrationLongEnough(plan, input, "openai"), (err) => {
+    return err.status === 422 && /Run dihentikan sebelum aset dibuat/.test(err.message);
+  });
+});
+
+test("assertNarrationLongEnough: menolak naskah offline fallback meski durasi panjang", () => {
+  const narration = Array.from({ length: 55 }, (_, i) => `kata${i}`).join(" ");
+  const scenes = Array.from({ length: 25 }, (_, i) => ({ sceneType: "image", narration }));
+  const plan = { scenes };
+  const input = { durationSec: 1200, durationLocked: true };
+
+  assert.throws(() => assertNarrationLongEnough(plan, input, "offline"), (err) => {
+    return err.status === 422 && /fallback offline tidak layak publikasi/.test(err.message);
+  });
+});
+
+test("assertNarrationLongEnough: mewajibkan ambang penuh ketika durationLocked false", () => {
+  // 1375 kata < 1680 kata (1200 * 1.4) ketika durationLocked false
+  const narration = Array.from({ length: 55 }, (_, i) => `kata${i}`).join(" ");
+  const scenes = Array.from({ length: 25 }, (_, i) => ({ sceneType: "image", narration }));
+  const plan = { scenes };
+  const input = { durationSec: 1200, durationLocked: false };
+
+  assert.throws(() => assertNarrationLongEnough(plan, input, "openai"), (err) => {
+    return err.status === 422 && /minimal 1680 kata/.test(err.message);
+  });
 });
 

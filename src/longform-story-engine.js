@@ -250,7 +250,11 @@ export async function createLongformDraft(rawInput) {
 
   const selectedTitle = normalized.title;
   const words = sceneWordRange(input.sceneCount, input.formatType, input.durationSec);
-  const minimumNarrationWords = words.minimumWords;
+  // Bila durationLocked aktif, pengayaan audio (enrichLongformDraft) akan menambal durasi
+  // hingga target tercapai. Revisi draft awal hanya dipicu bila narasi jauh di bawah fondasi scene.
+  const minimumNarrationWords = input.durationLocked
+    ? Math.min(words.minimumWords, Math.max(words.narratedScenes * 35, Math.round(words.minimumWords * 0.55)))
+    : words.minimumWords;
   for (let attempt = 1;
     config.openai.apiKey && narrationWordCount(normalized) < minimumNarrationWords && attempt <= MAX_NARRATION_REVISION_ATTEMPTS;
     attempt++) {
@@ -1224,11 +1228,17 @@ function completeSummaryNarration(sceneNarration, summary) {
 export function assertNarrationLongEnough(plan, input, source) {
   if (input?.allowOfflineDraft || input?.allowOffline) return;
   const words = narrationWordCount(plan);
-  const minimumWords = Math.round(input.durationSec * MIN_PUBLISHABLE_WORDS_PER_SEC);
+  const targetWords = Math.round(input.durationSec * MIN_PUBLISHABLE_WORDS_PER_SEC);
+  // Bila durationLocked aktif, pipeline akan memperkaya storyboard (enrichLongformDraft)
+  // hingga pas durasi target sebelum render/publikasi. Draft awal hanya perlu
+  // mencukupi fondasi scene narasi yang sehat (minimal ~30 kata/scene narasi atau ~55% target kata).
+  const minimumWords = input?.durationLocked
+    ? Math.min(targetWords, Math.max(300, Math.round(targetWords * 0.55)))
+    : targetWords;
   if (source === "openai" && words >= minimumWords) return;
 
   const reason = source === "openai"
-    ? `Naskah AI hanya ${words} kata, minimal ${minimumWords} kata untuk video ${input.durationSec} detik.`
+    ? `Naskah AI hanya ${words} kata, minimal ${minimumWords} kata untuk video ${input.durationSec} detik${input?.durationLocked ? " (sebelum pengayaan)" : ""}.`
     : `Naskah fallback offline tidak layak publikasi (${words} kata, minimal ${minimumWords} kata).`;
   const error = new Error(`${reason} Run dihentikan sebelum aset dibuat agar video pendek tidak terunggah.`);
   error.status = 422;
