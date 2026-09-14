@@ -22,6 +22,7 @@ import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import { isGoogleLogo } from "./news-research.js";
+import { isValidImageBuffer } from "./util.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DL_TIMEOUT_MS = 15_000;
@@ -445,11 +446,32 @@ export async function downloadImageWithCandidates(candidates, destPath, options 
 
         if (!res.ok) continue;
 
+        const contentType = res.headers?.get ? (res.headers.get("content-type") || "") : "";
+        if (contentType.includes("text/html") || contentType.includes("text/plain") || contentType.includes("application/json")) {
+          continue;
+        }
+
+        let buffer;
+        if (typeof res.arrayBuffer === "function") {
+          const ab = await res.arrayBuffer();
+          buffer = Buffer.from(ab);
+        } else if (res.body) {
+          const chunks = [];
+          for await (const chunk of res.body) {
+            chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+          }
+          buffer = Buffer.concat(chunks);
+        } else {
+          continue;
+        }
+
+        if (!isValidImageBuffer(buffer)) {
+          continue;
+        }
+
         // Pastikan direktori tujuan ada
         await fs.mkdir(path.dirname(destPath), { recursive: true });
-
-        const out = createWriteStream(destPath);
-        await pipeline(res.body, out);
+        await fs.writeFile(destPath, buffer);
 
         return {
           success: true,
@@ -463,5 +485,6 @@ export async function downloadImageWithCandidates(candidates, destPath, options 
     }
   }
 
+  await fs.unlink(destPath).catch(() => {});
   return { success: false, error: "Semua kandidat gambar gagal diunduh" };
 }

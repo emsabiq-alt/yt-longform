@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 
 export function createId(prefix = "tau") {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
@@ -189,3 +190,45 @@ export function normalizeTtsText(value) {
   // Final cleanup: collapse residual multiple spaces.
   return text.replace(/\s+/g, " ").trim();
 }
+
+/**
+ * Validasi header magic bytes gambar (JPEG, PNG, WebP).
+ */
+export function isImageMagicHeader(buf) {
+  if (!buf || buf.length < 12) return false;
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return true;
+  // PNG: 89 50 4E 47
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return true;
+  // WebP: RIFF ... WEBP
+  if (buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") return true;
+  return false;
+}
+
+/**
+ * Validasi buffer gambar asli: ukuran memadai (>= 1000 byte) dan memiliki magic bytes valid.
+ */
+export function isValidImageBuffer(buf) {
+  if (!buf || buf.length < 1000) return false;
+  return isImageMagicHeader(buf);
+}
+
+/**
+ * Validasi file gambar di disk secara sinkron untuk filtering cepat sebelum rendering FFmpeg.
+ */
+export function isValidImageFileSync(filePath, { allowMissing = false } = {}) {
+  try {
+    if (!filePath || typeof filePath !== "string") return false;
+    if (!fs.existsSync(filePath)) return Boolean(allowMissing);
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile() || stat.size < 1000) return false;
+    const fd = fs.openSync(filePath, "r");
+    const buf = Buffer.alloc(16);
+    fs.readSync(fd, buf, 0, 16, 0);
+    fs.closeSync(fd);
+    return isImageMagicHeader(buf);
+  } catch {
+    return false;
+  }
+}
+

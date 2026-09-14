@@ -139,3 +139,46 @@ test("runCommand times out and terminates child process when timeoutMs exceeded"
   );
 });
 
+test("isImageMagicHeader & isValidImageBuffer mengenali JPEG, PNG, WebP dan menolak HTML/data acak", async () => {
+  const { isImageMagicHeader, isValidImageBuffer } = await import("../src/util.js");
+  const validJpeg = Buffer.concat([Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]), Buffer.alloc(1000)]);
+  const validPng = Buffer.concat([Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), Buffer.alloc(1000)]);
+  const validWebp = Buffer.concat([Buffer.from("RIFF1234WEBP"), Buffer.alloc(1000)]);
+  const htmlDoc = Buffer.from("<!DOCTYPE html><html><body>Error 404</body></html>");
+
+  assert.equal(isImageMagicHeader(validJpeg), true);
+  assert.equal(isImageMagicHeader(validPng), true);
+  assert.equal(isImageMagicHeader(validWebp), true);
+  assert.equal(isImageMagicHeader(htmlDoc), false);
+
+  assert.equal(isValidImageBuffer(validJpeg), true);
+  assert.equal(isValidImageBuffer(validPng), true);
+  assert.equal(isValidImageBuffer(validWebp), true);
+  assert.equal(isValidImageBuffer(htmlDoc), false);
+  assert.equal(isValidImageBuffer(Buffer.from([0xFF, 0xD8, 0xFF])), false); // terlalu kecil (< 1000 bytes)
+});
+
+test("isValidImageFileSync memverifikasi integritas file gambar di filesystem", async () => {
+  const { isValidImageFileSync } = await import("../src/util.js");
+  const fs = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "img-val-test-"));
+  const validFile = path.join(tmpDir, "valid.jpg");
+  const invalidFile = path.join(tmpDir, "invalid.jpg");
+  const emptyFile = path.join(tmpDir, "empty.jpg");
+
+  await fs.writeFile(validFile, Buffer.concat([Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]), Buffer.alloc(1200)]));
+  await fs.writeFile(invalidFile, Buffer.from("<html>Not An Image</html>"));
+  await fs.writeFile(emptyFile, Buffer.alloc(0));
+
+  assert.equal(isValidImageFileSync(validFile), true);
+  assert.equal(isValidImageFileSync(invalidFile), false);
+  assert.equal(isValidImageFileSync(emptyFile), false);
+  assert.equal(isValidImageFileSync(path.join(tmpDir, "non-existent.jpg")), false);
+
+  await fs.rm(tmpDir, { recursive: true, force: true });
+});
+
+

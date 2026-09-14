@@ -78,19 +78,8 @@ function ensureFont() {
   }
 }
 
-/**
- * Validasi buffer gambar asli (JPEG, PNG, WebP) dan bukan halaman HTML redirect / error.
- */
-export function isValidImageBuffer(buf) {
-  if (!buf || buf.length < 1000) return false;
-  // JPEG: FF D8 FF
-  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return true;
-  // PNG: 89 50 4E 47
-  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return true;
-  // WebP: RIFF ... WEBP
-  if (buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") return true;
-  return false;
-}
+import { isValidImageBuffer } from "./util.js";
+export { isValidImageBuffer };
 
 /**
  * Ambil foto entitas nyata ensiklopedis langsung dari Wikipedia REST API (Bahasa Indonesia & English).

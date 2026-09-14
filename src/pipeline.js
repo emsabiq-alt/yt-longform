@@ -25,7 +25,7 @@ import { generateThumbnail } from "./thumbnail.js";
 import { saveItem, listContextItems } from "./storage.js";
 import { createLongformDraft, enrichLongformDraft, buildLongformStoryboard, writeLongformStoryboard } from "./longform-story-engine.js";
 import { MAX_ENRICHMENT_ATTEMPTS } from "./duration-control.js";
-import { nowIso, normalizeTtsText, alignCaptionsToSource } from "./util.js";
+import { nowIso, normalizeTtsText, alignCaptionsToSource, isValidImageFileSync } from "./util.js";
 import { reportProgress } from "./progress.js";
 
 const LANDSCAPE_SIZE = "1536x1024";
@@ -1130,7 +1130,7 @@ export async function ensureRealPhotosForScenes(item, options = {}) {
       if (candidates.length) {
         const dest = path.join(realPhotosDir, `${item.id}-scene-${String(scene.index).padStart(2, "0")}-real.jpg`);
         const dl = await downloadImageWithCandidates(candidates, dest);
-        if (dl.success) {
+        if (dl.success && isValidImageFileSync(dest)) {
           images.push({
             sceneIndex: Number(scene.index),
             segmentIndex: 0,
@@ -1143,6 +1143,8 @@ export async function ensureRealPhotosForScenes(item, options = {}) {
           });
           filledCount++;
           console.log(`[RealPhoto] Scene ${scene.index} berhasil memasang foto nyata ("${query}"): ${path.basename(dest)}`);
+        } else {
+          await fs.unlink(dest).catch(() => {});
         }
       }
     } catch (err) {

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { config, paths } from "./config.js";
-import { clamp, cleanText, normalizeTtsText, safeFilename, splitLines } from "./util.js";
+import { clamp, cleanText, normalizeTtsText, safeFilename, splitLines, isValidImageFileSync } from "./util.js";
 import { reportProgress } from "./progress.js";
 import { buildWordTimeline, findPhraseTime, tokenizeMatchText } from "./word-timeline.js";
 import { planSceneSpotlights, spotlightDialogueLines, spotlightStyles, logSpotlightStats } from "./spotlight.js";
@@ -380,17 +380,30 @@ export async function renderLongformVideo(item, options = {}) {
       if (mediaList.length <= 1) {
         // Single media: render langsung seperti sebelumnya
         const media = mediaList[0];
-        if (media.type === "video") {
-          await makeVideoSegment({ videoPath: media.path, outputPath: segmentPath, duration: scene.durationSec, resolution });
-        } else {
-          await makeImageSegment({
-            imagePath: media.path,
-            outputPath: segmentPath,
-            duration: scene.durationSec,
-            zoomDirection: index % 2 ? "out" : "in",
-            resolution,
-            backgroundVideoPath: media.backgroundVideoPath || null
-          });
+        try {
+          if (media.type === "video") {
+            await makeVideoSegment({ videoPath: media.path, outputPath: segmentPath, duration: scene.durationSec, resolution });
+          } else {
+            await makeImageSegment({
+              imagePath: media.path,
+              outputPath: segmentPath,
+              duration: scene.durationSec,
+              zoomDirection: index % 2 ? "out" : "in",
+              resolution,
+              backgroundVideoPath: media.backgroundVideoPath || null
+            });
+          }
+        } catch (err) {
+          console.warn(`[Render] Scene ${index + 1} visual gagal (${err.message}), mencoba media alternatif...`);
+          const altVideo = (item.assets?.clips || []).find((c) => c.path && c.path !== media.path);
+          const altImage = (item.assets?.images || []).find((img) => img.path && img.path !== media.path && isValidImageFileSync(img.path));
+          if (altVideo?.path) {
+            await makeVideoSegment({ videoPath: altVideo.path, outputPath: segmentPath, duration: scene.durationSec, resolution });
+          } else if (altImage?.path) {
+            await makeImageSegment({ imagePath: altImage.path, outputPath: segmentPath, duration: scene.durationSec, resolution });
+          } else {
+            throw err;
+          }
         }
       } else {
         // Multi-media: render tiap sub-segment lalu concat.
@@ -403,19 +416,35 @@ export async function renderLongformVideo(item, options = {}) {
           const media = mediaList[mi];
           const subDuration = subDurations[mi] ?? scene.durationSec / mediaList.length;
           console.log(`  -> Sub-segment ${mi + 1}/${mediaList.length} (${subDuration.toFixed(2)}s, ${media.type}${media.isRealEntity ? " [real]" : ""}): ${path.basename(media.path)}...`);
-          if (media.type === "video") {
-            await makeVideoSegment({ videoPath: media.path, outputPath: subPath, duration: subDuration, resolution });
-          } else {
-            // Alternasi zoom direction per sub-segment
-            const zoomDir = (index + mi) % 2 ? "out" : "in";
-            await makeImageSegment({
-              imagePath: media.path,
-              outputPath: subPath,
-              duration: subDuration,
-              zoomDirection: zoomDir,
-              resolution,
-              backgroundVideoPath: media.backgroundVideoPath || null
-            });
+          try {
+            if (media.type === "video") {
+              await makeVideoSegment({ videoPath: media.path, outputPath: subPath, duration: subDuration, resolution });
+            } else {
+              // Alternasi zoom direction per sub-segment
+              const zoomDir = (index + mi) % 2 ? "out" : "in";
+              await makeImageSegment({
+                imagePath: media.path,
+                outputPath: subPath,
+                duration: subDuration,
+                zoomDirection: zoomDir,
+                resolution,
+                backgroundVideoPath: media.backgroundVideoPath || null
+              });
+            }
+          } catch (segErr) {
+            console.warn(`[Render] Sub-segment ${mi + 1} gagal (${segErr.message}), mencoba fallback ke media alternatif...`);
+            const altVideo = (item.assets?.clips || []).find((c) => c.path && c.path !== media.path)
+              || mediaList.find((m) => m.type === "video" && m.path !== media.path);
+            const altImage = (item.assets?.images || []).find((img) => img.path && img.path !== media.path && isValidImageFileSync(img.path));
+            if (altVideo?.path) {
+              console.log(`[Render] Fallback sub-segment ${mi + 1} menggunakan video: ${path.basename(altVideo.path)}`);
+              await makeVideoSegment({ videoPath: altVideo.path, outputPath: subPath, duration: subDuration, resolution });
+            } else if (altImage?.path) {
+              console.log(`[Render] Fallback sub-segment ${mi + 1} menggunakan gambar: ${path.basename(altImage.path)}`);
+              await makeImageSegment({ imagePath: altImage.path, outputPath: subPath, duration: subDuration, resolution });
+            } else {
+              throw segErr;
+            }
           }
           subPaths.push(subPath);
         }
@@ -892,7 +921,9 @@ function resolveSceneMedia(item, scene) {
 
   // Aturan Entitas Spesifik: Cek foto riil (Serper / Google Images)
   const realImg = item.assets?.images?.find(
-    (entry) => Number(entry.sceneIndex) === Number(sourceIndex) && (entry.provider === "google-images" || entry.isRealEntity)
+    (entry) => Number(entry.sceneIndex) === Number(sourceIndex)
+      && (entry.provider === "google-images" || entry.isRealEntity)
+      && isValidImageFileSync(entry.path, { allowMissing: true })
   );
   const clip = item.assets?.clips?.find((entry) => Number(entry.sceneIndex) === Number(sourceIndex));
 
@@ -911,8 +942,14 @@ function resolveSceneMedia(item, scene) {
   }
 
   // Fallback ke gambar DALL-E
-  const image = item.assets?.images?.find((entry) => Number(entry.sceneIndex) === Number(sourceIndex));
-  if (!image?.path) throw new Error(`Media (klip video / gambar) untuk scene ${sourceIndex} belum tersedia.`);
+  const image = item.assets?.images?.find((entry) => Number(entry.sceneIndex) === Number(sourceIndex) && isValidImageFileSync(entry.path, { allowMissing: true }));
+  if (!image?.path) {
+    const anyClip = (item.assets?.clips || []).find((c) => c.path);
+    if (anyClip?.path) return { type: "video", path: anyClip.path };
+    const anyImage = (item.assets?.images || []).find((img) => isValidImageFileSync(img.path, { allowMissing: true }));
+    if (anyImage?.path) return { type: "image", path: anyImage.path };
+    throw new Error(`Media (klip video / gambar) untuk scene ${sourceIndex} belum tersedia.`);
+  }
   return { type: "image", path: image.path };
 }
 
@@ -940,6 +977,7 @@ export function resolveSceneMediaList(item, scene) {
       && img.path
       && (img.isRealEntity || img.provider === "google-images")
       && !usedPaths.has(img.path)
+      && isValidImageFileSync(img.path, { allowMissing: true })
     );
     if (realImg?.path) {
       // Cari klip video pendamping sebagai video latar (B-roll)
@@ -969,7 +1007,11 @@ export function resolveSceneMediaList(item, scene) {
 
     // 2. Cari gambar untuk segmen ini (dan belum pernah dipakai)
     const image = images.find((img) =>
-      Number(img.sceneIndex) === Number(sourceIndex) && Number(img.segmentIndex || 0) === i && img.path && !usedPaths.has(img.path)
+      Number(img.sceneIndex) === Number(sourceIndex)
+      && Number(img.segmentIndex || 0) === i
+      && img.path
+      && !usedPaths.has(img.path)
+      && isValidImageFileSync(img.path, { allowMissing: true })
     );
     if (image?.path) {
       mediaList.push({ type: "image", path: image.path });
@@ -987,7 +1029,7 @@ export function resolveSceneMediaList(item, scene) {
     }
 
     // 4. Cari gambar dari scene ini yang BELUM PERNAH dipakai
-    const sceneImages = images.filter((img) => Number(img.sceneIndex) === Number(sourceIndex) && img.path);
+    const sceneImages = images.filter((img) => Number(img.sceneIndex) === Number(sourceIndex) && img.path && isValidImageFileSync(img.path, { allowMissing: true }));
     const unusedSceneImg = sceneImages.find((img) => !usedPaths.has(img.path));
     if (unusedSceneImg?.path) {
       mediaList.push({ type: "image", path: unusedSceneImg.path });
@@ -1002,7 +1044,7 @@ export function resolveSceneMediaList(item, scene) {
       usedPaths.add(unusedGlobalClip.path);
       continue;
     }
-    const unusedGlobalImg = images.find((img) => img.path && !usedPaths.has(img.path));
+    const unusedGlobalImg = images.find((img) => img.path && !usedPaths.has(img.path) && isValidImageFileSync(img.path, { allowMissing: true }));
     if (unusedGlobalImg?.path) {
       mediaList.push({ type: "image", path: unusedGlobalImg.path });
       usedPaths.add(unusedGlobalImg.path);
@@ -1010,7 +1052,7 @@ export function resolveSceneMediaList(item, scene) {
     }
 
     // 6. JANGAN REUSE KLIP VIDEO YANG SAMA! Gambar dengan zoompan Ken Burns jauh lebih dinamis daripada video berulang.
-    const fallbackImg = sceneImages[0] || images[0];
+    const fallbackImg = sceneImages[0] || images.find((img) => isValidImageFileSync(img?.path, { allowMissing: true }));
     if (fallbackImg?.path) {
       mediaList.push({ type: "image", path: fallbackImg.path });
       continue;
@@ -1146,7 +1188,7 @@ export async function makeVideoSegment({ videoPath, outputPath, duration, resolu
     "-crf", "22",
     "-pix_fmt", "yuv420p",
     outputPath
-  ]);
+  ], { timeoutMs: 60_000 });
 }
 
 export async function makeImageSegment({
@@ -1161,6 +1203,16 @@ export async function makeImageSegment({
   const frames = Math.max(1, Math.round(targetDuration * fps));
   const width = resolution === "1080p" ? 1920 : 1280;
   const height = resolution === "1080p" ? 1080 : 720;
+  const hasBgVideo = backgroundVideoPath && (await fileExists(backgroundVideoPath));
+
+  // Validasi awal integritas file gambar
+  if (!isValidImageFileSync(imagePath)) {
+    if (hasBgVideo) {
+      console.warn(`[Render] File gambar ${imagePath} tidak valid/rusak. Menggunakan background video sebagai visual.`);
+      return makeVideoSegment({ videoPath: backgroundVideoPath, outputPath, duration: targetDuration, resolution });
+    }
+  }
+
   // Hero photo memenuhi ~90% kanvas (hampir penuh seukuran video latar)
   const boxW = Math.round(width * 0.90);
   const boxH = Math.round(height * 0.90);
@@ -1169,8 +1221,6 @@ export async function makeImageSegment({
   const scaleZoom = zoomDirection === "out"
     ? `scale=w='trunc(iw*(1.05-0.05*t/${targetDuration.toFixed(3)})/2)*2':h='trunc(ih*(1.05-0.05*t/${targetDuration.toFixed(3)})/2)*2':eval=frame`
     : `scale=w='trunc(iw*(1.0+0.05*t/${targetDuration.toFixed(3)})/2)*2':h='trunc(ih*(1.0+0.05*t/${targetDuration.toFixed(3)})/2)*2':eval=frame`;
-
-  const hasBgVideo = backgroundVideoPath && (await fileExists(backgroundVideoPath));
 
   if (hasBgVideo) {
     const filterComplex = [
@@ -1202,10 +1252,14 @@ export async function makeImageSegment({
         "-crf", "22",
         "-pix_fmt", "yuv420p",
         outputPath
-      ]);
+      ], { timeoutMs: 60_000 });
       return;
     } catch (err) {
-      console.warn(`[Render] Composite background video gagal (${err.message}), fallback ke blurred backdrop image.`);
+      console.warn(`[Render] Composite background video gagal (${err.message}).`);
+      if (hasBgVideo) {
+        console.warn(`[Render] Beralih ke background video sebagai visual segmen.`);
+        return makeVideoSegment({ videoPath: backgroundVideoPath, outputPath, duration: targetDuration, resolution });
+      }
     }
   }
 
@@ -1236,11 +1290,15 @@ export async function makeImageSegment({
       "-crf", "22",
       "-pix_fmt", "yuv420p",
       outputPath
-    ]);
+    ], { timeoutMs: 60_000 });
   } catch (error) {
     if (/loop.*not found|option not found/i.test(error.message)) {
       console.warn(`[Render] File ${imagePath} ditolak opsi loop gambar, mencoba render sebagai video: ${error.message}`);
       return makeVideoSegment({ videoPath: imagePath, outputPath, duration: targetDuration, resolution });
+    }
+    if (hasBgVideo) {
+      console.warn(`[Render] Render gambar gagal (${error.message}), fallback ke background video.`);
+      return makeVideoSegment({ videoPath: backgroundVideoPath, outputPath, duration: targetDuration, resolution });
     }
     throw error;
   }
@@ -1420,7 +1478,7 @@ async function makeReactionSegment({ reactionPath, outputPath, duration, resolut
     "-crf", "22",
     "-pix_fmt", "yuv420p",
     outputPath
-  ]);
+  ], { timeoutMs: 60_000 });
 }
 
 async function concatSegments(segmentPaths, outputPath) {

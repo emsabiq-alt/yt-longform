@@ -112,6 +112,11 @@ test("downloadImageWithCandidates: fallback ke kandidat berikutnya atau thumbnai
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "google-img-test-"));
   const destFile = path.join(tmpDir, "test-news.jpg");
 
+  const fakeValidJpeg = Buffer.concat([
+    Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01]),
+    Buffer.alloc(1024, 0xAA)
+  ]);
+
   let reqCount = 0;
   const mockFetch = async (url) => {
     reqCount++;
@@ -123,7 +128,10 @@ test("downloadImageWithCandidates: fallback ke kandidat berikutnya atau thumbnai
       return {
         ok: true,
         status: 200,
-        body: Readable.from([Buffer.from("FAKE_IMAGE_BYTES")])
+        headers: {
+          get: (h) => h.toLowerCase() === "content-type" ? "image/jpeg" : null
+        },
+        body: Readable.from([fakeValidJpeg])
       };
     }
     return { ok: false, status: 404 };
@@ -142,8 +150,43 @@ test("downloadImageWithCandidates: fallback ke kandidat berikutnya atau thumbnai
   assert.equal(result.success, true);
   assert.equal(result.url, "https://encrypted-tbn0.gstatic.com/images?q=tbn:ok");
 
-  const written = await fs.readFile(destFile, "utf8");
-  assert.equal(written, "FAKE_IMAGE_BYTES");
+  const written = await fs.readFile(destFile);
+  assert.equal(written.length, fakeValidJpeg.length);
+
+  await fs.rm(tmpDir, { recursive: true, force: true });
+});
+
+test("downloadImageWithCandidates: menolak respon text/html atau file non-gambar (anti-corrupt download)", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "google-img-html-test-"));
+  const destFile = path.join(tmpDir, "corrupt.jpg");
+
+  const mockFetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get: (h) => h.toLowerCase() === "content-type" ? "text/html; charset=utf-8" : null
+    },
+    arrayBuffer: async () => Buffer.from("<html><head><title>Access Denied</title></head><body>Cloudflare 403</body></html>")
+  });
+
+  const candidates = [
+    {
+      imageUrl: "https://media.com/page-error",
+      thumbnail: "https://media.com/thumb-error",
+      title: "Foto Berita",
+      source: "media.com"
+    }
+  ];
+
+  const result = await downloadImageWithCandidates(candidates, destFile, { fetchImpl: mockFetch });
+  assert.equal(result.success, false);
+  let exists = true;
+  try {
+    await fs.access(destFile);
+  } catch {
+    exists = false;
+  }
+  assert.equal(exists, false, "File HTML tidak boleh tersimpan sebagai .jpg");
 
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
