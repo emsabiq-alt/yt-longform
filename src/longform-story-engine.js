@@ -429,15 +429,18 @@ export async function enrichLongformDraft(item, { missingSec, rawAudioSec, reque
 function normalizeInput(input) {
   const durationSec = clamp(Number(input.durationSec || DEFAULT_DURATION_SEC), 300, MAX_DURATION_SEC);
   const defaultScenes = Math.round(clamp(durationSec / 33, 8, 48));
+  // Batas bawah adegan proporsional dengan durasi (~45s per scene) agar naskah AI
+  // memiliki cukup wadah scene untuk mencapai ambang kata tanpa mentok batas atas kata per scene.
+  const minScenesForDuration = Math.round(clamp(durationSec / 45, 8, 48));
   let sceneCount;
   if (input.dynamicScenes) {
-    // Mode Ide: hitung dari volume konten artikel
+    // Mode Ide: hitung dari volume konten artikel, dibatasi batas bawah kebutuhan durasi
     const totalWords = (input.trend?.newsItems || [])
       .reduce((sum, it) => sum + String(it.excerpt || it.headline || "").split(/\s+/).length, 0);
     const calculated = Math.ceil(totalWords / 80);
-    sceneCount = clamp(calculated || defaultScenes, 8, 48);
+    sceneCount = clamp(Math.max(calculated || 0, minScenesForDuration), 8, 48);
   } else {
-    sceneCount = clamp(Number(input.sceneCount || defaultScenes), 8, 48);
+    sceneCount = clamp(Number(input.sceneCount || defaultScenes), minScenesForDuration, 48);
   }
 
   return {
