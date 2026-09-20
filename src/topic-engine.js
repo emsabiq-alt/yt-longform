@@ -17,6 +17,7 @@ import { pickViralAngle, viralAnglePromptList, viralAngleSummary } from "./viral
 import { simplifyForLayAudience } from "./story-language.js";
 
 export const TOPIC_CATEGORIES = [
+  "vulkanologi", "geologi",
   "sains", "penemuan", "sejarah", "tubuh manusia", "alam semesta",
   "teknologi", "benda sehari-hari", "tokoh dunia", "bahasa dan budaya",
   "makanan dan dapur", "material dan warna", "peta dan navigasi",
@@ -26,12 +27,34 @@ export const TOPIC_CATEGORIES = [
 ];
 
 const SPACE_CATEGORY = "luar angkasa";
+const VOLCANO_CATEGORY = "vulkanologi";
 
 /**
  * Banyak sudut pandang per kategori agar cerita tidak itu-itu saja.
  * Setiap kategori punya 6–10 cara membahas topik.
  */
 const CATEGORY_ANGLES = {
+  vulkanologi: [
+    "zona subduksi dan patahan megathrust samudra yang terkunci",
+    "letusan supervolcano purba dan dampaknya bagi iklim global",
+    "letusan bersejarah yang mengubah iklim dunia dan kelaparan massal",
+    "api biru, gas beracun, dan danau kawah asam paling mematikan di dunia",
+    "misteri dapur magma puluhan kilometer di bawah kerak bumi",
+    "tsunami vulkanik akibat longsoran dinding kaldera bawah laut",
+    "kelahiran pulau vulkanik baru dari perut samudra",
+    "anomali hidrotermal dan semburan lumpur panas tak berujung",
+    "simulasi skenario kiamat jika kaldera purba meletus lagi hari ini",
+    "ancaman piroklastik kilat di gunung api aktif dekat pemukiman padat",
+    "bagaimana ilmuwan memetakan kantung magma tanpa menyedotnya",
+    "jejak peradaban manusia purba yang terputus oleh abu vulkanik"
+  ],
+  geologi: [
+    "pergerakan lempeng tektonik yang mengoyak benua",
+    "palung samudra terdalam dan fenomena dasar samudra",
+    "patahan sesar aktif yang mengintai kota-kota besar",
+    "pembentukan batuan purba dan mineral langka di perut bumi",
+    "daratan benua yang tenggelam di masa prasejarah"
+  ],
   sains: [
     "kenapa fenomena ini terjadi di level atom",
     "eksperimen kuno yang membuka pemahaman modern",
@@ -308,20 +331,37 @@ function buildIdeaPrompt(history, category, angle, formatType, viralAngle, trend
     ].join(" ")
     : "";
 
+  const volcanoFocus = (category === VOLCANO_CATEGORY || category === "geologi")
+    ? [
+      "MODE VULKANOLOGI & GEOLOGI (PRIORITAS UTAMA CHANNEL BANYAK TAU):",
+      "Topik wajib membahas fenomena gunung api, letusan dahsyat, megathrust, pergerakan lempeng tektonik, tsunami vulkanik,",
+      "dapur magma, danau kawah purba, anomali hidrotermal, sesar aktif, atau bencana geologis skala masif.",
+      "CARI PEMBAHASAN YANG SANGAT VARIATIF & BERBEDA-BEDA: jangan melulu mengulang Anak Krakatau.",
+      "Eksplorasi variasi tema secara luas:",
+      "1) Supervolcano & iklim purba (Danau Toba, Tambora 1815, Samalas/Rinjani 1257, Yellowstone, Taupo, Santorini).",
+      "2) Megathrust & zona subduksi samudra (Patahan Selat Sunda, Megathrust Mentawai, Palung Jawa, Sesar Lembang, Sesar Palu-Koro).",
+      "3) Anomali kawah & gas mematikan (Api biru & danau asam maut Kawah Ijen, 3 warna Danau Kelimutu, semburan gas CO2 Danau Nyos, Danau Matano purba).",
+      "4) Dinamika dapur magma & tomografi (bagaimana ilmuwan melihat kantung magma 26 km di bawah tanah tanpa menyedotnya, batuan beku, magma 1000 derajat).",
+      "5) Gunung api bawah laut & pulau baru (Banua Wuhu, Hunga Tonga, Kavachi, runtuhan dinding kaldera yang memicu tsunami kilat).",
+      "6) Skenario simulasi bahaya modern (Gunung Merapi, Kelud, Sinabung, Semeru, atau simulasi jika Toba meletus lagi hari ini).",
+      "7) Anomali hidrotermal & semburan misterius (Lumpur Lapindo Sidoarjo, geotermal Dieng, ventilasi hidrotermal samudra dalam).",
+      "Pastikan setiap topik punya tensi tinggi, rasa penasaran besar, dan menyebut subjek nyata yang memicu klik."
+    ].join("\n")
+    : "";
+
+  const universalRule = (category === VOLCANO_CATEGORY || category === "geologi")
+    ? "FOKUS GEOLOGI & VULKANOLOGI: Boleh berfokus pada gunung api, patahan, dan peristiwa geologis legendaris Indonesia (Krakatau, Toba, Tambora, Ijen, Merapi, Selat Sunda, Mentawai, Palung Jawa) maupun dunia (Yellowstone, Vesuvius, Pompeii, Tonga), karena fenomena alam ini berskala masif dan sangat diminati penonton."
+    : "WAJIB UNIVERSAL: topik harus menarik bagi penonton di negara mana pun. JANGAN membuat topik yang terikat pada kota, daerah, tokoh, atau kejadian lokal Indonesia (mis. 'kenapa Bandung macet'). Tempat spesifik boleh disebut HANYA jika terkenal secara global (mis. Piramida Giza, Tembok Besar, Segitiga Bermuda). Bahasa penyampaian tetap Indonesia, tapi subjeknya mendunia.";
+
   return [
     "Kamu produser konten edukasi YouTube berbahasa Indonesia.",
     "Usulkan 8 IDE TOPIK video panjang yang faktual, menarik, dan membuat penasaran.",
-    "PRIORITAS UTAMA: pertanyaan SEHARI-HARI yang relatable dan masih jadi teka-teki bagi orang awam",
-    "(contoh: kenapa madu tidak pernah basi, kenapa kucing mendengkur, kenapa langit malam gelap,",
-    "kenapa es mengambang). Boleh juga sejarah/sains/misteri lebih dalam ASALKAN tetap memancing rasa",
-    "penasaran tinggi dan menyebut subjek konkret yang dikenal orang.",
-    "Tulis setiap 'topic' sebagai PERTANYAAN yang menyebut SUBJEK KONKRET (benda/makhluk/tempat nyata),",
+    "PRIORITAS UTAMA: pertanyaan yang membuat penasaran tinggi, punya tensi naratif, dan menyebut subjek konkret yang dikenal orang.",
+    "Tulis setiap 'topic' sebagai PERTANYAAN yang menyebut SUBJEK KONKRET (benda/makhluk/tempat/fenomena nyata),",
     "bukan tema yang sulit dibayangkan. Hindari kata ganti kabur seperti 'hal ini' atau 'kejadian ini'.",
-    "WAJIB UNIVERSAL: topik harus menarik bagi penonton di negara mana pun. JANGAN membuat topik yang",
-    "terikat pada kota, daerah, tokoh, atau kejadian lokal Indonesia (mis. 'kenapa Bandung macet').",
-    "Tempat spesifik boleh disebut HANYA jika terkenal secara global (mis. Piramida Giza, Tembok Besar,",
-    "Segitiga Bermuda). Bahasa penyampaian tetap Indonesia, tapi subjeknya mendunia.",
+    universalRule,
     spaceFocus,
+    volcanoFocus,
     `Fokus kategori: ${category}. Sudut pandang yang diutamakan: ${simplifyForLayAudience(angle, 140)}.`,
     `Format video yang wajib digunakan: ${label}. ${description}`,
     `Kemasan viral utama yang wajib dipakai:\n${viralBlock}`,
@@ -458,6 +498,21 @@ const OFFLINE_SEEDS = [
   "Mengapa baterai ponsel tidak bisa 100% awet bertahun-tahun"
 ];
 
+const VOLCANO_OFFLINE_SEEDS = [
+  "Kenapa Letusan Danau Toba Gagal Memusnahkan Nenek Moyang Kita",
+  "Bagaimana Letusan Tambora 1815 Bisa Membekukan Eropa dan Amerika",
+  "Mengapa Kawah Ijen Memiliki Api Biru dan Danau Asam Paling Mencekam",
+  "Apa yang Sebenarnya Terjadi di Dasar Samudra Saat Megathrust Terkunci",
+  "Bagaimana Ilmuwan Melihat Dapur Magma 26 Km Tanpa Menyedotnya",
+  "Kenapa Selat Sunda Menyimpan Ancaman Gempa dan Tsunami Terbesar",
+  "Bagaimana Pulau Gunung Api Anak Krakatau Bisa Timbul dan Tenggelam",
+  "Mengapa Lumpur Lapindo Terus Menyembur Selama Belasan Tahun",
+  "Apa yang Terjadi Jika Supervolcano Raksasa Meletus Lagi Hari Ini",
+  "Kenapa Danau Matano Menjadi Danau Purba Terdalam Tanpa Oksigen",
+  "Bagaimana Gunung Merapi Memproduksi Awan Panas Mematikan Setiap Siklus",
+  "Mengapa Palung Jawa Menjadi Titik Terdalam Pengunci Gempa Bumi Raksasa"
+];
+
 const SPACE_OFFLINE_SEEDS = [
   "Kenapa Lubang Hitam Tidak Menyedot Semua Benda di Sekitarnya",
   "Bagaimana Bintang Bisa Lahir dari Awan Gas yang Sangat Dingin",
@@ -474,7 +529,9 @@ const SPACE_OFFLINE_SEEDS = [
 ];
 
 function offlinePick(history, category) {
-  const seeds = category === SPACE_CATEGORY ? SPACE_OFFLINE_SEEDS : OFFLINE_SEEDS;
+  const seeds = category === VOLCANO_CATEGORY || category === "geologi"
+    ? VOLCANO_OFFLINE_SEEDS
+    : (category === SPACE_CATEGORY ? SPACE_OFFLINE_SEEDS : OFFLINE_SEEDS);
   const fresh = seeds.filter((seed) => !isDuplicate(seed, history, 0.6));
   return fresh.length ? pick(fresh) : "";
 }
@@ -494,6 +551,10 @@ export function isSpaceQuotaDue(history = []) {
 }
 
 export function pickBalancedCategory(history = []) {
+  const defaultCategory = config.topic?.defaultCategory || process.env.YT_DEFAULT_CATEGORY;
+  if (defaultCategory && defaultCategory !== "random") {
+    return defaultCategory;
+  }
   if (isSpaceQuotaDue(history)) return SPACE_CATEGORY;
 
   const categoryWindow = config.topic?.categoryHistoryWindow || 30;

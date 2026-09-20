@@ -49,8 +49,12 @@ const defaultScenes = Math.round(durationSec / 33);
 const rawScenes = argValue("--scenes", process.env.YT_SCENE_COUNT || "");
 const sceneCount = rawScenes ? (Number(rawScenes) || defaultScenes) : defaultScenes;
 
+const defaultCategory = process.env.YT_DEFAULT_CATEGORY || config.topic?.defaultCategory || "vulkanologi";
+const rawCategory = argValue("--category", defaultCategory);
+const category = (!rawCategory || rawCategory === "random") ? defaultCategory : rawCategory;
+
 const input = {
-  category: argValue("--category", "random"),
+  category,
   topic: topicPayload.topic || (argValue("--topic") ? "" : undefined),
   formatType: argValue("--format-type", process.env.YT_FORMAT_TYPE || ""),
   ttsProvider,

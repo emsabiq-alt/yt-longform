@@ -410,7 +410,7 @@ export function buildQueueItem(input) {
   return {
     id: clampStr(input.id, 80) || makeId("q"),
     topic: clampStr(input.topic, 300),
-    category: clampStr(input.category || "random", 80),
+    category: clampStr(input.category || process.env.YT_DEFAULT_CATEGORY || "vulkanologi", 80),
     formatType: clampStr(input.formatType || input.format_type || "", 40),
     durationSec: durSec,
     sceneCount: clampNum(

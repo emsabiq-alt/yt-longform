@@ -8,17 +8,17 @@ on:
         required: false
         default: ""
       category:
-        description: Category
+        description: Category (vulkanologi, geologi, sains, sejarah, dll)
         required: false
-        default: random
+        default: vulkanologi
       duration:
-        description: Duration seconds (300-1200)
+        description: Duration seconds (300-1200; default 900 / 15 menit)
         required: false
-        default: "720"
+        default: "900"
       scenes:
-        description: Initial scene count (8-48; proportional to duration, enriched automatically when needed)
+        description: Initial scene count (8-48; default 27 untuk 15 menit)
         required: false
-        default: ""
+        default: "27"
       tts_provider:
         description: openai or elevenlabs
         required: false
@@ -106,10 +106,11 @@ jobs:
       RENDER_MONO_FONT: JetBrains Mono
       YT_TTS_PROVIDER: ${{ secrets.YT_TTS_PROVIDER || 'openai' }}
       YT_TTS_VOICE: ${{ github.event.inputs.tts_voice || secrets.YT_TTS_VOICE || secrets.OPENAI_TTS_VOICE || 'nova' }}
+      YT_DEFAULT_CATEGORY: vulkanologi
       YT_TIME_ZONE: America/New_York
       YT_DAILY_GENERATE_LIMIT: ${{ secrets.YT_DAILY_GENERATE_LIMIT || '2' }}
-      YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '720' }}
-      YT_SCENE_COUNT: ${{ github.event.inputs.scenes || secrets.YT_SCENE_COUNT || '' }}
+      YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '900' }}
+      YT_SCENE_COUNT: ${{ github.event.inputs.scenes || secrets.YT_SCENE_COUNT || '27' }}
       YT_DURATION_TOLERANCE_SEC: ${{ secrets.YT_DURATION_TOLERANCE_SEC || '4' }}
       YT_WORKFLOW_FILE: yt-longform-generate.yml
       YT_FORMAT_TYPE: ${{ github.event.inputs.format_type || secrets.YT_FORMAT_TYPE || '' }}
@@ -221,9 +222,9 @@ jobs:
         run: |
           npm run run:once -- \
             --topic "$INPUT_TOPIC" \
-            --category "$INPUT_CATEGORY" \
-            --duration "$INPUT_DURATION" \
-            --scenes "$INPUT_SCENES" \
+            --category "${INPUT_CATEGORY:-vulkanologi}" \
+            --duration "${INPUT_DURATION:-900}" \
+            --scenes "${INPUT_SCENES:-27}" \
             --tts-provider "$INPUT_TTS_PROVIDER" \
             --tts-voice "$INPUT_TTS_VOICE" \
             --image-quality "$INPUT_IMAGE_QUALITY" \

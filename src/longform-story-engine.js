@@ -26,6 +26,8 @@ const MIN_PUBLISHABLE_WORDS_PER_SEC = 1.4;
 const MAX_NARRATION_REVISION_ATTEMPTS = 3;
 
 const categories = [
+  "vulkanologi",
+  "geologi",
   "sains",
   "penemuan",
   "sejarah",
@@ -48,6 +50,8 @@ const categories = [
  * Setiap kategori punya fokus narasi, elemen wajib, dan variasi rencana.
  */
 const CATEGORY_STORY_NOTES = {
+  vulkanologi: "Fokus pada skala ancaman geologis, tekanan bawah tanah, dan misteri tektonik. Gunakan analogi konkret untuk menjelaskan magma, lempeng tektonik, dan gelombang tsunami. Tampilkan perbandingan energi letusan terhadap bom atom, data kedalaman kerak bumi, serta jejak peradaban atau fosil yang terdampak. Pastikan tensi cerita terasa mendesak, seru, dan faktual seperti dokumenter National Geographic atau Lemmino.",
+  geologi: "Fokus pada pergerakan lempeng, palung samudra terdalam, batuan purba, dan perubahan bentang bumi selama jutaan tahun. Hadirkan misteri sains bumi yang nyata dan terukur.",
   sains: "Gunakan analogi konkret untuk menjelaskan mekanisme abstrak. Libatkan sejarah pembuktian, kesalahan ilmiah populer, dan aplikasi nyata di kehidupan. Variasi: bandingkan skala, urutkan proses langkah demi langkah, atau ungkap 'siapa penemu pertama'.",
   penemuan: "Ceritakan perjalanan dari masalah → percobaan → kegagalan → momen eurekah. Soroti pihak yang diuntungkan/dirugikan. Variasi: penemuan tak sengaja, penemuan yang direbut, atau penemuan yang gagal beradaptasi.",
   sejarah: "Jalin narasi kronologis dengan fokus pada dilema manusia, bukan sekadar tanggal. Gunakan perspektif tokoh pinggiran. Variasi: peristiwa terlupakan, dampak jangka panjang, propaganda versus fakta.",
