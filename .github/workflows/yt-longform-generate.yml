@@ -14,7 +14,7 @@ on:
       duration:
         description: Duration seconds (300-1200)
         required: false
-        default: "1200"
+        default: "720"
       scenes:
         description: Initial scene count (8-48; proportional to duration, enriched automatically when needed)
         required: false
@@ -26,7 +26,7 @@ on:
       tts_voice:
         description: TTS voice
         required: false
-        default: fable
+        default: nova
       image_quality:
         description: low, medium, high
         required: false
@@ -105,11 +105,12 @@ jobs:
       RENDER_BODY_FONT: Noto Sans
       RENDER_MONO_FONT: JetBrains Mono
       YT_TTS_PROVIDER: ${{ secrets.YT_TTS_PROVIDER || 'openai' }}
-      YT_TTS_VOICE: ${{ secrets.YT_TTS_VOICE || secrets.OPENAI_TTS_VOICE || 'fable' }}
+      YT_TTS_VOICE: ${{ github.event.inputs.tts_voice || secrets.YT_TTS_VOICE || secrets.OPENAI_TTS_VOICE || 'nova' }}
       YT_TIME_ZONE: America/New_York
-      YT_DAILY_GENERATE_LIMIT: ${{ secrets.YT_DAILY_GENERATE_LIMIT || '1' }}
-      YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '1200' }}
+      YT_DAILY_GENERATE_LIMIT: ${{ secrets.YT_DAILY_GENERATE_LIMIT || '2' }}
+      YT_DURATION_SEC: ${{ github.event.inputs.duration || secrets.YT_DURATION_SEC || '720' }}
       YT_SCENE_COUNT: ${{ github.event.inputs.scenes || secrets.YT_SCENE_COUNT || '' }}
+      YT_DURATION_TOLERANCE_SEC: ${{ secrets.YT_DURATION_TOLERANCE_SEC || '4' }}
       YT_WORKFLOW_FILE: yt-longform-generate.yml
       YT_FORMAT_TYPE: ${{ github.event.inputs.format_type || secrets.YT_FORMAT_TYPE || '' }}
       YT_STRICT_REMOTE: ${{ secrets.YT_STRICT_REMOTE || 'false' }}

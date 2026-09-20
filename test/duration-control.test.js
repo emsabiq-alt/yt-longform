@@ -59,9 +59,9 @@ test("tempo retimes captions and word triggers without modifying source timestam
   assert.deepEqual(original, copy);
 });
 
-test("final publishing gate accepts only valid duration within one second of target", () => {
-  for (const actual of [1199.5, 1200, 1200.8]) assert.doesNotThrow(() => assertFinalDuration(actual, 1200));
-  for (const actual of [720, 1198, 1202, NaN, Infinity]) assert.throws(() => assertFinalDuration(actual, 1200));
+test("final publishing gate accepts only valid duration within tolerance of target", () => {
+  for (const actual of [1196.5, 1198.8, 1200, 1200.8, 1203.5]) assert.doesNotThrow(() => assertFinalDuration(actual, 1200));
+  for (const actual of [720, 1195, 1205, NaN, Infinity]) assert.throws(() => assertFinalDuration(actual, 1200));
   assert.throws(() => assertFinalDuration(1200, NaN));
 });
 

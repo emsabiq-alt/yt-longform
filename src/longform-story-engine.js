@@ -413,6 +413,13 @@ export async function enrichLongformDraft(item, { missingSec, rawAudioSec, reque
   if (additions.length !== count) {
     console.warn(`[Duration] AI mengembalikan ${result.scenes.length} dari ${count} scene yang diminta; memakai ${additions.length} scene lalu mengukur ulang.`);
   }
+  const maxAnchor = Math.max(1, scenes.length - 1);
+  for (const a of additions) {
+    const idx = Number(a.afterSceneIndex);
+    if (!Number.isFinite(idx) || idx < 1 || idx > maxAnchor) {
+      a.afterSceneIndex = maxAnchor;
+    }
+  }
   insertEnrichmentScenes(item, additions);
   item.assets.storyboard = await writeLongformStoryboard(item);
   item.updatedAt = nowIso();

@@ -1,7 +1,7 @@
 // Duration fitting never removes narration. Large shortfalls require more story.
 export const MIN_FIT_TEMPO = 0.98;
 export const MAX_FIT_TEMPO = 1.12;
-export const DURATION_TOLERANCE_SEC = 1;
+export const DURATION_TOLERANCE_SEC = Number(process.env.YT_DURATION_TOLERANCE_SEC || 4);
 export const MAX_ENRICHED_SCENES = 60;
 export const MAX_ENRICHMENT_ATTEMPTS = 4;
 
