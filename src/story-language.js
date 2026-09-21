@@ -165,7 +165,7 @@ export function polishPlanForLayAudience(plan, input = {}) {
   const polished = {
     ...plan,
     title: simplifyForLayAudience(plan?.title || input.topic || "", 100),
-    hook: simplifyForLayAudience(plan?.hook || "", 160),
+    hook: simplifyForLayAudience(plan?.hook || "", 300),
     summary: dedupeSentences(plan?.summary || "", 700),
     importantPoints: uniqueTextList(plan?.importantPoints || [], 8, 220),
     factCheckNote: simplifyForLayAudience(plan?.factCheckNote || "", 300)

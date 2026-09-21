@@ -118,17 +118,17 @@ function extractHookQuestion(rawHook, topic) {
   const question = sentences.find((s) => s.trim().endsWith("?"));
   if (question) {
     const trimmed = question.trim();
-    // Kalau pertanyaan cukup pendek (≤120 char), pakai langsung.
-    if (trimmed.length <= 120) return trimmed;
-    // Kalau terlalu panjang, potong di batas kata terakhir lalu tambah "?"
-    const short = trimmed.slice(0, 115).replace(/\s+\S*$/, "").trim();
+    // Kalau pertanyaan cukup pendek (≤260 char), pakai langsung utuh tanpa dipotong.
+    if (trimmed.length <= 260) return trimmed;
+    // Kalau sangat panjang (>260 char), potong di batas kata terakhir yang rapi lalu tambah "?"
+    const short = trimmed.slice(0, 250).replace(/\s+\S*$/, "").trim();
     return short.replace(/[,.;:!?]+$/, "") + "?";
   }
 
   // Prioritas 2: kalimat pertama saja (bukan paragraf penuh).
   const first = sentences[0].trim();
-  if (first.length <= 120) return first;
-  const short = first.slice(0, 115).replace(/\s+\S*$/, "").trim();
+  if (first.length <= 260) return first;
+  const short = first.slice(0, 250).replace(/\s+\S*$/, "").trim();
   return short.replace(/[,.;:!?]+$/, "") + "?";
 }
 

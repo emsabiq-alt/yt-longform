@@ -296,7 +296,7 @@ export async function prepareRenderLayout(item) {
   let coldOpenDuration = 0;
   if (config.automation.coldOpenEnabled && (item.plan?.hook || item.assets?.hookAudio?.text)) {
     const hookSec = item.assets?.hookAudio?.path ? await probeDuration(item.assets.hookAudio.path) : 0;
-    const duration = item.input?.durationLocked ? Math.max(4, (hookSec || 6) + 0.5) : clamp((hookSec || 6) + 0.5, 4, 18);
+    const duration = item.input?.durationLocked ? Math.max(4, (hookSec || 6) + 0.8) : clamp((hookSec || 6) + 0.8, 4, 20);
     coldOpenDuration = Math.ceil(duration * fps) / fps;
   }
   return { bumperOutroEnabled, introEnabled, outroEnabled, bumperOutroRaw,
@@ -1416,18 +1416,24 @@ async function makeColdOpenVisual({ media, outputPath, duration, zoomDirection, 
   }
 }
 
+function highlightBangMotionHook(text) {
+  const HIGHLIGHT_REGEX = /\b(\d[\d.,]*|ribu|juta|miliar|skala|richter|megathrust|krakatau|toba|tambora|samalas|tsunami|magma|gempa|kiamat|punah|meledak|terkunci|bencana|rahasia|bahaya|ancaman|anomali|letusan|darurat|monster|kawah|runtuh|mati|menolak)\b/gi;
+  return text.replace(HIGHLIGHT_REGEX, (match) => {
+    return `{\\c&H0024BFFB&\\b1}${match}{\\c&H00FFFFFF&\\b0}`;
+  });
+}
+
 /**
- * Caption hook untuk cold open — teks besar di tengah memakai style "Hook".
+ * Caption hook untuk cold open — tipografi kinetik bergaya Bang Motion
+ * dengan pill badge di atas dan penekanan warna aksen emas/putih tebal.
  */
 async function writeColdOpenCaptionAss({ outputPath, hookText, duration }) {
-  // Hook flash-forward sekarang boleh sampai 15-25 kata (sebelumnya 15-20), jadi
-  // budget tetap "26 karakter x 4 baris" bisa kepotong untuk hook yang lebih
-  // panjang. fitOverlayText() turun ke font lebih kecil/baris lebih banyak
-  // dulu sebelum menyerah, dan tier terakhirnya menjamin teks tidak pernah hilang.
   const fit = fitOverlayText(normalizeSubtitleText(hookText), HOOK_CAPTION_TIERS);
   const end = Math.max(0.4, duration - 0.15);
+  const highlighted = highlightBangMotionHook(assEscape(fit.text));
   const events = [
-    dialogue(0.15, end, "Hook", `{\\fad(240,200)\\fs${fit.fontSize}}${assEscape(fit.text)}`)
+    dialogue(0.12, end, "HookBadge", `{\\fad(140,180)\\t(0,220,\\fscx100\\fscy100)\\fscx115\\fscy115}  FAKTA MENGEJUTKAN  `),
+    dialogue(0.15, end, "Hook", `{\\fad(140,180)\\t(0,240,\\fscx100\\fscy100)\\fscx112\\fscy112\\fs${fit.fontSize}}${highlighted}`)
   ];
   const ass = [
     "[Script Info]",
@@ -1438,7 +1444,8 @@ async function writeColdOpenCaptionAss({ outputPath, hookText, duration }) {
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Hook,${config.render.fontTitle},48,&H00FFFFFF,&H000000FF,&H98232A32,&HBB11171C,-1,0,0,0,100,100,0,0,1,3,1,5,90,90,90,1`,
+    `Style: HookBadge,Montserrat,20,&H000F172A,&H000000FF,&H0024BFFB,&H80000000,-1,0,0,0,100,100,1,0,1,4,1,8,90,90,110,1`,
+    `Style: Hook,${config.render.fontTitle},${fit.fontSize},&H00FFFFFF,&H000000FF,&H002A170F,&H80000000,-1,0,0,0,100,100,0,0,1,5,4,5,90,90,60,1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -2053,9 +2060,10 @@ function fitOverlayText(text, tiers) {
 // ke font lebih kecil/baris lebih banyak kalau perlu, tapi jangan pernah
 // membuang isinya.
 const HOOK_CAPTION_TIERS = [
-  { maxChars: 26, maxLines: 4, fontSize: 48 },
-  { maxChars: 32, maxLines: 5, fontSize: 40 },
-  { maxChars: 38, maxLines: 6, fontSize: 34 }
+  { maxChars: 24, maxLines: 3, fontSize: 52 },
+  { maxChars: 30, maxLines: 4, fontSize: 44 },
+  { maxChars: 36, maxLines: 5, fontSize: 38 },
+  { maxChars: 44, maxLines: 6, fontSize: 32 }
 ];
 
 // Kartu judul/bab kadang panjang (hook flash-forward 15-25 kata, nama bab dari
