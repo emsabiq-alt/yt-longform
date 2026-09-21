@@ -1416,74 +1416,19 @@ async function makeColdOpenVisual({ media, outputPath, duration, zoomDirection, 
   }
 }
 
-function highlightBangMotionHook(text) {
-  const HIGHLIGHT_REGEX = /\b(\d[\d.,]*|ribu|juta|miliar|skala|richter|megathrust|krakatau|toba|tambora|samalas|tsunami|magma|gempa|kiamat|punah|meledak|terkunci|bencana|rahasia|bahaya|ancaman|anomali|letusan|darurat|monster|kawah|runtuh|mati|menolak)\b/gi;
-  return text.replace(HIGHLIGHT_REGEX, (match) => {
-    return `{\\c&H0024BFFB&\\b1}${match}{\\c&H00FFFFFF&\\b0}`;
-  });
-}
-
 /**
- * Caption hook untuk cold open — tipografi statis yang keren, elegan, dan berbobot.
- * Format bersih tanpa ilustrasi/background ramai, dengan penjenjangan warna emas/perak
- * di atas latar gelap sinematik default.
+ * Caption hook untuk cold open — teks besar di tengah memakai style "Hook".
  */
 async function writeColdOpenCaptionAss({ outputPath, hookText, duration }) {
-  const normalized = normalizeSubtitleText(hookText);
-  const fit = fitOverlayText(normalized, HOOK_CAPTION_TIERS);
+  // Hook flash-forward sekarang boleh sampai 15-25 kata, jadi budget tetap
+  // "26 karakter x 4 baris" bisa kepotong untuk hook yang lebih panjang.
+  // fitOverlayText() turun ke font lebih kecil/baris lebih banyak dulu,
+  // dan tier terakhirnya menjamin teks tidak pernah hilang atau terpotong.
+  const fit = fitOverlayText(normalizeSubtitleText(hookText), HOOK_CAPTION_TIERS);
   const end = Math.max(0.4, duration - 0.15);
-
-  const rawLines = fit.text.split("\\N").map((l) => l.trim()).filter(Boolean);
-  const events = [];
-
-  // 1. Badge "FAKTA MENGEJUTKAN" statis di bagian atas
-  events.push(
-    dialogue(
-      0.15,
-      end,
-      "HookBadge",
-      "{\\pos(640,195)\\fad(220,180)}   FAKTA MENGEJUTKAN   "
-    )
-  );
-
-  const HIGHLIGHT_REGEX =
-    /\b(\d[\d.,]*|ribu|juta|miliar|skala|richter|megathrust|krakatau|toba|tambora|samalas|tsunami|magma|gempa|kiamat|punah|meledak|terkunci|bencana|rahasia|bahaya|ancaman|anomali|letusan|darurat|monster|kawah|runtuh|mati|menolak)\b/i;
-
-  if (rawLines.length <= 1) {
-    const highlighted = highlightBangMotionHook(assEscape(fit.text));
-    events.push(
-      dialogue(
-        0.15,
-        end,
-        "Hook",
-        `{\\pos(640,360)\\fad(220,180)\\fs${fit.fontSize}}${highlighted}`
-      )
-    );
-  } else {
-    const lineCount = rawLines.length;
-    const startY = Math.max(280, 410 - lineCount * 38);
-    const stepY = Math.min(80, Math.max(65, 300 / lineCount));
-
-    rawLines.forEach((line, idx) => {
-      const isPunch = HIGHLIGHT_REGEX.test(line);
-      const y = Math.round(startY + idx * stepY);
-      const highlighted = highlightBangMotionHook(assEscape(line));
-      const fontSize = isPunch
-        ? Math.round(fit.fontSize * 1.08)
-        : Math.round(fit.fontSize * 0.94);
-      const colorPrefix = isPunch ? "" : "{\\c&H0094A3B8&}";
-
-      events.push(
-        dialogue(
-          0.15,
-          end,
-          "Hook",
-          `{\\pos(640,${y})\\fad(220,180)\\fs${fontSize}}${colorPrefix}${highlighted}`
-        )
-      );
-    });
-  }
-
+  const events = [
+    dialogue(0.15, end, "Hook", `{\\fad(240,200)\\fs${fit.fontSize}}${assEscape(fit.text)}`)
+  ];
   const ass = [
     "[Script Info]",
     "ScriptType: v4.00+",
@@ -1493,8 +1438,7 @@ async function writeColdOpenCaptionAss({ outputPath, hookText, duration }) {
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: HookBadge,Montserrat,18,&H000F172A,&H000000FF,&H0024BFFB,&H00000000,-1,0,0,0,100,100,2.5,0,3,7,0,5,90,90,40,1`,
-    `Style: Hook,${config.render.fontTitle},${fit.fontSize},&H00F8FAFC,&H000000FF,&H0017100A,&HA0000000,-1,0,0,0,100,100,0.5,0,1,4.5,4,5,90,90,40,1`,
+    `Style: Hook,${config.render.fontTitle},48,&H00FFFFFF,&H000000FF,&H98232A32,&HBB11171C,-1,0,0,0,100,100,0,0,1,3,1,5,90,90,90,1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
