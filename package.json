@@ -14,6 +14,7 @@
     "localize:youtube": "node scripts/localize-youtube.js",
     "localize:youtube:all": "node scripts/localize-youtube-all.js",
     "set:youtube:indonesian": "node scripts/set-all-indonesian.js",
+    "playlist:volcano": "node scripts/create-volcano-playlist.js",
     "organize:playlists": "node scripts/organize-playlists.js",
     "cleanup": "node src/sftp-cleanup.js",
     "rerender": "node src/rerender.js",
