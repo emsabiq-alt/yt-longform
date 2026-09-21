@@ -1424,9 +1424,9 @@ function highlightBangMotionHook(text) {
 }
 
 /**
- * Caption hook untuk cold open — tipografi kinetik progresif ala Bang Motion.
- * Teks tidak statis: badge jatuh dengan stamp bounce, lalu baris demi baris
- * muncul progresif mengikuti irama suara narator dengan kinetic scale pop.
+ * Caption hook untuk cold open — tipografi statis yang keren, elegan, dan berbobot.
+ * Format bersih tanpa ilustrasi/background ramai, dengan penjenjangan warna emas/perak
+ * di atas latar gelap sinematik default.
  */
 async function writeColdOpenCaptionAss({ outputPath, hookText, duration }) {
   const normalized = normalizeSubtitleText(hookText);
@@ -1436,13 +1436,13 @@ async function writeColdOpenCaptionAss({ outputPath, hookText, duration }) {
   const rawLines = fit.text.split("\\N").map((l) => l.trim()).filter(Boolean);
   const events = [];
 
-  // 1. Badge "FAKTA MENGEJUTKAN" jatuh dan membal di posisi atas
+  // 1. Badge "FAKTA MENGEJUTKAN" statis di bagian atas
   events.push(
     dialogue(
-      0.12,
+      0.15,
       end,
       "HookBadge",
-      "{\\pos(640,125)\\fad(120,180)\\t(0,220,\\fscx100\\fscy100)\\fscx120\\fscy120}   FAKTA MENGEJUTKAN   "
+      "{\\pos(640,195)\\fad(220,180)}   FAKTA MENGEJUTKAN   "
     )
   );
 
@@ -1453,36 +1453,32 @@ async function writeColdOpenCaptionAss({ outputPath, hookText, duration }) {
     const highlighted = highlightBangMotionHook(assEscape(fit.text));
     events.push(
       dialogue(
-        0.2,
+        0.15,
         end,
         "Hook",
-        `{\\pos(640,360)\\fad(140,180)\\t(0,250,\\fscx100\\fscy100)\\fscx118\\fscy118\\fs${fit.fontSize}}${highlighted}`
+        `{\\pos(640,360)\\fad(220,180)\\fs${fit.fontSize}}${highlighted}`
       )
     );
   } else {
     const lineCount = rawLines.length;
-    const startY = Math.max(220, 380 - lineCount * 36);
-    const stepY = Math.min(85, Math.max(62, 330 / lineCount));
+    const startY = Math.max(280, 410 - lineCount * 38);
+    const stepY = Math.min(80, Math.max(65, 300 / lineCount));
 
     rawLines.forEach((line, idx) => {
-      const isFirst = idx === 0;
       const isPunch = HIGHLIGHT_REGEX.test(line);
-      const lineStart = isFirst
-        ? 0.2
-        : Math.min(end - 0.8, 0.2 + (idx / lineCount) * (duration * 0.72));
       const y = Math.round(startY + idx * stepY);
       const highlighted = highlightBangMotionHook(assEscape(line));
-      const scalePop = isPunch ? 126 : 112;
       const fontSize = isPunch
-        ? Math.round(fit.fontSize * 1.06)
+        ? Math.round(fit.fontSize * 1.08)
         : Math.round(fit.fontSize * 0.94);
+      const colorPrefix = isPunch ? "" : "{\\c&H0094A3B8&}";
 
       events.push(
         dialogue(
-          lineStart,
+          0.15,
           end,
           "Hook",
-          `{\\pos(640,${y})\\fad(120,180)\\t(0,240,\\fscx100\\fscy100)\\fscx${scalePop}\\fscy${scalePop}\\fs${fontSize}}${highlighted}`
+          `{\\pos(640,${y})\\fad(220,180)\\fs${fontSize}}${colorPrefix}${highlighted}`
         )
       );
     });
@@ -1497,8 +1493,8 @@ async function writeColdOpenCaptionAss({ outputPath, hookText, duration }) {
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: HookBadge,Montserrat,22,&H000F172A,&H000000FF,&H0024BFFB,&H00000000,-1,0,0,0,100,100,2,0,3,8,0,8,90,90,120,1`,
-    `Style: Hook,${config.render.fontTitle},${fit.fontSize},&H00FFFFFF,&H000000FF,&H0017100A,&H90000000,-1,0,0,0,100,100,0.5,0,1,5,3.5,5,90,90,40,1`,
+    `Style: HookBadge,Montserrat,18,&H000F172A,&H000000FF,&H0024BFFB,&H00000000,-1,0,0,0,100,100,2.5,0,3,7,0,5,90,90,40,1`,
+    `Style: Hook,${config.render.fontTitle},${fit.fontSize},&H00F8FAFC,&H000000FF,&H0017100A,&HA0000000,-1,0,0,0,100,100,0.5,0,1,4.5,4,5,90,90,40,1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
