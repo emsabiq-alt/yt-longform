@@ -11,7 +11,7 @@ export default async function handler(req, res) {
       : "openai";
     const defaultTtsVoice = ttsProvider === "elevenlabs"
       ? process.env.ELEVENLABS_VOICE_ID || "wUrGnU2Kx934kbDdOWDo"
-      : process.env.OPENAI_TTS_VOICE || "fable";
+      : process.env.OPENAI_TTS_VOICE || "nova";
     const topic = clampStr(body.topic || "", 300);
     const trend = normalizeTrendInput(body.trendContext || body.trend);
     const dynamicScenes = body.dynamicScenes === true || body.dynamicScenes === "true";

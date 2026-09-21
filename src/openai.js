@@ -309,9 +309,9 @@ export async function generateOpenAiSpeech({ itemId, text, voice, instructions, 
 
   let result = await requestSpeech(selectedVoice);
   const invalidVoice = /invalid value.*supported values|["']param["']\s*:\s*["']voice["']/i.test(result.detail);
-  if (!result.response.ok && invalidVoice && selectedVoice !== "fable") {
-    console.warn(`[TTS] Voice OpenAI "${selectedVoice}" tidak valid, fallback ke voice "fable".`);
-    selectedVoice = "fable";
+  if (!result.response.ok && invalidVoice && selectedVoice !== "nova") {
+    console.warn(`[TTS] Voice OpenAI "${selectedVoice}" tidak valid, fallback ke voice "nova".`);
+    selectedVoice = "nova";
     result = await requestSpeech(selectedVoice);
   }
   if (!result.response.ok) {

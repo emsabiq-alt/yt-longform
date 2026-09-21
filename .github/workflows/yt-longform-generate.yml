@@ -84,7 +84,7 @@ jobs:
       IMAGE_SIZE: ${{ secrets.IMAGE_SIZE || '1536x1024' }}
       IMAGE_QUALITY: ${{ github.event.inputs.image_quality || secrets.IMAGE_QUALITY || 'low' }}
       OPENAI_TTS_MODEL: ${{ secrets.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts' }}
-      OPENAI_TTS_VOICE: ${{ github.event.inputs.tts_voice || secrets.OPENAI_TTS_VOICE || 'fable' }}
+      OPENAI_TTS_VOICE: ${{ github.event.inputs.tts_voice || secrets.OPENAI_TTS_VOICE || 'nova' }}
       OPENAI_TTS_SPEED: ${{ secrets.OPENAI_TTS_SPEED || '1.08' }}
       OPENAI_TTS_INSTRUCTIONS: ${{ secrets.OPENAI_TTS_INSTRUCTIONS || '' }}
       OPENAI_TRANSCRIBE_MODEL: ${{ secrets.OPENAI_TRANSCRIBE_MODEL || 'whisper-1' }}

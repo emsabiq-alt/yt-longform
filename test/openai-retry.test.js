@@ -156,8 +156,8 @@ test("OpenAI speech memakai speed 1.10 dan instruksi khusus pada fallback voice"
       assert.equal(body.speed, 1.10);
       assert.equal(body.instructions, "Jelaskan dengan tenang.");
     }
-    assert.equal(JSON.parse(calls[1].init.body).voice, "fable");
-    assert.equal(audio.voice, "fable");
+    assert.equal(JSON.parse(calls[1].init.body).voice, "nova");
+    assert.equal(audio.voice, "nova");
     assert.equal(audio.speed, 1.10);
   });
 });
