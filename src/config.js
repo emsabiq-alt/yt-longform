@@ -176,7 +176,7 @@ export const config = {
     videoUsdPerSecond: 0
   },
   render: {
-    fontTitle: clean(process.env.RENDER_TITLE_FONT || "Bebas Neue"),
+    fontTitle: clean(process.env.RENDER_TITLE_FONT || "Bricolage Grotesque 96pt ExtraBold"),
     fontBody: clean(process.env.RENDER_BODY_FONT || "Noto Sans"),
     fontMono: clean(process.env.RENDER_MONO_FONT || "JetBrains Mono"),
     speechTempo: Math.min(1.3, Math.max(0.9, numberEnv("SPEECH_TEMPO", 1.0))),
