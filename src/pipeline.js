@@ -1082,11 +1082,11 @@ function enrichEntityQueryForScene(baseQuery, scene) {
     ? scene.visualKeywords.join(" ")
     : String(scene.visualKeywords || "");
 
-  // 1. Cek instrumen teknis, sensor, atau peta geologi spesifik
+  // 1. Cek instrumen teknis, sensor, alat ukur, artefak, atau blueprint spesifik
   const technicalMatch = narration.match(
-    /\b(seismometer|seismograf|sensor\s+buoy|pelampung\s+tsunami|radar\s+satelit|sonar|kapal\s+riset|stasiun\s+geofisika|sirene\s+evakuasi|peta\s+batimetri|patahan|sesar\s+aktif|zona\s+subduksi|dapur\s+magma|lapisan\s+tephra|abu\s+vulkanik|litografi\s+kuno|arsip\s+sejarah|simulasi\s+tsunami)\b/i
+    /\b(seismometer|seismograf|sensor\s+buoy|pelampung\s+tsunami|radar\s+satelit|sonar|teleskop|mikroskop|spektrometer|osiloskop|black\s+box|kokpit|mesin\s+jet|turbin|reaktor|laboratorium|cleanroom|microchip|transistor|motherboard|server|kabel\s+bawah\s+laut|manuskrip|prasasti|artefak|fosil|litografi|arsip\s+sejarah|dokumen\s+paten|peta\s+batimetri|peta\s+navigasi|blueprint|diagram\s+irisan|penampang|simulasi\s+komputer|patahan|sesar\s+aktif|zona\s+subduksi|dapur\s+magma|lapisan\s+tephra|abu\s+vulkanik|kapal\s+riset|stasiun\s+geofisika|sirene\s+evakuasi|uji\s+klinis|ct\s+scan|mri)\b/i
   ) || spotlight.match(
-    /\b(seismometer|seismograf|sensor|radar|satelit|sonar|kapal|stasiun|peta|patahan|sesar|subduksi|magma|tsunami)\b/i
+    /\b(seismometer|seismograf|sensor|radar|satelit|sonar|teleskop|mikroskop|mesin|turbin|reaktor|chip|transistor|server|manuskrip|artefak|fosil|dokumen|peta|blueprint|diagram|irisan|penampang|simulasi|patahan|subduksi|magma|tsunami)\b/i
   );
 
   if (technicalMatch) {
