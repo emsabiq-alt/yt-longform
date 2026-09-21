@@ -292,3 +292,51 @@ test("searchGoogleImages: menolak query placeholder tanpa melakukan request API 
   assert.equal(fetchCalled, false, "Tidak boleh ada panggilan API/jaringan sama sekali untuk placeholder");
 });
 
+test("downloadImageWithCandidates: melewati URL yang sudah dipakai dan mengambil kandidat berikutnya", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "google-img-filter-test-"));
+  const destFile = path.join(tmpDir, "selected.jpg");
+
+  const candidates = [
+    {
+      imageUrl: "https://example.com/foto1.jpg",
+      title: "Foto Pertama (Sudah Dipakai)",
+      source: "example.com"
+    },
+    {
+      imageUrl: "https://example.com/foto2.jpg",
+      title: "Foto Kedua (Baru)",
+      source: "example.com"
+    }
+  ];
+
+  // JPEG buffer valid >= 1000 bytes
+  const fakeJpg = Buffer.alloc(1024);
+  fakeJpg[0] = 0xFF; fakeJpg[1] = 0xD8; fakeJpg[2] = 0xFF;
+
+  const downloadedUrls = [];
+  const mockFetch = async (url) => {
+    downloadedUrls.push(url);
+    return {
+      ok: true,
+      status: 200,
+      headers: {
+        get: (h) => h.toLowerCase() === "content-type" ? "image/jpeg" : null
+      },
+      arrayBuffer: async () => fakeJpg
+    };
+  };
+
+  const excludedUrls = new Set(["https://example.com/foto1.jpg"]);
+  const result = await downloadImageWithCandidates(candidates, destFile, {
+    excludedUrls,
+    fetchImpl: mockFetch
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.url, "https://example.com/foto2.jpg");
+  assert.equal(result.title, "Foto Kedua (Baru)");
+  assert.deepEqual(downloadedUrls, ["https://example.com/foto2.jpg"], "Harus langsung mengunduh kandidat kedua tanpa mendownload foto1");
+
+  await fs.rm(tmpDir, { recursive: true, force: true });
+});
+

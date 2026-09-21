@@ -418,14 +418,26 @@ export async function downloadImageWithCandidates(candidates, destPath, options 
   const list = Array.isArray(candidates) ? candidates : [candidates].filter(Boolean);
   if (!list.length) return { success: false, error: "Tidak ada kandidat gambar" };
 
+  const excludedUrls = options.excludedUrls instanceof Set
+    ? options.excludedUrls
+    : new Set(Array.isArray(options.excludedUrls) ? options.excludedUrls : []);
+
   const fetchImpl = options.fetchImpl || fetch;
   const timeoutMs = options.timeoutMs || DL_TIMEOUT_MS;
 
   for (const item of list) {
-    // Coba URL asli resolusi tinggi dulu, lalu thumbnail Google CDN
-    const attemptUrls = [item.imageUrl, item.thumbnail].filter(Boolean);
+    // Jika semua URL kandidat ini sudah pernah dipakai di adegan lain, lewati ke kandidat berikutnya
+    const itemUrls = [item.imageUrl, item.thumbnail].filter(Boolean);
+    if (itemUrls.length && itemUrls.every((u) => excludedUrls.has(u))) {
+      continue;
+    }
+
+    // Coba URL asli resolusi tinggi dulu (yang belum pernah dipakai), lalu thumbnail Google CDN (yang belum dipakai)
+    const attemptUrls = itemUrls.filter((u) => !excludedUrls.has(u));
+    if (!attemptUrls.length) continue;
 
     for (const url of attemptUrls) {
+      if (excludedUrls.has(url)) continue;
       try {
         const headers = {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",

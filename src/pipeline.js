@@ -1071,6 +1071,44 @@ export async function ensureOpenverseImages(item, options = {}) {
 }
 
 /**
+ * Perkaya query entitas spesifik yang berulang (seperti nama lokasi utama "Selat Sunda")
+ * dengan instrumen teknis, aspek geologi, atau topik fokus dari scene tersebut.
+ */
+function enrichEntityQueryForScene(baseQuery, scene) {
+  if (!scene) return baseQuery;
+  const narration = String(scene.narration || "");
+  const spotlight = String(scene.spotlight?.label || "");
+  const keywords = Array.isArray(scene.visualKeywords)
+    ? scene.visualKeywords.join(" ")
+    : String(scene.visualKeywords || "");
+
+  // 1. Cek instrumen teknis, sensor, atau peta geologi spesifik
+  const technicalMatch = narration.match(
+    /\b(seismometer|seismograf|sensor\s+buoy|pelampung\s+tsunami|radar\s+satelit|sonar|kapal\s+riset|stasiun\s+geofisika|sirene\s+evakuasi|peta\s+batimetri|patahan|sesar\s+aktif|zona\s+subduksi|dapur\s+magma|lapisan\s+tephra|abu\s+vulkanik|litografi\s+kuno|arsip\s+sejarah|simulasi\s+tsunami)\b/i
+  ) || spotlight.match(
+    /\b(seismometer|seismograf|sensor|radar|satelit|sonar|kapal|stasiun|peta|patahan|sesar|subduksi|magma|tsunami)\b/i
+  );
+
+  if (technicalMatch) {
+    const term = technicalMatch[1].trim();
+    return `${term} ${baseQuery}`.trim();
+  }
+
+  // 2. Cek visualKeywords pembeda konkret (bukan istilah komposisi kamera)
+  const cleanKw = keywords
+    .replace(/\b(horizontal|cinematic|photo|picture|scene|documentary|wide|angle|shot|4k|hd|render)\b/gi, "")
+    .trim();
+  if (cleanKw && cleanKw.length >= 4 && !cleanKw.toLowerCase().includes(baseQuery.toLowerCase())) {
+    const firstWord = cleanKw.split(/[\s,]+/)[0];
+    if (firstWord && firstWord.length >= 3) {
+      return `${firstWord} ${baseQuery}`.trim();
+    }
+  }
+
+  return "";
+}
+
+/**
  * Unduh foto nyata melalui Google Images / Serper / Bing untuk scene yang membahas
  * tempat, landmark geografis, tokoh, atau objek riil spesifik sebelum sisa slot
  * digenerate oleh AI (DALL-E / Pollinations).
@@ -1082,10 +1120,17 @@ export async function ensureRealPhotosForScenes(item, options = {}) {
   const images = [...(item.assets.images || [])];
   const clips = item.assets.clips || [];
 
-  // 1. ATURAN ENTITAS SPESIFIK:
-  // Jika scene membahas tokoh nyata, geopolitik/peta, landmark sejarah/KTT, atau arsip dokumen,
-  // sistem WAJIB memprioritaskan Serper.dev (Google Images) untuk mengambil foto/peta/arsip asli
-  // tanpa memedulikan apakah klip video B-roll sudah ada atau belum.
+  // 1. Kumpulkan URL yang sudah terpakai di video ini untuk memfilter duplikasi
+  const usedUrls = new Set(
+    images
+      .flatMap((img) => [img.sourceUrl, img.originalUrl, img.url])
+      .filter((u) => u && typeof u === "string" && (u.startsWith("http://") || u.startsWith("https://")))
+  );
+
+  // 2. Lacak query entitas agar query umum (misal "Selat Sunda") tidak dicari mentah berulang kali
+  const queryUsage = new Map();
+  const normalizeQuery = (q) => String(q || "").toLowerCase().replace(/\s+/g, " ").trim();
+
   const entityTargets = [];
   const genericEmptyTargets = [];
 
@@ -1096,8 +1141,21 @@ export async function ensureRealPhotosForScenes(item, options = {}) {
     );
     if (hasRealImg) continue;
 
-    const query = extractSceneRealEntityQuery(scene, item.input?.topic);
+    let query = extractSceneRealEntityQuery(scene, item.input?.topic);
     if (query && !isGenericPlaceholderQuery(query)) {
+      const qKey = normalizeQuery(query);
+      const prevCount = queryUsage.get(qKey) || 0;
+      if (prevCount >= 1) {
+        // Query generik sudah pernah dipakai; perkaya dengan aspek spesifik scene ini
+        const enriched = enrichEntityQueryForScene(query, scene);
+        if (enriched && normalizeQuery(enriched) !== qKey) {
+          query = enriched;
+        } else {
+          // Jika tidak ada pembeda unik, lewati foto nyata untuk scene ini agar tidak memunculkan gambar kembar
+          continue;
+        }
+      }
+      queryUsage.set(normalizeQuery(query), (queryUsage.get(normalizeQuery(query)) || 0) + 1);
       entityTargets.push({ scene, query, isSpecificEntity: true });
     } else {
       const hasClip = clips.some((c) => Number(c.sceneIndex) === Number(scene.index) && c.path);
@@ -1129,8 +1187,9 @@ export async function ensureRealPhotosForScenes(item, options = {}) {
       });
       if (candidates.length) {
         const dest = path.join(realPhotosDir, `${item.id}-scene-${String(scene.index).padStart(2, "0")}-real.jpg`);
-        const dl = await downloadImageWithCandidates(candidates, dest);
+        const dl = await downloadImageWithCandidates(candidates, dest, { excludedUrls: usedUrls });
         if (dl.success && isValidImageFileSync(dest)) {
+          if (dl.url) usedUrls.add(dl.url);
           images.push({
             sceneIndex: Number(scene.index),
             segmentIndex: 0,
@@ -1138,11 +1197,13 @@ export async function ensureRealPhotosForScenes(item, options = {}) {
             query,
             isRealEntity: true,
             source: dl.source || "Google Images",
+            sourceUrl: dl.url,
+            originalUrl: dl.url,
             path: dest,
             url: `/generated/real-photos/${path.basename(dest)}`
           });
           filledCount++;
-          console.log(`[RealPhoto] Scene ${scene.index} berhasil memasang foto nyata ("${query}"): ${path.basename(dest)}`);
+          console.log(`[RealPhoto] Scene ${scene.index} berhasil memasang foto nyata unik ("${query}"): ${path.basename(dest)} [URL: ${dl.url}]`);
         } else {
           await fs.unlink(dest).catch(() => {});
         }
@@ -1157,7 +1218,7 @@ export async function ensureRealPhotosForScenes(item, options = {}) {
     item.updatedAt = nowIso();
     const persistItem = options.persistItem || saveItem;
     await persistItem(item);
-    console.log(`[RealPhoto] Total ${filledCount} foto nyata berhasil dipasang langsung ke dalam aset video.`);
+    console.log(`[RealPhoto] Total ${filledCount} foto nyata unik berhasil dipasang ke dalam aset video.`);
   }
 }
 
