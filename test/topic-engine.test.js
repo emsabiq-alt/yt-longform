@@ -217,3 +217,13 @@ test("config: intro, outro, dan bumper outro dinonaktifkan secara default", () =
   assert.equal(config.render.bumperOutroEnabled, false);
 });
 
+test("curated volcano ideas: berhasil dimuat dan berisi ide prioritas", async () => {
+  const { loadCuratedVolcanoIdeas } = await import("../src/topic-engine.js");
+  const ideas = await loadCuratedVolcanoIdeas();
+  assert.ok(ideas.length >= 8);
+  assert.ok(ideas.some((it) => it.title.includes("Tambora 1815")));
+  assert.ok(ideas.some((it) => it.title.includes("Kawah Ijen")));
+  assert.ok(ideas.some((it) => it.title.includes("Palung Jawa")));
+});
+
+

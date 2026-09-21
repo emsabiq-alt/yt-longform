@@ -6,7 +6,9 @@
  * sudut pandang, dan formatType. Tidak lagi default ke satu topik tertentu.
  */
 
-import { config } from "./config.js";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { config, paths } from "./config.js";
 import { requestIdeaJsonWithFallback } from "./deepseek.js";
 import { cleanText } from "./util.js";
 import { FORMAT_TYPES, pickFormatType } from "./format-engine.js";
@@ -359,6 +361,8 @@ function buildIdeaPrompt(history, category, angle, formatType, viralAngle, trend
     "PRIORITAS UTAMA: pertanyaan yang membuat penasaran tinggi, punya tensi naratif, dan menyebut subjek konkret yang dikenal orang.",
     "Tulis setiap 'topic' sebagai PERTANYAAN yang menyebut SUBJEK KONKRET (benda/makhluk/tempat/fenomena nyata),",
     "bukan tema yang sulit dibayangkan. Hindari kata ganti kabur seperti 'hal ini' atau 'kejadian ini'.",
+    "DILARANG KERAS PERTANYAAN ELEMENTER / TRIVIA SEPELE: JANGAN buat pertanyaan definisi dasar atau asal-usul nama anak-anak (contoh terlarang: 'Kenapa dinamakan anak', 'Kenapa disebut X', 'Apa itu gunung api').",
+    "GAYA PERTANYAAN WAJIB KOMPREHENSIF & BERBOBOT TINGGI: Fokus pada anomali fisika/geologi tersembunyi, paradoks ilmiah, kontroversi data satelit/seismik, kegagalan prediksi, atau ancaman skala kehancuran besar.",
     universalRule,
     spaceFocus,
     volcanoFocus,
@@ -499,18 +503,26 @@ const OFFLINE_SEEDS = [
 ];
 
 const VOLCANO_OFFLINE_SEEDS = [
-  "Kenapa Letusan Danau Toba Gagal Memusnahkan Nenek Moyang Kita",
-  "Bagaimana Letusan Tambora 1815 Bisa Membekukan Eropa dan Amerika",
-  "Mengapa Kawah Ijen Memiliki Api Biru dan Danau Asam Paling Mencekam",
-  "Apa yang Sebenarnya Terjadi di Dasar Samudra Saat Megathrust Terkunci",
-  "Bagaimana Ilmuwan Melihat Dapur Magma 26 Km Tanpa Menyedotnya",
-  "Kenapa Selat Sunda Menyimpan Ancaman Gempa dan Tsunami Terbesar",
-  "Bagaimana Pulau Gunung Api Anak Krakatau Bisa Timbul dan Tenggelam",
-  "Mengapa Lumpur Lapindo Terus Menyembur Selama Belasan Tahun",
-  "Apa yang Terjadi Jika Supervolcano Raksasa Meletus Lagi Hari Ini",
-  "Kenapa Danau Matano Menjadi Danau Purba Terdalam Tanpa Oksigen",
-  "Bagaimana Gunung Merapi Memproduksi Awan Panas Mematikan Setiap Siklus",
-  "Mengapa Palung Jawa Menjadi Titik Terdalam Pengunci Gempa Bumi Raksasa"
+  "Tambora 1815: Saat Gunung Indonesia Bekukan Dunia",
+  "Jika Danau Toba Meletus Lagi: Skenario 30 Hari Pertama",
+  "Kawah Ijen: Rahasia Danau Asam Paling Maut di Dunia",
+  "Palung Jawa: Jurang 7.000 Meter Pengunci Gempa Bumi",
+  "Misteri Lumpur Lapindo: Kenapa Tak Pernah Berhenti?",
+  "Samalas 1257: Letusan Lombok yang Mengubah Dunia",
+  "Gunung Bawah Laut Indonesia: Monster di Dasar Samudra",
+  "Sesar Lembang Terkunci: Ancaman Senyap di Bawah Kota",
+  "Danau Kelimutu: Misteri 3 Kawah dengan Warna yang Berubah",
+  "Gunung Merapi: Mengapa Awan Panasnya Selalu Tepat Waktu?",
+  "Sesar Palu-Koro: Fenomena Likuifaksi Tercepat di Dunia",
+  "Danau Matano: Rahasia Danau Purba Terdalam Tanpa Oksigen",
+  "Yellowstone vs Toba: Mana Supervolcano Paling Berbahaya?",
+  "Banua Wuhu: Misteri Gunung Api yang Muncul di Tengah Laut",
+  "Magma 1000 Derajat: Mengapa Tak Selalu Meledakkan Gunung?",
+  "Hunga Tonga: Ledakan Bawah Laut yang Menembus Mesosfer",
+  "Krakatau 1883: Gelombang Tsunami yang Mengelilingi Planet Bumi",
+  "Zona Subduksi Mentawai: Mengapa Gempa Megathrust Terus Mengintai",
+  "Geotermal Dieng: Misteri Kawah Gas Beracun Sinila yang Mematikan",
+  "Sundaland: Ketika Kepulauan Indonesia Menjadi Satu Daratan Benua"
 ];
 
 const SPACE_OFFLINE_SEEDS = [
@@ -590,6 +602,17 @@ export function filterFreshTrendingContext(context, history = []) {
   return { ...context, themes, topKeywords };
 }
 
+export async function loadCuratedVolcanoIdeas() {
+  try {
+    const file = path.join(paths.dataDir, "curated-volcano-ideas.json");
+    const raw = await fs.readFile(file, "utf-8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.priorityIdeas) ? parsed.priorityIdeas : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Pilih satu topik baru yang unik.
  * @returns {Promise<{topic, category, angle, formatType, source}>}
@@ -597,25 +620,56 @@ export function filterFreshTrendingContext(context, history = []) {
 export async function pickFreshTopic(options = {}) {
   const history = await loadHistory(80);
 
-  try {
-    const trending = await pickSustainedTrendIdea(history);
-    if (trending) return trending;
-  } catch (error) {
-    console.warn(`[Tren Bertahan] Gagal memilih topik, lanjut evergreen fallback: ${error.message}`);
-  }
-
   const category = cleanText(options.category && options.category !== "random"
     ? options.category : pickBalancedCategory(history), 80);
 
-  // Ambil sinyal trending (graceful skip jika API key tidak ada)
-  let trendingContext = null;
-  try {
-    trendingContext = filterFreshTrendingContext(await buildTrendingContext(), history);
-    if (trendingContext?.enabled && trendingContext.themes.length) {
-      console.log(`[Topic Engine] Trending context: ${trendingContext.themes.length} tema, skor ${trendingContext.trendingScore}/100`);
+  const isVolcanoNiche = category === VOLCANO_CATEGORY || category === "geologi";
+  const disableTrends = config.topic?.disableNewsTrends ?? true;
+
+  // Lewati pencarian berita harian jika mode vulkanologi/geologi aktif atau tren berita dinonaktifkan
+  if (!disableTrends && !isVolcanoNiche) {
+    try {
+      const trending = await pickSustainedTrendIdea(history);
+      if (trending) return trending;
+    } catch (error) {
+      console.warn(`[Tren Bertahan] Gagal memilih topik, lanjut evergreen fallback: ${error.message}`);
     }
-  } catch (error) {
-    console.warn(`[Topic Engine] Trending context gagal: ${error.message}`);
+  }
+
+  // Jika mode vulkanologi, dahulukan ide prioritas terkurasi yang belum pernah dibuat
+  if (isVolcanoNiche) {
+    const curatedList = await loadCuratedVolcanoIdeas();
+    const freshCurated = curatedList.find((item) =>
+      item?.topic && !isDuplicate(item.topic, history, 0.5) && !isDuplicate(item.title, history, 0.5)
+    );
+    if (freshCurated) {
+      console.log(`[Topic Engine] Memilih ide prioritas terkurasi: "${freshCurated.title || freshCurated.topic}"`);
+      const viralAngle = pickViralAngle(history);
+      return {
+        topic: freshCurated.topic,
+        category: freshCurated.category || VOLCANO_CATEGORY,
+        angle: freshCurated.why || "kenapa bisa terjadi",
+        formatType: freshCurated.formatType || pickFormatType(history),
+        viralAngleId: freshCurated.viralAngle || viralAngle.id,
+        viralAngleLabel: simplifyForLayAudience(freshCurated.viralAngle || viralAngle.label, 80),
+        source: "curated",
+        trendingScore: 95,
+        trendingKeywords: ["vulkanologi", "geologi", "bencana"]
+      };
+    }
+  }
+
+  // Ambil sinyal trending YouTube hanya jika bukan vulkanologi (agar prompt AI fokus murni ke sains bumi)
+  let trendingContext = null;
+  if (!isVolcanoNiche) {
+    try {
+      trendingContext = filterFreshTrendingContext(await buildTrendingContext(), history);
+      if (trendingContext?.enabled && trendingContext.themes.length) {
+        console.log(`[Topic Engine] Trending context: ${trendingContext.themes.length} tema, skor ${trendingContext.trendingScore}/100`);
+      }
+    } catch (error) {
+      console.warn(`[Topic Engine] Trending context gagal: ${error.message}`);
+    }
   }
 
   // Coba hingga 5 kali untuk menemukan kombinasi yang benar-benar segar
@@ -671,8 +725,8 @@ export async function pickFreshTopic(options = {}) {
   const viralAngle = pickViralAngle(history);
   // Koheren dgn seed: kategori ditebak dari topik & angle netral, BUKAN kategori acak —
   // mencegah cerita/judul melenceng dari topik aslinya (mis. topik kucing → judul transportasi).
-  const offlineCategory = category === SPACE_CATEGORY
-    ? SPACE_CATEGORY
+  const offlineCategory = (category === SPACE_CATEGORY || category === VOLCANO_CATEGORY || category === "geologi")
+    ? category
     : inferEverydayCategory(offlineTopic);
   return {
     topic: offlineTopic,

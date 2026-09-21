@@ -196,6 +196,7 @@ export const config = {
   },
   topic: {
     defaultCategory: clean(process.env.YT_DEFAULT_CATEGORY || "vulkanologi"),
+    disableNewsTrends: boolDefault(process.env.YT_DISABLE_NEWS_TRENDS, true),
     // Luar angkasa tetap ada sebagai variasi, bukan menjadi mayoritas kanal.
     spaceTargetRatio: Math.max(0, Math.min(1, numberEnv("YT_SPACE_TOPIC_RATIO", 0.15))),
     categoryHistoryWindow: Math.max(10, Math.min(80,

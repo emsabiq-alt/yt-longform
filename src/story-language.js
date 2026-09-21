@@ -193,12 +193,12 @@ export function polishPlanForLayAudience(plan, input = {}) {
         || /^(fakta|hal yang berubah|babak|scene|bagian)\b/i.test(question);
       if (isGeneric) {
         const fallbacks = [
-          "Tapi kenapa tanda penting ini sempat diabaikan?",
-          "Lalu, apa yang sebenarnya terjadi setelah itu?",
-          "Di sinilah ceritanya mulai berbalik. Apa penyebab utamanya?",
-          "Pertanyaannya, apa dampak paling mengejutkan yang terjadi?",
-          "Tapi benarkah dampaknya sebesar yang diperkirakan?",
-          "Lalu, bagaimana awal mula semua ini bisa terjadi?"
+          "Tapi bagaimana anomali sebesar ini bisa luput dari pantauan?",
+          "Lalu, apa yang sebenarnya tersembunyi di balik data seismik tersebut?",
+          "Di sinilah titik baliknya: apa yang memicu pelepasan energi sebesar itu?",
+          "Pertanyaannya, seberapa besar ancaman yang sebenarnya sedang mengintai?",
+          "Tapi benarkah kekuatan bencana ini bisa mengubah iklim bumi?",
+          "Lalu, bagaimana fenomena ini bisa meledak tanpa peringatan?"
         ];
         question = fallbacks[index % fallbacks.length];
       } else {

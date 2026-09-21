@@ -50,8 +50,8 @@ const categories = [
  * Setiap kategori punya fokus narasi, elemen wajib, dan variasi rencana.
  */
 const CATEGORY_STORY_NOTES = {
-  vulkanologi: "Fokus pada skala ancaman geologis, tekanan bawah tanah, dan misteri tektonik. Gunakan analogi konkret untuk menjelaskan magma, lempeng tektonik, dan gelombang tsunami. Tampilkan perbandingan energi letusan terhadap bom atom, data kedalaman kerak bumi, serta jejak peradaban atau fosil yang terdampak. Pastikan tensi cerita terasa mendesak, seru, dan faktual seperti dokumenter National Geographic atau Lemmino.",
-  geologi: "Fokus pada pergerakan lempeng, palung samudra terdalam, batuan purba, dan perubahan bentang bumi selama jutaan tahun. Hadirkan misteri sains bumi yang nyata dan terukur.",
+  vulkanologi: "Fokus pada skala ancaman geologis, tekanan bawah tanah, dan misteri tektonik. Gunakan analogi konkret untuk menjelaskan magma, lempeng tektonik, dan gelombang tsunami. Tampilkan perbandingan energi letusan terhadap bom atom, data kedalaman kerak bumi, serta jejak peradaban atau fosil yang terdampak. Pastikan tensi cerita terasa mendesak, seru, dan faktual seperti dokumenter National Geographic atau Lemmino. HINDARI pertanyaan remeh/dasar anak-anak (seperti kenapa dinamakan anak, apa itu magma, dll); fokus pada dinamika teknis, anomali data, dan taruhan nyata bagi manusia dan bumi.",
+  geologi: "Fokus pada pergerakan lempeng, palung samudra terdalam, batuan purba, dan perubahan bentang bumi selama jutaan tahun. Hadirkan misteri sains bumi yang nyata, terukur, dan komprehensif tanpa penjelasan kamus dasar.",
   sains: "Gunakan analogi konkret untuk menjelaskan mekanisme abstrak. Libatkan sejarah pembuktian, kesalahan ilmiah populer, dan aplikasi nyata di kehidupan. Variasi: bandingkan skala, urutkan proses langkah demi langkah, atau ungkap 'siapa penemu pertama'.",
   penemuan: "Ceritakan perjalanan dari masalah → percobaan → kegagalan → momen eurekah. Soroti pihak yang diuntungkan/dirugikan. Variasi: penemuan tak sengaja, penemuan yang direbut, atau penemuan yang gagal beradaptasi.",
   sejarah: "Jalin narasi kronologis dengan fokus pada dilema manusia, bukan sekadar tanggal. Gunakan perspektif tokoh pinggiran. Variasi: peristiwa terlupakan, dampak jangka panjang, propaganda versus fakta.",
@@ -563,7 +563,15 @@ function buildPrompt(input, wiki = null) {
     "Buat naskah video dokumenter horizontal landscape (16:9) dalam Bahasa Indonesia untuk channel BanyakTau.",
     "Video berdurasi panjang, jadi bahasanya harus runtut, kaya informasi, dan tetap mudah diikuti orang awam.",
     "GAYA BAHASA DAN PENYAJIAN (WAJIB DIPATUHI):",
-    "  - Gunakan gaya bahasa populer yang dinamis, seru, dan mudah dipahami layaknya video essay kelas dunia seperti Vox atau Kurzgesagt.",
+    "  - Gunakan gaya bahasa populer yang dinamis, seru, dan berbobot layaknya video essay kelas dunia seperti Lemmino, Vox, atau Veritasium.",
+    "  - DILARANG MEMBAHAS FAKTA ELEMENTER / TRIVIA ANAK SEKOLAH DASAR:",
+    "    * Penonton adalah orang dewasa dan penggemar sains yang cerdas. JANGAN buang waktu dengan etimologi nama sepele (contoh terlarang: 'kenapa Anak Krakatau disebut anak?', 'kenapa pulau ini dinamakan X?'), definisi dasar kamus ('apa itu gunung api?', 'apa itu tsunami?', 'kenapa magma panas?'), atau fakta umum yang sudah diketahui semua orang.",
+    "    * Jangan pernah memasukkan pertanyaan atau adegan yang terdengar seperti buku pelajaran SD.",
+    "  - GAYA PERTANYAAN WAJIB KOMPREHENSIF DAN MEMICU PENASARAN TINGGI (HIGH STAKES):",
+    "    * Jangan gunakan pertanyaan polos/dangkal di judul, pembuka bab, beatPurpose, maupun scene reaction.",
+    "    * Ajukan pertanyaan yang menantang akal sehat, anomali fisika/geologi, paradoks sains, atau kalkulasi ancaman berskala besar.",
+    "    * Contoh SALAH (terlalu basic): 'Kenapa Anak Krakatau disebut anak?', 'Apa itu lempeng bumi?', 'Bagaimana gunung meletus?'",
+    "    * Contoh BENAR (komprehensif & mendalam): 'Bagaimana reruntuhan letusan 1883 melahirkan kubah magma baru di bawah laut?', 'Mengapa patahan samudra ini mampu menahan tekanan lempeng selama ratusan tahun sebelum melepaskannya sekaligus?', 'Berapa ratus triliun meter kubik gas bertekanan tinggi yang terperangkap di dapur magma?'",
     "  - HINDARI istilah akademis, sosiologis, atau teoritis yang berbelit-belit dan terkesan klise. Pakai benda, kejadian, angka, dan contoh yang konkret.",
     "  - Penonton ingin tahu fakta unik dan jawabannya secara langsung, sederhana, dan konkret.",
     "  - Buat narasi yang to-the-point, jelas, dan fokus pada fakta unik/informasi 'daging' yang memancing rasa penasaran penonton.",

@@ -18,7 +18,7 @@ const SUBJECT_STOP_WORDS = new Set([
   "kenapa", "mengapa", "bagaimana", "semua", "alasan", "baterai", "bahasa",
   "warna", "energi", "teknologi", "makanan", "material", "suara", "musik",
   "hewan", "tumbuhan", "tubuh", "langit", "bintang", "planet", "lautan",
-  "samudra", "sistem", "angka", "waktu"
+  "samudra", "sistem", "angka", "waktu", "gunung", "danau", "pulau", "kawah", "gempa", "bencana"
 ]);
 
 function normalizeTitle(value) {
@@ -64,7 +64,8 @@ function similarity(aSet, bSet) {
   if (!aSet.size || !bSet.size) return 0;
   let inter = 0;
   for (const w of aSet) if (bSet.has(w)) inter += 1;
-  return inter / Math.min(aSet.size, bSet.size);
+  const union = aSet.size + bSet.size - inter;
+  return union > 0 ? inter / union : 0;
 }
 
 export async function loadHistory(limit = 100) {
