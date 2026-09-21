@@ -1432,8 +1432,8 @@ async function writeColdOpenCaptionAss({ outputPath, hookText, duration }) {
   const end = Math.max(0.4, duration - 0.15);
   const highlighted = highlightBangMotionHook(assEscape(fit.text));
   const events = [
-    dialogue(0.12, end, "HookBadge", `{\\fad(140,180)\\t(0,220,\\fscx100\\fscy100)\\fscx115\\fscy115}  FAKTA MENGEJUTKAN  `),
-    dialogue(0.15, end, "Hook", `{\\fad(140,180)\\t(0,240,\\fscx100\\fscy100)\\fscx112\\fscy112\\fs${fit.fontSize}}${highlighted}`)
+    dialogue(0.12, end, "HookBadge", "{\\fad(180,180)}   FAKTA MENGEJUTKAN   "),
+    dialogue(0.15, end, "Hook", `{\\fad(180,180)}${highlighted}`)
   ];
   const ass = [
     "[Script Info]",
@@ -1444,8 +1444,8 @@ async function writeColdOpenCaptionAss({ outputPath, hookText, duration }) {
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: HookBadge,Montserrat,20,&H000F172A,&H000000FF,&H0024BFFB,&H80000000,-1,0,0,0,100,100,1,0,1,4,1,8,90,90,110,1`,
-    `Style: Hook,${config.render.fontTitle},${fit.fontSize},&H00FFFFFF,&H000000FF,&H002A170F,&H80000000,-1,0,0,0,100,100,0,0,1,5,4,5,90,90,60,1`,
+    `Style: HookBadge,Montserrat,22,&H000F172A,&H000000FF,&H0024BFFB,&H00000000,-1,0,0,0,100,100,1,0,3,8,0,8,90,90,130,1`,
+    `Style: Hook,${config.render.fontTitle},${fit.fontSize},&H00FFFFFF,&H000000FF,&H002A170F,&H90000000,-1,0,0,0,100,100,0,0,1,5,4,5,90,90,40,1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
