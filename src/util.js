@@ -170,10 +170,16 @@ export function normalizeTtsText(value) {
     [/\bAI\b/g, "kecerdasan buatan"],
     [/\b3D\b/g, "tiga dimensi"],
     [/\b2D\b/g, "dua dimensi"],
+    [/\bSR\b/g, "skala richter"],
+    [/\bMw\b/g, "magnitudo"],
+    [/\bM(?=\d)/gi, "magnitudo "],
     [/&/g, " dan "],
     [/\//g, " per "]
   ];
   for (const [re, repl] of replacements) text = text.replace(re, repl);
+
+  // Desimal titik non-ribuan (1-2 digit, misal 9.0, 7.8, 10.5) diubah jadi koma agar dibaca sebagai desimal "koma"
+  text = text.replace(/\b(\d+)\.(\d{1,2})\b/g, "$1,$2");
 
   // Angka dengan pemisah ribuan (titik) dan desimal (koma) dalam format Indonesia.
   text = text.replace(/\b(\d{1,3}(?:\.\d{3})+)(?:,(\d+))?\b/g, (_, intPart, decPart) => {

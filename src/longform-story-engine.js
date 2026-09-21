@@ -111,8 +111,10 @@ function extractHookQuestion(rawHook, topic) {
   const full = cleanText(rawHook || "", 500);
   if (!full) return `Tahukah kamu tentang ${cleanText(topic, 60)}?`;
 
-  // Pisahkan kalimat-kalimat berdasarkan tanda akhir kalimat.
-  const sentences = full.match(/[^.!?]+[.!?]+/g) || [full];
+  // Pisahkan kalimat-kalimat dengan aman: tanda [.!?] yang diikuti spasi atau akhir teks
+  // Tidak memotong titik di tengah desimal seperti M9.0, 7.8, atau 10.5 km.
+  const matches = full.match(/.*?[.!?]+(?=\s+|$)/gs);
+  const sentences = matches && matches.length ? matches.map((s) => s.trim()).filter(Boolean) : [full];
 
   // Prioritas 1: cari kalimat yang berakhir dengan tanda tanya.
   const question = sentences.find((s) => s.trim().endsWith("?"));

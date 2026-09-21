@@ -96,6 +96,8 @@ test("normalizeTtsText mengembangkan simbol & singkatan", () => {
   assert.equal(normalizeTtsText("AI"), "kecerdasan buatan");
   assert.equal(normalizeTtsText("vs"), "versus");
   assert.equal(normalizeTtsText("5 km/jam"), "lima kilometer per jam");
+  assert.equal(normalizeTtsText("gempa 9.0 SR"), "gempa sembilan koma nol skala richter");
+  assert.equal(normalizeTtsText("gempa M7.8"), "gempa magnitudo tujuh koma delapan");
 });
 
 test("normalizeTtsText merapatkan spasi & menangani input kosong", () => {
